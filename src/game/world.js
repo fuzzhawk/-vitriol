@@ -61,7 +61,7 @@ window.WORLD = (function () {
         if (kind === 'crawler') {
           yield { phase: 'rigs', weight: 0.14,
                   msg: 'growing crawler ' + (v + 1) + '/' + variants + ' — meat and metal' };
-          rigs[kind].push(new window.SPRITE.CrawlerRig(window.CONFIG.crawlerParams(seed, cfg, v)));
+          rigs[kind].push(new window.SPRITE.CrawlerRig(window.CONFIG.crawlerParams(seed, cfg, v, opts.crawler)));
         } else {
           yield { phase: 'rigs', weight: 0.14,
                   msg: 'forging hostiles — ' + kind + ' ' + (v + 1) + '/' + variants };

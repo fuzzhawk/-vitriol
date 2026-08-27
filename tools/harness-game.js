@@ -195,6 +195,48 @@ section('crawler forge');
     ok(outside === 0, 'every gib seed lands on drawn pixels (' + outside + ' outside)');
   }
 
+  /* The build screen generates its crawler panel from CF.CONTROLS, so
+     a control naming a key the generator does not read would be a dead
+     slider in the UI — silent, and only findable by hand. */
+  {
+    const keys = new Set(Object.keys(CF.P_DEFAULTS));
+    let controls = 0;
+    for (const grp of CF.CONTROLS) {
+      ok(typeof grp.g === 'string' && grp.g.length > 0, 'control group has a name');
+      for (const c of grp.c) {
+        if (c.t === 'buttons') continue;
+        controls++;
+        ok(keys.has(c.k), 'control "' + c.k + '" maps to a real parameter');
+        ok(typeof c.l === 'string' && c.l.length > 0, 'control "' + c.k + '" has a label');
+        if (c.t === 'r') {
+          ok(c.min < c.max, 'control "' + c.k + '" has a sane range');
+          const v = CF.P_DEFAULTS[c.k];
+          ok(v >= c.min && v <= c.max, 'default for "' + c.k + '" is inside its range');
+        }
+        if (c.t === 's') {
+          const opts = typeof c.opt === 'function' ? c.opt() : c.opt;
+          ok(opts.indexOf(String(CF.P_DEFAULTS[c.k])) >= 0,
+             'default for "' + c.k + '" is one of its options');
+        }
+      }
+    }
+    ok(controls > 25, 'the crawler panel exposes a real amount of the generator (' + controls + ')');
+
+    /* a pinned build must survive into the game unchanged */
+    const pinned = window.CONFIG.defaultCrawler();
+    pinned.palette = 'void'; pinned.size = 37; pinned.tentacles = 6;
+    for (let v = 0; v < 3; v++) {
+      const got = window.CONFIG.crawlerParams((v * 7717) >>> 0, { style: 'reactor' }, v, pinned);
+      ok(got.palette === 'void', 'pinned palette survives variant ' + v);
+      ok(got.size === 37, 'pinned size survives variant ' + v);
+      ok(got.tentacles === 6, 'pinned tentacle count survives variant ' + v);
+      ok(got.seed === ((v * 7717) >>> 0), 'pinned build still varies its seed');
+    }
+    // and without a pin, the roll still applies
+    const rolled = window.CONFIG.crawlerParams(99, { style: 'reactor' }, 0, null);
+    ok(rolled.size !== 37 || rolled.palette !== 'void', 'unpinned crawlers still roll');
+  }
+
   /* determinism, and real variety across seeds */
   const a = CF.forge({ seed: 77 }), b = CF.forge({ seed: 77 });
   ok(a.CW === b.CW && a.CH === b.CH, 'forge is deterministic for one seed');

@@ -155,6 +155,65 @@ function states(){
   ];
 }
 
+/* Control schema. It lives here with the parameters rather than down
+   in the UI section because the game builds its own crawler panel from
+   this same table — one description of what is tweakable, so the tool
+   and the game cannot drift apart. */
+const CONTROLS=[
+ {g:'BODY',c:[
+  {k:'size',l:'size',t:'r',min:20,max:56,step:1,fmt:v=>v+'px'},
+  {k:'lobes',l:'lobes',t:'r',min:2,max:12,step:1},
+  {k:'chaos',l:'edge chaos',t:'r',min:0,max:1.4,step:0.02},
+  {k:'squat',l:'squat',t:'r',min:0.5,max:1.5,step:0.02},
+  {k:'asym',l:'asymmetry',t:'r',min:0,max:1.4,step:0.02}
+ ]},
+ {g:'MEAT & METAL',c:[
+  {k:'metal',l:'metal ratio',t:'r',min:0,max:1,step:0.02},
+  {k:'plates',l:'plates',t:'r',min:0,max:2,step:0.05},
+  {k:'bolts',l:'bolts',t:'r',min:0,max:2,step:0.05},
+  {k:'rebar',l:'rebar',t:'r',min:0,max:2,step:0.05},
+  {k:'spikes',l:'spikes',t:'r',min:0,max:2,step:0.05}
+ ]},
+ {g:'FLESH',c:[
+  {k:'veins',l:'veins',t:'r',min:0,max:2,step:0.05},
+  {k:'pustules',l:'pustules',t:'r',min:0,max:2,step:0.05},
+  {k:'pores',l:'pores',t:'r',min:0,max:2,step:0.05},
+  {k:'eyes',l:'eyes',t:'r',min:0,max:8,step:1},
+  {k:'mouth',l:'maw',t:'c'},
+  {k:'teeth',l:'teeth',t:'r',min:0,max:2,step:0.05}
+ ]},
+ {g:'SURFACE',c:[
+  {k:'slime',l:'slime drips',t:'r',min:0,max:2,step:0.05},
+  {k:'grit',l:'grit',t:'r',min:0,max:2,step:0.05},
+  {k:'wet',l:'wet sheen',t:'r',min:0,max:2,step:0.05},
+  {k:'relief',l:'relief',t:'r',min:0,max:2,step:0.05},
+  {k:'lightdir',l:'light angle',t:'r',min:0,max:359,step:1,fmt:v=>v+'°'}
+ ]},
+ {g:'TENTACLES',c:[
+  {k:'tentacles',l:'count',t:'r',min:1,max:10,step:1},
+  {k:'tentVariants',l:'variants',t:'r',min:1,max:6,step:1},
+  {k:'tentLen',l:'strip length',t:'r',min:32,max:180,step:4,fmt:v=>v+'px'},
+  {k:'tentThick',l:'thickness',t:'r',min:4,max:20,step:1,fmt:v=>v+'px'},
+  {k:'tentTaper',l:'taper',t:'r',min:0,max:0.95,step:0.02},
+  {k:'tentHooks',l:'hooks',t:'r',min:0,max:2,step:0.05},
+  {k:'tentRings',l:'muscle rings',t:'r',min:0,max:2,step:0.05}
+ ]},
+ {g:'COLOUR',c:[
+  {k:'palette',l:'palette',t:'s',opt:()=>Object.keys(PALETTES)},
+  {k:'rim',l:'rim light',t:'r',min:0,max:0.6,step:0.02},
+  {k:'shadow',l:'contact shadow',t:'r',min:0,max:0.6,step:0.02},
+  {k:'outline',l:'outline',t:'c'},
+  {k:'shading',l:'edge shading',t:'c'}
+ ]},
+ {g:'SHEET',c:[
+  {k:'idleFrames',l:'idle frames',t:'r',min:2,max:8,step:1},
+  {k:'pullFrames',l:'pull frames',t:'r',min:2,max:8,step:1},
+  {k:'hurtFrames',l:'hurt frames',t:'r',min:1,max:4,step:1},
+  {k:'SS',l:'supersample',t:'r',min:2,max:5,step:1,fmt:v=>v+'×'},
+  {k:'__buttons',t:'buttons'}
+ ]}
+];
+
 /* ---------------- palette ---------------- */
 function buildPalette(){
   const S=PALETTES[P.palette]||PALETTES.raw;
@@ -1312,5 +1371,5 @@ function randomParams(seed) {
   };
 }
 
-return { P_DEFAULTS, PALETTES, ORIENTS, forge, randomParams, drawTentacle, states, makeRng, clamp };
+return { P_DEFAULTS, CONTROLS, PALETTES, ORIENTS, forge, randomParams, drawTentacle, states, makeRng, clamp };
 })();

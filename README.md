@@ -45,8 +45,17 @@ under, so a random level looks deliberate instead of like a slot machine.
 - **LEVEL · GREEBLEWORKS** — ~60 controls across World, Surface, Sky, Skyline,
   Decals and Terrain, including all 15 city presets.
 - **OPERATIVE · MERC FORGE** — frame, gear, weapon, palette, motion and sheet
-  controls with a live animated preview. This panel is generated directly from
-  MERC FORGE's own `CONTROLS` table, so the tool and the game cannot drift apart.
+  controls with a live animated preview.
+- **CRAWLERS · CRAWLER FORGE** — body, meat and metal, flesh, surface, tentacles
+  and palette, with a live preview of the thing hauling on its limbs. Leave it
+  unpinned and each level grows its own crawlers coloured to suit the
+  architecture; tick **use this exact build** and every crawler in the run is
+  the one you designed.
+
+The last two panels are generated directly from their tool's own `CONTROLS`
+table, so the tools and the game cannot drift apart. The harness asserts every
+control names a parameter the generator actually reads — a slider wired to
+nothing is silent otherwise.
 
 Your operative's weapon is not cosmetic: the gun MERC FORGE draws in their hands
 is the gun you fire, with its own fire rate, damage, spread, magazine and sound.

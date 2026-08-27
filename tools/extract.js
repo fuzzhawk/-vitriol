@@ -207,7 +207,7 @@ function randomParams(seed) {
 `;
 
   return wrap('CRAWLER FORGE — generator core (UI stripped)', 'CRAWLERFORGE', core + shim, [
-    'P_DEFAULTS', 'PALETTES', 'ORIENTS',
+    'P_DEFAULTS', 'CONTROLS', 'PALETTES', 'ORIENTS',
     'forge', 'randomParams', 'drawTentacle', 'states', 'makeRng', 'clamp'
   ]);
 }

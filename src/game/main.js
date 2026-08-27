@@ -26,16 +26,17 @@
     state: 'title',
     canvas: null, ctx: null,
     scale: 2, offX: 0, offY: 0,
-    cfg: null, merc: null,
+    cfg: null, merc: null, crawler: null,
     opts: Object.assign({}, C.RUN_DEFAULTS),
     mission: null,
     job: null, jobProgress: 0, jobMsg: '', jobPhase: '',
     title: null, titleT: 0,
     mercPreview: null, previewRig: null, previewT: 0, previewTimer: 0,
+    crawlerPreview: null, crawlerRig: null, crawlerT: 0, crawlerTimer: 0, crawlerLimbs: [],
     mode: 'random',
     tab: 'level',
     lastStats: null,
-    panels: { level: null, merc: null }
+    panels: { level: null, merc: null, crawler: null }
   };
 
   const input = {
@@ -198,6 +199,7 @@
   function applySeed(seed) {
     App.cfg = C.randomLevelCfg(seed);
     App.merc = C.randomMerc(seed);
+    App.crawler = C.crawlerParams(seed, App.cfg, 0);
     App.cfg.seed = seed >>> 0;
     App.merc.seed = seed >>> 0;
   }
@@ -219,8 +221,10 @@
     // The per-tab sidebar controls only make sense in custom mode.
     const custom = App.mode === 'custom';
     $('previewWrap').style.display = custom && App.tab === 'merc' ? '' : 'none';
+    $('crawlerPreviewWrap').style.display = custom && App.tab === 'crawler' ? '' : 'none';
     $('rollLevelWrap').style.display = custom && App.tab === 'level' ? '' : 'none';
     $('rollMercWrap').style.display = custom && App.tab === 'merc' ? '' : 'none';
+    $('rollCrawlerWrap').style.display = custom && App.tab === 'crawler' ? '' : 'none';
 
     const w = window.WEAPONS.table[App.merc.gun];
     $('rollSummary').innerHTML =
@@ -230,7 +234,8 @@
       row('LENGTH', App.cfg.levelLen + ' screens') +
       row('WEATHER', App.cfg.weather === 'auto' ? 'auto' : App.cfg.weather) +
       row('OPERATIVE', App.merc.height + 'px · ' + App.merc.helmet + ' · ' + App.merc.backpack) +
-      row('LOADOUT', w ? w.label : App.merc.gun);
+      row('LOADOUT', w ? w.label : App.merc.gun) +
+      row('CRAWLERS', (C.CRAWLER_PALETTES[App.cfg.style] || ['assorted']).join(' / '));
 
     for (const k in C.DIFFICULTY) {
       const b = $('d-' + k);
@@ -250,6 +255,17 @@
     const mp = S.mercPanel(App.merc, () => { markDirty(); schedulePreview(); });
     mcHost.appendChild(mp.frag);
     App.panels.merc = mp.groups;
+
+    const crHost = $('panel-crawler');
+    crHost.innerHTML = '';
+    const cp = S.crawlerPanel(App.crawler, () => {
+      markDirty();
+      scheduleCrawlerPreview();
+      // keep a pinned build pointing at what the panel is editing
+      if (App.opts.crawler) App.opts.crawler = App.crawler;
+    });
+    crHost.appendChild(cp.frag);
+    App.panels.crawler = cp.groups;
   }
 
   function markDirty() {
@@ -260,6 +276,7 @@
   function syncPanels() {
     if (App.panels.level) S.syncGroups(App.panels.level, App.cfg);
     if (App.panels.merc) S.syncGroups(App.panels.merc, App.merc);
+    if (App.panels.crawler) S.syncGroups(App.panels.crawler, App.crawler);
   }
 
   /* live operative preview */
@@ -316,6 +333,88 @@
     ctx.textAlign = 'right';
     ctx.fillStyle = '#f0a830';
     ctx.fillText((window.WEAPONS.table[R.gun] || {}).label || R.gun, cv.width - 6, 13);
+  }
+
+  /* live crawler preview: a blob on a deck, hauling on its tentacles */
+  function scheduleCrawlerPreview(immediate) {
+    clearTimeout(App.crawlerTimer);
+    const go = () => {
+      try {
+        App.crawlerRig = new window.SPRITE.CrawlerRig(Object.assign({}, App.crawler));
+        // give each socket its own idle rhythm so the limbs do not pulse together
+        App.crawlerLimbs = [];
+        const n = App.crawlerRig.socketCount();
+        for (let i = 0; i < n; i++) {
+          App.crawlerLimbs.push({ i, phase: i * 1.7, variant: i % App.crawlerRig.tent.count });
+        }
+      } catch (e) {
+        App.crawlerRig = null;
+      }
+    };
+    // A crawler bake is heavier than a merc sheet, so give slider drags
+    // a longer settle before spending it.
+    if (immediate) go();
+    else App.crawlerTimer = setTimeout(go, 180);
+  }
+
+  function drawCrawlerPreview(dt) {
+    const cv = App.crawlerPreview;
+    if (!cv) return;
+    const ctx = cv.getContext('2d');
+    ctx.imageSmoothingEnabled = false;
+    ctx.fillStyle = '#0e1113';
+    ctx.fillRect(0, 0, cv.width, cv.height);
+    ctx.fillStyle = '#141819';
+    for (let gx = 0; gx < cv.width; gx += 16) ctx.fillRect(gx, 0, 1, cv.height);
+    for (let gy = 0; gy < cv.height; gy += 16) ctx.fillRect(0, gy, cv.width, 1);
+
+    const R = App.crawlerRig;
+    if (!R) return;
+    App.crawlerT += dt;
+    const t = App.crawlerT;
+
+    const sc = Math.max(1, Math.min(5, Math.floor(Math.min(
+      (cv.width - 30) / (R.sheet.CW + R.tent.length * 0.5),
+      (cv.height - 54) / R.sheet.CH))));
+    ctx.save();
+    ctx.scale(sc, sc);
+    const W = cv.width / sc, H = cv.height / sc;
+    const deckY = H - 16;
+    ctx.fillStyle = '#242c30';
+    ctx.fillRect(4, deckY, W - 8, 4);
+
+    const bx = W / 2, by = deckY - R.reach('floor');
+    /* limbs first — behind the body, same as in the game */
+    for (const l of App.crawlerLimbs) {
+      const so = R.socket(l.i, bx, by, false, 'floor');
+      const swing = Math.sin(t * 1.3 + l.phase);
+      const reach = R.tent.length * (0.42 + 0.16 * swing);
+      const a = Math.atan2(so.ny, so.nx);
+      let ax = so.x + Math.cos(a) * reach;
+      let ay = so.y + Math.sin(a) * reach;
+      // limbs that point downward find the deck and grip it
+      if (ay > deckY) ay = deckY;
+      window.CRAWLERFORGE.drawTentacle(ctx, R.tent, l.variant,
+        so.x, so.y, ax, ay, swing * 9, {});
+    }
+    const state = (Math.floor(t / 2.6) % 2) ? 'pull' : 'idle';
+    R.draw(ctx, state, R.frameOf(state, t), 'floor', bx, by, false);
+    ctx.restore();
+
+    ctx.font = 'bold 9px "Courier New", monospace';
+    ctx.fillStyle = '#5d6a72';
+    ctx.textAlign = 'left';
+    ctx.fillText('cell ' + R.sheet.CW + '×' + R.sheet.CH + ' · ' +
+                 R.sheet.cols.length + '×4 sheet', 6, 13);
+    ctx.fillText(R.socketCount() + ' sockets · ' + R.tent.count + ' strips · r' +
+                 R.phys.radius.toFixed(0), 6, 25);
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#d4536a';
+    ctx.fillText(App.crawler.palette, cv.width - 6, 13);
+    if (App.opts.crawler) {
+      ctx.fillStyle = '#f0a830';
+      ctx.fillText('PINNED', cv.width - 6, 25);
+    }
   }
 
   /* ---------------- loading ---------------- */
@@ -436,7 +535,10 @@
 
     if (App.state === 'title' || App.state === 'setup') {
       drawTitle(ctx, dt);
-      if (App.state === 'setup') drawPreview(dt);
+      if (App.state === 'setup') {
+        if (App.tab === 'crawler') drawCrawlerPreview(dt);
+        else drawPreview(dt);
+      }
       return;
     }
 
@@ -488,6 +590,7 @@
     App.canvas = $('game');
     App.ctx = App.canvas.getContext('2d');
     App.mercPreview = $('mercPreview');
+    App.crawlerPreview = $('crawlerPreview');
     resize();
     bindInput();
     bootTitle();
@@ -514,6 +617,7 @@
       refreshSetup();
       syncPanels();
       schedulePreview(true);
+      scheduleCrawlerPreview(true);
     };
     $('seedField').onchange = () => {
       const v = parseInt($('seedField').value.replace(/[^0-9a-fA-F]/g, ''), 16);
@@ -522,6 +626,7 @@
       refreshSetup();
       syncPanels();
       schedulePreview(true);
+      scheduleCrawlerPreview(true);
     };
 
     $('btn-rollLevel').onclick = () => {
@@ -541,6 +646,20 @@
       buildPanels();
       schedulePreview(true);
     };
+    $('btn-rollCrawler').onclick = () => {
+      App.crawler = C.crawlerParams(rollSeed(), App.cfg, 0);
+      markDirty();
+      window.AUDIO.play('ui');
+      buildPanels();
+      scheduleCrawlerPreview(true);
+      if (App.opts.crawler) App.opts.crawler = App.crawler;
+    };
+    $('pinCrawler').onchange = e => {
+      App.opts.crawler = e.target.checked ? App.crawler : null;
+      window.AUDIO.play('ui');
+      if (e.target.checked) markDirty();
+    };
+
     $('btn-presetMerc').onclick = () => {
       const keys = Object.keys(window.MERCFORGE.PRESETS);
       const k = keys[(Math.random() * keys.length) | 0];
@@ -569,6 +688,7 @@
 
     $('tab-level').onclick = () => setTab('level');
     $('tab-merc').onclick = () => setTab('merc');
+    $('tab-crawler').onclick = () => setTab('crawler');
 
     $('btn-deploy').onclick = deploy;
     $('btn-back').onclick = () => { window.AUDIO.play('ui'); show('title'); };
@@ -603,10 +723,15 @@
     $('tab-merc').classList.toggle('on', t === 'merc');
     $('panel-level').style.display = t === 'level' ? '' : 'none';
     $('panel-merc').style.display = t === 'merc' ? '' : 'none';
+    $('panel-crawler').style.display = t === 'crawler' ? '' : 'none';
+    $('tab-crawler').classList.toggle('on', t === 'crawler');
     const custom = App.mode === 'custom';
     $('previewWrap').style.display = custom && t === 'merc' ? '' : 'none';
+    $('crawlerPreviewWrap').style.display = custom && t === 'crawler' ? '' : 'none';
     $('rollLevelWrap').style.display = custom && t === 'level' ? '' : 'none';
     $('rollMercWrap').style.display = custom && t === 'merc' ? '' : 'none';
+    $('rollCrawlerWrap').style.display = custom && t === 'crawler' ? '' : 'none';
+    if (t === 'crawler') scheduleCrawlerPreview(true);
   }
 
   window.addEventListener('DOMContentLoaded', boot);

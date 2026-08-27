@@ -245,8 +245,15 @@ window.CONFIG = (function () {
     server:     ['void', 'deepsea', 'toxic']
   };
 
-  function crawlerParams(seed, levelCfg, variant) {
+  function crawlerParams(seed, levelCfg, variant, pinned) {
     const CF = window.CRAWLERFORGE;
+    /* A pinned build means the player designed this thing in the build
+       screen and wants exactly it, so the roll is skipped entirely —
+       only the seed moves, and only so the two forged variants are not
+       byte-identical sheets. */
+    if (pinned) {
+      return Object.assign({}, pinned, { seed: seed >>> 0 });
+    }
     const p = CF.randomParams(seed);
     const R = GW.makeRng((seed ^ 0x9a5b) >>> 0);
     const pool = CRAWLER_PALETTES[levelCfg && levelCfg.style] || Object.keys(CF.PALETTES);
@@ -266,6 +273,14 @@ window.CONFIG = (function () {
     p.tentVariants = R.int(2, 3);
     p.eyes = R.int(2, 5);
     return p;
+  }
+
+  /* A starting point for hand-editing a crawler, rather than one of
+     the wilder random rolls. */
+  function defaultCrawler() {
+    return Object.assign({}, window.CRAWLERFORGE.P_DEFAULTS, {
+      size: 32, tentacles: 5, tentVariants: 3, eyes: 3
+    });
   }
 
   /* The default player merc: the tool's own 'nick' preset, which is
@@ -289,7 +304,7 @@ window.CONFIG = (function () {
     LEVEL_DEFAULTS, RUN_DEFAULTS, DIFFICULTY,
     STYLE_AFFINITY, STYLE_KEYS, HARSH_PALETTES,
     ARCHETYPES, archetypeParams, defaultMerc, randomMerc,
-    CRAWLER_PALETTES, crawlerParams,
+    CRAWLER_PALETTES, crawlerParams, defaultCrawler,
     randomLevelCfg, applyCityPreset
   };
 })();

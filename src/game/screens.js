@@ -247,6 +247,27 @@ window.SCREENS = (function () {
     return { frag, groups };
   }
 
+  /* ---------------- crawler panel ----------------
+     Generated from CRAWLER FORGE's own CONTROLS table, same as the
+     operative panel is generated from MERC FORGE's. The sheet group is
+     dropped: frame counts and supersample are bake-cost knobs, and the
+     loading screen already has enough to do. */
+  function crawlerPanel(params, onChange) {
+    const frag = document.createDocumentFragment();
+    const groups = [];
+    let first = true;
+    for (const grp of window.CRAWLERFORGE.CONTROLS) {
+      if (grp.g === 'SHEET') continue;
+      const specs = grp.c.filter(c => c.t !== 'buttons');
+      if (!specs.length) continue;
+      const g = group(grp.g, specs, params, onChange, !first);
+      groups.push(g);
+      frag.appendChild(g);
+      first = false;
+    }
+    return { frag, groups };
+  }
+
   function levelPanel(cfg, onChange) {
     const frag = document.createDocumentFragment();
     const groups = [];
@@ -274,6 +295,6 @@ window.SCREENS = (function () {
   ];
 
   return {
-    LEVEL_PANEL, control, group, syncGroups, mercPanel, levelPanel, TIPS, el, $
+    LEVEL_PANEL, control, group, syncGroups, mercPanel, crawlerPanel, levelPanel, TIPS, el, $
   };
 })();

@@ -131,10 +131,15 @@ button{font:inherit;cursor:pointer}
 .ctl .chk input{accent-color:var(--amber)}
 .ctl-wide label{flex:0 0 60px}
 
-#previewWrap{border:1px solid var(--line);background:#0e1113}
-#previewWrap .cap{padding:6px 9px;border-bottom:1px solid var(--line);background:#171b1d;
-  color:var(--amber);letter-spacing:3px;font-size:9.5px}
-#mercPreview{display:block;width:100%;image-rendering:pixelated}
+#previewWrap,#crawlerPreviewWrap{border:1px solid var(--line);background:#0e1113}
+#previewWrap .cap,#crawlerPreviewWrap .cap{padding:6px 9px;border-bottom:1px solid var(--line);
+  background:#171b1d;color:var(--amber);letter-spacing:3px;font-size:9.5px}
+#crawlerPreviewWrap .cap{color:#d4536a}
+#mercPreview,#crawlerPreview{display:block;width:100%;image-rendering:pixelated}
+.pinrow{display:flex;align-items:center;gap:7px;padding:6px 2px 2px;cursor:pointer}
+.pinrow input{accent-color:var(--amber)}
+.pinrow span{color:var(--dim);letter-spacing:2px;font-size:9.5px}
+.pinnote{margin:4px 2px 0;color:#4d585e;font-size:9.5px;line-height:1.55}
 .side-h{color:var(--dim);letter-spacing:3px;font-size:9.5px;margin:0 0 7px}
 .diffs{display:flex;flex-direction:column;gap:5px}
 .diffs button{background:#141719;border:1px solid var(--line2);color:var(--dim);
@@ -245,10 +250,12 @@ button{font:inherit;cursor:pointer}
         <div class="tabs">
           <button id="tab-level" class="on">LEVEL · GREEBLEWORKS</button>
           <button id="tab-merc">OPERATIVE · MERC FORGE</button>
+          <button id="tab-crawler">CRAWLERS · CRAWLER FORGE</button>
         </div>
         <div class="panels">
           <div id="panel-level"></div>
           <div id="panel-merc" style="display:none"></div>
+          <div id="panel-crawler" style="display:none"></div>
         </div>
       </div>
     </div>
@@ -259,12 +266,27 @@ button{font:inherit;cursor:pointer}
         <canvas id="mercPreview" width="268" height="236"></canvas>
       </div>
 
+      <div id="crawlerPreviewWrap" style="display:none">
+        <div class="cap">CRAWLER PREVIEW</div>
+        <canvas id="crawlerPreview" width="268" height="236"></canvas>
+      </div>
+
       <div id="rollLevelWrap" style="display:none">
         <button id="btn-rollLevel" class="mini" style="width:100%">⟳ REROLL LEVEL</button>
       </div>
       <div id="rollMercWrap" style="display:none">
         <button id="btn-rollMerc" class="mini" style="width:100%;margin-bottom:6px">⟳ REROLL OPERATIVE</button>
         <button id="btn-presetMerc" class="mini" style="width:100%">LOAD PRESET</button>
+      </div>
+
+      <div id="rollCrawlerWrap" style="display:none">
+        <button id="btn-rollCrawler" class="mini" style="width:100%;margin-bottom:6px">⟳ REROLL CRAWLER</button>
+        <label class="pinrow">
+          <input id="pinCrawler" type="checkbox">
+          <span>USE THIS EXACT BUILD</span>
+        </label>
+        <p class="pinnote">Off: every level grows its own crawlers, coloured to
+        suit the architecture. On: every crawler in the run is this one.</p>
       </div>
 
       <div>
