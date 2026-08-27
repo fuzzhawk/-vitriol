@@ -156,30 +156,36 @@ window.CONFIG = (function () {
     grunt: {
       label: 'GRUNT', hp: 3, speed: 0.42, aggro: 1.0, burst: 2, cooldown: 1.5, score: 100,
       build: R => ({
-        height: 26 + R.int(0, 4), headSize: R.range(0.92, 1.10), limbThick: R.range(0.055, 0.075),
+        height: 28 + R.int(0, 4), headSize: R.range(0.78, 0.92), limbThick: R.range(0.040, 0.052),
+        taper: R.range(0.55, 0.82), armour: R.range(0.2, 0.7), grit: R.range(0.5, 0.9),
+        legLen: R.range(0.47, 0.52), bootSize: R.range(0.35, 0.6), gloveSize: R.range(0.25, 0.5),
         helmet: R.pick(['visor', 'none', 'full']), backpack: R.pick(['none', 'tank']),
         gun: R.chance(0.5) ? 'pistol' : 'smg', gunSize: R.range(0.8, 1.0),
-        twoHanded: R.chance(0.6), plates: R.chance(0.4), pads: R.range(0.1, 0.6),
+        twoHanded: R.chance(0.6), plates: R.chance(0.4), pads: R.range(0.1, 0.55),
         runFrames: 8, aimRows: 5
       })
     },
     trooper: {
       label: 'TROOPER', hp: 6, speed: 0.62, aggro: 1.25, burst: 4, cooldown: 1.1, score: 220,
       build: R => ({
-        height: 30 + R.int(0, 5), headSize: R.range(0.85, 1.0), limbThick: R.range(0.075, 0.095),
+        height: 31 + R.int(0, 5), headSize: R.range(0.72, 0.86), limbThick: R.range(0.055, 0.070),
+        taper: R.range(0.48, 0.70), armour: R.range(0.8, 1.4), grit: R.range(0.55, 1.0),
+        legLen: R.range(0.46, 0.51), bootSize: R.range(0.55, 0.85), gloveSize: R.range(0.45, 0.7),
         helmet: R.pick(['full', 'visor', 'crest']), backpack: R.pick(['pack', 'tank']),
         gun: R.chance(0.55) ? 'rifle' : 'smg', gunSize: R.range(0.95, 1.15),
-        twoHanded: true, plates: true, pads: R.range(0.7, 1.15), antenna: R.chance(0.5),
+        twoHanded: true, plates: true, pads: R.range(0.6, 0.95), antenna: R.chance(0.5),
         runFrames: 8, aimRows: 5
       })
     },
     heavy: {
       label: 'HEAVY', hp: 14, speed: 0.30, aggro: 0.9, burst: 1, cooldown: 2.2, score: 500,
       build: R => ({
-        height: 38 + R.int(0, 6), headSize: R.range(0.72, 0.88), limbThick: R.range(0.105, 0.135),
+        height: 38 + R.int(0, 6), headSize: R.range(0.60, 0.74), limbThick: R.range(0.072, 0.090),
+        taper: R.range(0.35, 0.55), armour: R.range(1.1, 1.5), grit: R.range(0.6, 1.1),
+        legLen: R.range(0.43, 0.48), bootSize: R.range(0.8, 1.1), gloveSize: R.range(0.7, 1.0),
         helmet: R.pick(['crest', 'full']), backpack: R.pick(['jet', 'tank', 'pack']),
         gun: 'cannon', gunSize: R.range(1.1, 1.4),
-        twoHanded: true, plates: true, pads: R.range(1.1, 1.4), shoulderW: R.range(0.38, 0.46),
+        twoHanded: true, plates: true, pads: R.range(0.95, 1.25), shoulderW: R.range(0.36, 0.43),
         runFrames: 6, aimRows: 5
       })
     },
@@ -192,9 +198,11 @@ window.CONFIG = (function () {
       label: 'DRONE', hp: 4, speed: 0.55, aggro: 1.4, burst: 3, cooldown: 1.3, score: 300,
       flying: true,
       build: R => ({
-        height: 22 + R.int(0, 4), headSize: R.range(1.0, 1.25), limbThick: R.range(0.05, 0.068),
+        height: 24 + R.int(0, 4), headSize: R.range(0.86, 1.05), limbThick: R.range(0.036, 0.048),
+        taper: R.range(0.65, 0.92), armour: R.range(0, 0.4), grit: R.range(0.4, 0.8),
+        bootSize: R.range(0.2, 0.45), gloveSize: R.range(0.15, 0.4),
         helmet: 'full', backpack: 'jet', gun: 'beam', gunSize: R.range(0.75, 0.95),
-        twoHanded: false, plates: false, pads: R.range(0, 0.35), legLen: R.range(0.32, 0.40),
+        twoHanded: false, plates: false, pads: R.range(0, 0.3), legLen: R.range(0.34, 0.42),
         runFrames: 6, aimRows: 5
       })
     }
@@ -296,7 +304,7 @@ window.CONFIG = (function () {
     p.aimRows = 9;
     p.runFrames = 8;
     // Keep the player readable at gameplay scale.
-    p.height = Math.max(26, Math.min(38, p.height));
+    p.height = Math.max(28, Math.min(38, p.height));
     return p;
   }
 

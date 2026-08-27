@@ -89,6 +89,61 @@ section('forge isolation');
   ok(a.CW === b.CW && a.CH === b.CH, 'forge() is deterministic for one param set');
 }
 
+/* ---------------- merc forge sprite work ---------------- */
+section('merc forge');
+{
+  const MF = window.MERCFORGE;
+  /* Same schema check the crawler panel gets: the build screen
+     generates the operative panel from this table, so a control naming
+     a key the generator ignores is a dead slider. */
+  const keys = new Set(Object.keys(MF.P_DEFAULTS));
+  for (const grp of MF.CONTROLS) {
+    for (const c of grp.c) {
+      if (c.k === '__colors' || c.k === '__buttons') continue;
+      ok(keys.has(c.k), 'merc control "' + c.k + '" maps to a real parameter');
+      if (c.t === 'r') {
+        const v = MF.P_DEFAULTS[c.k];
+        ok(c.min < c.max, 'merc control "' + c.k + '" has a sane range');
+        ok(v >= c.min && v <= c.max, 'merc default for "' + c.k + '" is inside its range');
+      }
+    }
+  }
+
+  /* The refit's three new knobs have to actually move pixels. */
+  const px = S => {
+    const d = S.canvas.getContext('2d').getImageData(0, 0, S.CW, S.CH).data;
+    let n = 0, tones = new Set();
+    for (let i = 0; i < S.CW * S.CH; i++) {
+      if (d[i * 4 + 3] < 8) continue;
+      n++; tones.add((d[i * 4] << 16) | (d[i * 4 + 1] << 8) | d[i * 4 + 2]);
+    }
+    return { n, tones: tones.size };
+  };
+  const base = MF.forge({ seed: 909, grit: 0, taper: 0, armour: 0 });
+  const gritty = MF.forge({ seed: 909, grit: 1.0, taper: 0, armour: 0 });
+  const tapered = MF.forge({ seed: 909, grit: 0, taper: 1, armour: 0 });
+  const armoured = MF.forge({ seed: 909, grit: 0, taper: 0, armour: 1.4 });
+  ok(px(gritty).tones > px(base).tones, 'grit adds tonal variety (' +
+     px(base).tones + ' -> ' + px(gritty).tones + ' colours)');
+  ok(tapered.CW !== base.CW || tapered.CH !== base.CH || px(tapered).n < px(base).n,
+     'taper takes mass out of the limbs (' + px(base).n + ' -> ' + px(tapered).n + ' px)');
+  ok(px(armoured).tones >= px(base).tones, 'panelling adds detail');
+
+  /* A five-step ramp means a lit sprite should carry well more than
+     the three tones per family the old two-step shading produced. */
+  ok(px(MF.forge({ seed: 909 })).tones >= 10,
+     'shading produces a real ramp, not two tones per material');
+
+  /* Proportions: the refit is meant to be leaner, so guard the band. */
+  for (let i = 0; i < 40; i++) {
+    const p = MF.randomParams((i * 2654435761) >>> 0);
+    ok(p.limbThick <= 0.075, 'random limb weight stays lean (' + p.limbThick.toFixed(3) + ')');
+    ok(p.headSize <= 1.05, 'random head stays in proportion');
+    ok(p.taper >= 0.4, 'random limbs taper');
+    ok(p.grit >= 0, 'random build has grit');
+  }
+}
+
 /* ---------------- config randomizer ---------------- */
 section('config randomizer');
 {
@@ -497,22 +552,40 @@ section('damage path');
     const cr = M2.enemies.find(e => e.kind === 'crawler' && !e.dead);
     ok(!!cr, 'a live crawler is in the level');
     if (cr) {
-      /* Shoot along the surface normal it is clinging to. A crawler on
-         a wall has solid mass on one side of it, and firing from that
-         side just puts a hole in the wall — which is correct, and was
-         what made the first version of this check fail. */
-      const APPROACH = { floor: [0, -1], ceiling: [0, 1], wallL: [1, 0], wallR: [-1, 0] };
-      const ap = APPROACH[cr.orient] || [0, -1];
-      const shootAt = (target, offN, aimOff) => {
-        const d = 34;
-        const bx = target.x + ap[0] * d + (aimOff ? -ap[1] * offN : 0);
-        const by = target.y + ap[1] * d + (aimOff ? ap[0] * offN : 0) +
-                   (aimOff && ap[1] === 0 ? offN : 0) + (!aimOff ? 0 : 0);
-        const a = Math.atan2(-ap[1], -ap[0]);
-        M2.bullets.push(new window.ENTITIES.Bullet(bx, by, a, W, true, '#fff'));
+      /* Shoot from a direction with clear air between muzzle and blob.
+         A crawler on a wall has solid mass on one side of it, and
+         firing from that side just puts a hole in the wall — correct
+         behaviour, and the reason two earlier versions of this check
+         failed for reasons that had nothing to do with the code under
+         test. Pick the approach by asking the world, not by assuming. */
+      const DIRS = [[0, -1], [0, 1], [1, 0], [-1, 0]];
+      const D = 34;
+      /* canSee() is the wrong test here: it ignores one-way decks,
+         which bullets DO collide with. Walk the line with the same
+         solidity the projectile uses, or the "clear" line chosen can
+         still have a catwalk across it. */
+      const clearLine = (ox, oy, tx, ty) => {
+        const steps = Math.ceil(Math.hypot(tx - ox, ty - oy) / 2);
+        for (let k = 0; k <= steps; k++) {
+          const t = k / steps;
+          if (M2.world.solidAt(ox + (tx - ox) * t, oy + (ty - oy) * t, true)) return false;
+        }
+        return true;
+      };
+      let ap = null;
+      for (const d of DIRS) {
+        const ox = cr.x + d[0] * D, oy = cr.y + d[1] * D;
+        if (clearLine(ox, oy, cr.x, cr.y)) { ap = d; break; }
+      }
+      ok(!!ap, 'found a clear firing line to the crawler');
+      if (!ap) ap = [0, -1];
+      const shootAt = target => {
+        M2.bullets.push(new window.ENTITIES.Bullet(
+          target.x + ap[0] * D, target.y + ap[1] * D,
+          Math.atan2(-ap[1], -ap[0]), W, true, '#fff'));
       };
       const chpBefore = cr.hp, gibsBefore = M2.gibs.length;
-      for (let i = 0; i < 10; i++) shootAt(cr, 0, false);
+      for (let i = 0; i < 10; i++) shootAt(cr);
       for (let i = 0; i < 60; i++) M2.stepBullets(1 / 60);
       ok(cr.hp < chpBefore, 'point-blank fire damaged the crawler');
       ok(M2.gibs.length > gibsBefore, 'chunks flew off the crawler');
@@ -521,7 +594,12 @@ section('damage path');
       /* a shot that clears the disc must not register */
       const cr2 = M2.enemies.find(e => e.kind === 'crawler' && !e.dead && e !== cr) || cr;
       if (!cr2.dead) {
-        const ap2 = APPROACH[cr2.orient] || [0, -1];
+        let ap2 = null;
+        for (const d of DIRS) {
+          const ox = cr2.x + d[0] * D, oy = cr2.y + d[1] * D;
+          if (clearLine(ox, oy, cr2.x, cr2.y)) { ap2 = d; break; }
+        }
+        if (!ap2) ap2 = [0, -1];
         const miss = cr2.hp;
         const perpX = -ap2[1], perpY = ap2[0];
         const off = cr2.rig.r + 12;

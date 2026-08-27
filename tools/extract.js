@@ -86,7 +86,11 @@ function mercforge() {
 /* ---------- game entry point ---------- */
 const P_DEFAULTS = Object.assign({}, P);
 
-/* Build a sheet from an explicit param set. Synchronous, so swapping
+/* randomParams() is not shimmed here: it lives in the tool core, which
+   is the whole point — a copy of it in this file drifted from the tool
+   the first time the proportions were retuned.
+
+   Build a sheet from an explicit param set. Synchronous, so swapping
    the module-global P around the call is safe. */
 function forge(params) {
   const saved = Object.assign({}, P);
@@ -95,45 +99,6 @@ function forge(params) {
   finally { Object.assign(P, saved); }
 }
 
-/* The tool's randomizer, as a pure function of a seed. */
-function randomParams(seed) {
-  const R = rng(seed >>> 0);
-  const pick = a => a[(R() * a.length) | 0];
-  const h = R() * 360, comp = (h + 120 + R() * 140) % 360;
-  return {
-    seed: seed >>> 0,
-    height: 22 + ((R() * 20) | 0),
-    headSize: 0.8 + R() * 0.7,
-    torsoLen: 0.22 + R() * 0.16,
-    legLen: 0.34 + R() * 0.20,
-    armLen: 0.30 + R() * 0.20,
-    shoulderW: 0.20 + R() * 0.24,
-    hipW: 0.14 + R() * 0.14,
-    limbThick: 0.045 + R() * 0.05,
-    bootSize: R() * 1.6,
-    gloveSize: R() * 1.6,
-    helmet: pick(['none', 'visor', 'full', 'crest']),
-    backpack: pick(['none', 'tank', 'jet', 'pack']),
-    gun: pick(['pistol', 'smg', 'rifle', 'cannon', 'beam']),
-    gunSize: 0.75 + R() * 0.8,
-    twoHanded: R() > 0.3,
-    plates: R() > 0.35,
-    antenna: R() > 0.65,
-    muzzleBrake: R() > 0.4,
-    pads: R() * 1.2,
-    colSuit: hsl(h, 18 + R() * 30, 38 + R() * 16),
-    colSuit2: hsl(h + (R() * 20 - 10), 22 + R() * 24, 16 + R() * 10),
-    colAccent: hsl(comp, 55 + R() * 35, 44 + R() * 14),
-    colSkin: hsl(22 + R() * 14, 32 + R() * 22, 50 + R() * 24),
-    colVisor: hsl((comp + 40) % 360, 70 + R() * 25, 58 + R() * 14),
-    colGun: hsl(h + 180, 6 + R() * 10, 40 + R() * 14),
-    stride: 0.18 + R() * 0.26,
-    lift: 0.06 + R() * 0.14,
-    bounce: R() * 0.05,
-    runLean: 2 + R() * 16,
-    tuck: 0.2 + R() * 0.45
-  };
-}
 `;
 
   return wrap('MERC FORGE — generator core (UI + demo stripped)', 'MERCFORGE', core + shim, [

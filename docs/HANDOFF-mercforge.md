@@ -1,3 +1,12 @@
+> **Note (later revision).** The sprite pipeline described below has since been
+> refit: limbs are tapered quads with hinge plates rather than round-capped
+> strokes, extremities are angular, the palette carries five steps per family
+> instead of three, and `rasterise()` does real surface shading with a dithered
+> grit pass rather than marking the top and bottom pixel of each run. The
+> randomiser also moved out of the UI section into the core as `randomParams()`,
+> because the game had grown its own copy and the two drifted. Everything else
+> here — the sheet contract, the measured cell, the invariants — still holds.
+
 # MERC FORGE — handoff
 
 Procedural spritesheet generator for an Abuse-style run-and-gun, plus a playable demo level.

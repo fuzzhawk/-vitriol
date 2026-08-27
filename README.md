@@ -156,6 +156,28 @@ share rigs: two silhouettes each for grunts and troopers, one for heavies and
 drones. All of it happens during the loading screen, which reports genuine
 progress from the generator's own yielded stage strings rather than a fake bar.
 
+**Sprite work over cel shading.** MERC FORGE draws at 1:1 rather than
+supersampling like the other two generators, and that is deliberate: crushing a
+30-pixel character down from 4x softens exactly the silhouette that makes it
+readable at gameplay scale. The look comes from the drawing and the shading
+instead.
+
+Limbs are tapered quads with a hinge plate at the knee and elbow. They used to
+be stroked lines with `lineCap: 'round'` and a uniform width, which is precisely
+the fat-noodle read — every limb the same thickness end to end with a ball at
+each joint. Boots and gauntlets are angular wedges rather than ellipses, the
+shoulder line is squared, and pauldrons are clipped plates.
+
+Shading runs on a five-step ramp per material instead of three. The old pass lit
+exactly the topmost pixel of a run and sank the bottom one, leaving everything
+between as one flat fill; the new one gives a two-pixel rim, a sinking
+underside, a darkened lip where two materials meet, and dithered grit in the
+flat mid-tones. Grit is held to the mid-tones on purpose — texturing the rim
+and the core shadow as well destroys the form and the sprite comes out as static
+with a body-shaped hole in it. The key light is straight down the y axis, since
+the sheet mirrors at runtime and any horizontal term lands on the wrong side
+half the time.
+
 **Readability over fidelity.** These levels bake walls that are often the same
 value as a merc's suit. Actors get a contact shadow to anchor them, and any
 hostile that has spotted you carries a faint halo — which doubles as the aggro

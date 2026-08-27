@@ -28,15 +28,16 @@ function hsl(h,s,l){h=((h%360)+360)%360;s/=100;l/=100;const k=n=>(n+h/30)%12,a=s
 const P={
   seed:4771,
   // frame
-  height:30, headSize:1.0, torsoLen:0.30, legLen:0.46, armLen:0.40,
-  shoulderW:0.32, hipW:0.22, limbThick:0.072, bootSize:1.0, gloveSize:1.0,
+  height:32, headSize:0.84, torsoLen:0.29, legLen:0.50, armLen:0.41,
+  shoulderW:0.33, hipW:0.20, limbThick:0.050, bootSize:0.55, gloveSize:0.50,
   // gear
   helmet:'visor', antenna:false, pads:0.55, backpack:'tank', plates:true,
+  taper:0.62, armour:0.7, grit:0.75,
   gun:'rifle', gunSize:1.0, twoHanded:true, muzzleBrake:true,
   // colour
   colSuit:'#4c6076', colSuit2:'#2b3646', colAccent:'#c2571f',
   colSkin:'#d9a173', colVisor:'#f0a830', colGun:'#7d8794', colOutline:'#0d0b09',
-  rim:0.30, shadow:0.32,
+  rim:0.26, shadow:0.34,
   // motion
   runFrames:8, stride:0.30, lift:0.15, bounce:0.028, lean:4, runLean:7,
   idleBob:0.014, tuck:0.42, recoil:0.35,
@@ -53,7 +54,8 @@ const CONTROLS=[
   {k:'armLen',l:'arm length',t:'r',min:0.26,max:0.56,step:0.005},
   {k:'shoulderW',l:'shoulders',t:'r',min:0.16,max:0.50,step:0.005},
   {k:'hipW',l:'hips',t:'r',min:0.12,max:0.36,step:0.005},
-  {k:'limbThick',l:'limb weight',t:'r',min:0.035,max:0.14,step:0.002},
+  {k:'limbThick',l:'limb weight',t:'r',min:0.030,max:0.11,step:0.002},
+  {k:'taper',l:'limb taper',t:'r',min:0,max:1,step:0.02},
   {k:'bootSize',l:'boots',t:'r',min:0,max:2,step:0.05},
   {k:'gloveSize',l:'gloves',t:'r',min:0,max:2,step:0.05}
  ]},
@@ -62,6 +64,7 @@ const CONTROLS=[
   {k:'backpack',l:'back unit',t:'s',opt:['none','tank','jet','pack']},
   {k:'pads',l:'shoulder pads',t:'r',min:0,max:1.4,step:0.05},
   {k:'plates',l:'chest plate',t:'c'},
+  {k:'armour',l:'panelling',t:'r',min:0,max:1.5,step:0.05},
   {k:'antenna',l:'antenna',t:'c'}
  ]},
  {g:'WEAPON',c:[
@@ -73,6 +76,7 @@ const CONTROLS=[
  ]},
  {g:'PALETTE',c:[
   {k:'__colors',t:'colors'},
+  {k:'grit',l:'grit',t:'r',min:0,max:1.2,step:0.05},
   {k:'rim',l:'rim light',t:'r',min:0,max:0.6,step:0.02},
   {k:'shadow',l:'contact shadow',t:'r',min:0,max:0.6,step:0.02},
   {k:'outline',l:'outline',t:'c'},
@@ -95,29 +99,102 @@ const CONTROLS=[
  ]}
 ];
 
+/* Randomiser. This lives with the parameters rather than in the UI
+   because the game needs it too — and when the game had its own copy,
+   the two drifted the moment the proportions were retuned here. One
+   function, seeded, returning a params object. */
+function randomParams(seed){
+  const R=rng(seed>>>0);
+  const pick=a=>a[(R()*a.length)|0];
+  const h=R()*360, comp=(h+120+R()*140)%360;
+  return {
+    seed:seed>>>0,
+    height:26+((R()*16)|0),
+    headSize:0.68+R()*0.34,          // small heads: big ones read as chibi
+    torsoLen:0.24+R()*0.10,
+    legLen:0.44+R()*0.14,
+    armLen:0.34+R()*0.14,
+    shoulderW:0.26+R()*0.16,
+    hipW:0.16+R()*0.09,
+    limbThick:0.038+R()*0.034,
+    taper:0.45+R()*0.45,
+    armour:R()*1.3,
+    grit:0.5+R()*0.6,
+    bootSize:0.25+R()*0.75,
+    gloveSize:0.2+R()*0.7,
+    helmet:pick(['none','visor','full','crest']),
+    backpack:pick(['none','tank','jet','pack']),
+    gun:pick(['pistol','smg','rifle','cannon','beam']),
+    gunSize:0.75+R()*0.8,
+    twoHanded:R()>0.3,
+    plates:R()>0.35,
+    antenna:R()>0.65,
+    muzzleBrake:R()>0.4,
+    pads:R()*1.05,
+    colSuit:hsl(h,18+R()*30,32+R()*14),
+    colSuit2:hsl(h+(R()*20-10),22+R()*24,13+R()*9),
+    colAccent:hsl(comp,55+R()*35,42+R()*13),
+    colSkin:hsl(22+R()*14,32+R()*22,48+R()*22),
+    colVisor:hsl((comp+40)%360,70+R()*25,56+R()*14),
+    colGun:hsl(h+180,6+R()*10,36+R()*13),
+    stride:0.18+R()*0.26,
+    lift:0.06+R()*0.14,
+    bounce:R()*0.05,
+    runLean:2+R()*16,
+    tuck:0.2+R()*0.45
+  };
+}
+
 const PRESETS={
-  nick:{height:30,headSize:1.0,helmet:'visor',backpack:'tank',gun:'rifle',twoHanded:true,
+  nick:{height:32,headSize:0.84,helmet:'visor',backpack:'tank',gun:'rifle',twoHanded:true,limbThick:0.050,
+        legLen:0.50,taper:0.62,armour:0.7,bootSize:0.55,gloveSize:0.5,
         colSuit:'#4c6076',colSuit2:'#2b3646',colAccent:'#c2571f',colVisor:'#f0a830',colGun:'#7d8794',pads:0.55,plates:true},
-  trooper:{height:34,headSize:0.92,helmet:'full',backpack:'pack',gun:'smg',twoHanded:true,limbThick:0.088,
-        colSuit:'#6d6f5e',colSuit2:'#3a3b31',colAccent:'#b8402a',colVisor:'#8fe3c2',colGun:'#5c6068',pads:1.0,plates:true,antenna:true},
-  scav:{height:27,headSize:1.15,helmet:'none',backpack:'tank',gun:'pistol',twoHanded:false,limbThick:0.058,
+  trooper:{height:34,headSize:0.80,helmet:'full',backpack:'pack',gun:'smg',twoHanded:true,limbThick:0.062,
+        legLen:0.49,taper:0.58,armour:1.0,bootSize:0.7,gloveSize:0.6,
+        colSuit:'#6d6f5e',colSuit2:'#3a3b31',colAccent:'#b8402a',colVisor:'#8fe3c2',colGun:'#5c6068',pads:0.85,plates:true,antenna:true},
+  scav:{height:29,headSize:0.92,helmet:'none',backpack:'tank',gun:'pistol',twoHanded:false,limbThick:0.042,
+        legLen:0.52,taper:0.72,armour:0.25,bootSize:0.4,gloveSize:0.3,
         colSuit:'#7a5a3a',colSuit2:'#402d1e',colAccent:'#d9c07a',colVisor:'#e8d9a0',colGun:'#6b6156',pads:0.2,plates:false},
-  mech:{height:42,headSize:0.8,helmet:'crest',backpack:'jet',gun:'cannon',twoHanded:true,limbThick:0.12,
-        colSuit:'#5a5f66',colSuit2:'#2f3338',colAccent:'#e05a1e',colVisor:'#ff6b3d',colGun:'#464b52',pads:1.3,plates:true,shoulderW:0.42}
+  mech:{height:42,headSize:0.68,helmet:'crest',backpack:'jet',gun:'cannon',twoHanded:true,limbThick:0.082,
+        legLen:0.46,taper:0.45,armour:1.4,bootSize:0.95,gloveSize:0.85,
+        colSuit:'#5a5f66',colSuit2:'#2f3338',colAccent:'#e05a1e',colVisor:'#ff6b3d',colGun:'#464b52',pads:1.15,plates:true,shoulderW:0.40}
 };
 
-/* ---------- palette ---------- */
+/* ---------- palette ----------
+   Five steps per family rather than three. Two-step shading is what
+   makes a sprite read as cel-shaded cartoon: one flat fill with a
+   single lit pixel on top. A five-step ramp gives the rasteriser room
+   to put a two-pixel rim light on a surface, sink the underside, and
+   dither between steps — which is where the 90s look actually lives.
+
+   The ramp arrays let a pixel walk its own family's ramp by ±n without
+   the caller knowing which family it belongs to. */
 function buildPalette(){
   const fams=[P.colSuit,P.colSuit2,P.colAccent,P.colSkin,P.colVisor,P.colGun];
-  const list=[],light=[],dark=[];
+  let visorRamp=null;
+  const list=[];
+  const rampOf=[];      // idx -> the 5 indices of its family ramp
+  const posOf=[];       // idx -> where in that ramp it sits
   const push=hex=>{const c=hx(hex);list.push({r:c[0],g:c[1],b:c[2]});return list.length-1;};
   for(const f of fams){
-    const b=push(f),l=push(shade(f,P.rim)),d=push(shade(f,-P.shadow));
-    light[b]=l;dark[b]=d; light[l]=l;dark[l]=d; light[d]=l;dark[d]=d;
+    const ramp=[
+      push(shade(f,-P.shadow*1.55)),
+      push(shade(f,-P.shadow)),
+      push(f),
+      push(shade(f,P.rim)),
+      push(shade(f,P.rim*1.32))
+    ];
+    ramp.forEach((idx,k)=>{rampOf[idx]=ramp;posOf[idx]=k;});
+    if(f===P.colVisor)visorRamp=ramp;
   }
   const matchCount=list.length;             // outline excluded from colour matching
-  const o=push(P.colOutline); light[o]=o;dark[o]=o;
-  return {list,light,dark,outline:o,matchCount,cache:new Map()};
+  const o=push(P.colOutline);
+  rampOf[o]=[o,o,o,o,o];posOf[o]=2;
+  const step=(i,n)=>{
+    const r=rampOf[i];if(!r)return i;
+    return r[clamp(posOf[i]+n,0,4)];
+  };
+  return {list,rampOf,posOf,step,visorRamp,outline:o,matchCount,cache:new Map()};
 }
 function nearest(pal,r,g,b){
   let best=0,bd=1e9;
@@ -216,8 +293,106 @@ function drawChar(g,ps,C,opts){
   const H=P.height, gs=gunSpec();
   const legR=H*P.limbThick, armR=legR*0.84;
   const back=c=>shade(c,-0.26);
-  const limb=(a,b,r,col)=>{g.strokeStyle=col;g.lineWidth=r*2;g.lineCap='round';g.lineJoin='round';
-    g.beginPath();g.moveTo(a.x,a.y);g.lineTo(b.x,b.y);g.stroke();};
+  const taper=clamp(P.taper===undefined?0.62:P.taper,0,1);
+
+  /* A limb is a tapered quad, not a stroked line with round caps.
+     `lineCap:'round'` on a uniform width is precisely the fat-noodle
+     read: every limb the same thickness end to end, with a ball at
+     each joint. Narrowing toward the wrist and ankle, and squaring the
+     ends, is most of the difference between a cartoon and a sprite.
+
+     Half-widths clamp at 1 so no part can fall under two pixels — the
+     shading pass turns anything thinner into pure rim light and it
+     vanishes. */
+  const limb=(a,b,r0,r1,col)=>{
+    const dx=b.x-a.x,dy=b.y-a.y,L=Math.hypot(dx,dy)||0.0001;
+    const nx=-dy/L,ny=dx/L;
+    const w0=Math.max(1,r0),w1=Math.max(1,r1);
+    g.fillStyle=col;
+    g.beginPath();
+    g.moveTo(a.x+nx*w0,a.y+ny*w0);
+    g.lineTo(b.x+nx*w1,b.y+ny*w1);
+    g.lineTo(b.x-nx*w1,b.y-ny*w1);
+    g.lineTo(a.x-nx*w0,a.y-ny*w0);
+    g.closePath();g.fill();
+  };
+
+  /* A hard joint plate: the knee or elbow reads as a hinge rather than
+     a bend in a tube. */
+  const joint=(p,r,ang,col)=>{
+    g.save();g.translate(p.x,p.y);g.rotate(ang);
+    g.fillStyle=col;
+    const w=Math.max(1.2,r*1.05),hh=Math.max(1,r*0.78);
+    g.beginPath();
+    g.moveTo(-w*0.75,-hh);g.lineTo(w,-hh*0.62);
+    g.lineTo(w,hh*0.62);g.lineTo(-w*0.75,hh);
+    g.closePath();g.fill();
+    g.restore();
+  };
+
+  /* Two-segment limb with a hinge, used for every arm and leg. */
+  const bone=(a,mid,b,r,col,colJoint)=>{
+    limb(a,mid,r,r*(1-taper*0.34),col);
+    limb(mid,b,r*(1-taper*0.30),r*(1-taper*0.56),col);
+    joint(mid,r*(1-taper*0.20),Math.atan2(b.y-mid.y,b.x-mid.x),colJoint||col);
+  };
+
+  /* Angular boot: an ankle cuff and a wedge sole that projects forward.
+     The old ellipse was a balloon on the end of the leg. */
+  const boot=(p,r,face,col,dark)=>{
+    const sz=r*(0.85+0.75*P.bootSize);
+    const fx=face>=0?1:-1;
+    g.fillStyle=dark;
+    g.beginPath();                                   // cuff
+    g.moveTo(p.x-r*1.05,p.y-sz*1.25);
+    g.lineTo(p.x+r*1.05,p.y-sz*1.25);
+    g.lineTo(p.x+r*0.95,p.y-sz*0.35);
+    g.lineTo(p.x-r*0.95,p.y-sz*0.35);
+    g.closePath();g.fill();
+    g.fillStyle=col;
+    g.beginPath();                                   // sole wedge
+    g.moveTo(p.x-r*1.0,p.y-sz*0.5);
+    g.lineTo(p.x+fx*sz*1.55,p.y-sz*0.30);
+    g.lineTo(p.x+fx*sz*1.55,p.y+Math.max(1,r*0.30));
+    g.lineTo(p.x-r*1.0,p.y+Math.max(1,r*0.30));
+    g.closePath();g.fill();
+  };
+
+  /* Gauntlet: a cuff plate and a squared fist. */
+  const glove=(p,r,ang,col,dark)=>{
+    const sz=r*(0.75+0.55*P.gloveSize);
+    g.save();g.translate(p.x,p.y);g.rotate(ang);
+    g.fillStyle=dark;
+    g.fillRect(-sz*1.05,-Math.max(1,sz*0.95),Math.max(1.2,sz*0.85),Math.max(2,sz*1.9));
+    g.fillStyle=col;
+    g.beginPath();
+    g.moveTo(-sz*0.2,-Math.max(1,sz*0.9));
+    g.lineTo(sz*1.05,-Math.max(1,sz*0.62));
+    g.lineTo(sz*1.05,Math.max(1,sz*0.62));
+    g.lineTo(-sz*0.2,Math.max(1,sz*0.9));
+    g.closePath();g.fill();
+    g.restore();
+  };
+
+  /* Shoulder plate: a clipped angular pauldron instead of a sphere. */
+  const pauldron=(x,y,r,fx,col,edge)=>{
+    g.fillStyle=col;
+    g.beginPath();
+    g.moveTo(x-r*0.85,y-r*0.75);
+    g.lineTo(x+fx*r*1.05,y-r*0.55);
+    g.lineTo(x+fx*r*1.20,y+r*0.45);
+    g.lineTo(x+fx*r*0.35,y+r*0.95);
+    g.lineTo(x-r*0.85,y+r*0.60);
+    g.closePath();g.fill();
+    g.fillStyle=edge;                                // lip along the leading edge
+    g.beginPath();
+    g.moveTo(x+fx*r*1.05,y-r*0.55);
+    g.lineTo(x+fx*r*1.20,y+r*0.45);
+    g.lineTo(x+fx*r*0.80,y+r*0.55);
+    g.lineTo(x+fx*r*0.72,y-r*0.42);
+    g.closePath();g.fill();
+  };
+
   const dot=(p,r,col)=>{g.fillStyle=col;g.beginPath();g.arc(p.x,p.y,r,0,TAU);g.fill();};
 
   const aim=ps.aim, dir={x:Math.cos(aim),y:Math.sin(aim)};
@@ -249,12 +424,8 @@ function drawChar(g,ps,C,opts){
   {
     const hip={x:ps.hipX-ps.hipW*0.30,y:ps.hipY};
     const knee=ik(hip.x,hip.y,ps.fB.x,ps.fB.y,ps.leg*0.5,ps.leg*0.5,-1);
-    limb(hip,knee,legR*0.94,back(P.colSuit));
-    limb(knee,ps.fB,legR*0.80,back(P.colSuit));
-    if(P.bootSize>0){
-      g.fillStyle=back(P.colSuit2);
-      g.beginPath();g.ellipse(ps.fB.x+legR*0.25,ps.fB.y-legR*0.25,legR*(0.9+0.5*P.bootSize),legR*(0.7+0.3*P.bootSize),0,0,TAU);g.fill();
-    }
+    bone(hip,knee,ps.fB,legR*0.94,back(P.colSuit),back(P.colSuit2));
+    if(P.bootSize>0)boot(ps.fB,legR*0.80,1,back(P.colSuit2),back(shade(P.colSuit2,-0.18)));
   }
 
   /* --- torso --- */
@@ -262,26 +433,48 @@ function drawChar(g,ps,C,opts){
   const sw=ps.shW*0.5,hw=ps.hipW*0.55,T=ps.torso;
   g.fillStyle=P.colSuit;
   g.beginPath();
-  g.moveTo(-hw,0);g.lineTo(-sw,-T*0.86);
-  g.quadraticCurveTo(-sw,-T*1.06,-sw*0.55,-T*1.02);
-  g.lineTo(sw*0.55,-T*1.02);
-  g.quadraticCurveTo(sw,-T*1.06,sw,-T*0.86);
+  /* Square the shoulder line. The quadratic caps rounded the torso
+     into a bean; a hard trapezoid reads as a body wearing armour. */
+  g.moveTo(-hw,0);
+  g.lineTo(-sw*0.96,-T*0.72);
+  g.lineTo(-sw,-T*0.94);
+  g.lineTo(-sw*0.62,-T*1.03);
+  g.lineTo(sw*0.62,-T*1.03);
+  g.lineTo(sw,-T*0.94);
+  g.lineTo(sw*0.96,-T*0.72);
   g.lineTo(hw,0);g.closePath();g.fill();
   if(P.plates){
+    // chest plate, cut as a shape rather than a bar
     g.fillStyle=P.colAccent;
-    g.fillRect(-sw*0.52,-T*0.92,sw*1.04,T*0.30);
-    g.fillStyle=shade(P.colSuit2,0.05);
+    g.beginPath();
+    g.moveTo(-sw*0.56,-T*0.94);g.lineTo(sw*0.56,-T*0.94);
+    g.lineTo(sw*0.46,-T*0.60);g.lineTo(-sw*0.46,-T*0.60);
+    g.closePath();g.fill();
+    g.fillStyle=shade(P.colAccent,-0.34);            // centre seam
+    g.fillRect(-Math.max(0.5,sw*0.05),-T*0.94,Math.max(1,sw*0.10),T*0.34);
+    g.fillStyle=shade(P.colSuit2,0.05);              // belt
     g.fillRect(-hw*0.95,-T*0.30,hw*1.9,T*0.16);
+    g.fillStyle=shade(P.colAccent,-0.15);            // buckle
+    g.fillRect(-Math.max(0.6,hw*0.22),-T*0.30,Math.max(1.2,hw*0.44),T*0.16);
   }else{
     g.fillStyle=shade(P.colSuit2,0.05);
     g.fillRect(-hw*0.95,-T*0.26,hw*1.9,T*0.14);
   }
+  if(P.armour>0){
+    // harness straps across the chest, and a rib seam down the flank
+    g.fillStyle=shade(P.colSuit2,-0.10);
+    const st=Math.max(0.8,H*0.016*P.armour);
+    g.save();g.translate(0,-T*0.62);g.rotate(-0.42);
+    g.fillRect(-sw*0.85,-st/2,sw*1.7,st);
+    g.restore();
+    g.fillStyle=shade(P.colSuit,-0.16);
+    g.fillRect(sw*0.30,-T*0.58,Math.max(0.8,sw*0.09),T*0.26);
+    g.fillRect(-sw*0.42,-T*0.55,Math.max(0.8,sw*0.09),T*0.22);
+  }
   if(P.pads>0){
     const pr=H*0.055*P.pads;
-    g.fillStyle=P.colSuit2;
-    g.beginPath();g.arc(sw*0.9,-T*0.86,pr,0,TAU);g.fill();
-    g.fillStyle=back(P.colSuit2);
-    g.beginPath();g.arc(-sw*0.9,-T*0.86,pr*0.9,0,TAU);g.fill();
+    pauldron(sw*0.9,-T*0.86,pr,1,P.colSuit2,shade(P.colSuit2,0.16));
+    pauldron(-sw*0.9,-T*0.86,pr*0.9,-1,back(P.colSuit2),back(shade(P.colSuit2,-0.12)));
   }
   g.fillStyle=P.colSuit2;                 // pelvis
   g.beginPath();g.ellipse(0,0,hw*1.05,H*0.045,0,0,TAU);g.fill();
@@ -302,9 +495,9 @@ function drawChar(g,ps,C,opts){
   }
   {
     const el=ik(shB.x,shB.y,rear.x,rear.y,ps.arm*0.5,ps.arm*0.5,1);
-    limb(shB,el,armR*0.92,back(P.colSuit));
-    limb(el,rear,armR*0.80,back(P.colSuit));
-    if(P.gloveSize>0)dot(rear,armR*(0.85+0.4*P.gloveSize),back(P.colSuit2));
+    bone(shB,el,rear,armR*0.92,back(P.colSuit),back(P.colSuit2));
+    if(P.gloveSize>0)glove(rear,armR*0.92,Math.atan2(rear.y-el.y,rear.x-el.x),
+                           back(P.colSuit2),back(shade(P.colSuit2,-0.18)));
   }
 
   /* --- head --- */
@@ -317,12 +510,35 @@ function drawChar(g,ps,C,opts){
     }else if(P.helmet==='visor'){
       dot(h,r,P.colSkin);
       g.fillStyle=P.colSuit2;
-      g.beginPath();g.arc(h.x,h.y,r*1.06,Math.PI*0.86,Math.PI*2.2);g.fill();
+      // faceted shell: a flat crown and a cut brow, not a half-circle
+      g.beginPath();
+      g.moveTo(h.x-r*1.06,h.y+r*0.78);                 // jaw guard, round the back
+      g.lineTo(h.x-r*0.98,h.y-r*0.72);
+      g.lineTo(h.x-r*0.30,h.y-r*1.10);
+      g.lineTo(h.x+r*0.58,h.y-r*1.06);
+      g.lineTo(h.x+r*1.08,h.y-r*0.46);
+      g.lineTo(h.x+r*1.08,h.y-r*0.06);
+      g.lineTo(h.x+r*0.18,h.y+r*0.12);
+      g.lineTo(h.x+r*0.30,h.y+r*0.86);                 // chin strap
+      g.lineTo(h.x-r*0.55,h.y+r*0.96);
+      g.closePath();g.fill();
+      g.fillStyle=shade(P.colSuit2,-0.24);           // brow lip
+      g.fillRect(h.x-r*0.24,h.y-r*0.44,r*1.32,Math.max(1,r*0.16));
       g.save();g.translate(h.x,h.y);g.rotate(aim*0.35);
-      g.fillStyle=P.colVisor;g.fillRect(-r*0.1,-r*0.32+up*0.2,r*1.25,r*0.42);
+      g.fillStyle=P.colVisor;g.fillRect(-r*0.1,-r*0.30+up*0.2,r*1.22,r*0.36);
       g.restore();
     }else{
-      dot(h,r*1.04,P.colSuit2);
+      g.fillStyle=P.colSuit2;
+      g.beginPath();
+      g.moveTo(h.x-r*1.04,h.y+r*0.40);
+      g.lineTo(h.x-r*0.96,h.y-r*0.62);
+      g.lineTo(h.x-r*0.34,h.y-r*1.12);
+      g.lineTo(h.x+r*0.56,h.y-r*1.08);
+      g.lineTo(h.x+r*1.06,h.y-r*0.42);
+      g.lineTo(h.x+r*1.02,h.y+r*0.52);
+      g.lineTo(h.x+r*0.30,h.y+r*0.96);
+      g.lineTo(h.x-r*0.62,h.y+r*0.88);
+      g.closePath();g.fill();
       g.save();g.translate(h.x,h.y);g.rotate(aim*0.35);
       g.fillStyle=P.colVisor;
       g.beginPath();
@@ -346,12 +562,18 @@ function drawChar(g,ps,C,opts){
   {
     const hip={x:ps.hipX+ps.hipW*0.30,y:ps.hipY};
     const knee=ik(hip.x,hip.y,ps.fF.x,ps.fF.y,ps.leg*0.5,ps.leg*0.5,-1);
-    limb(hip,knee,legR,P.colSuit);
-    limb(knee,ps.fF,legR*0.86,P.colSuit);
-    if(P.bootSize>0){
-      g.fillStyle=P.colSuit2;
-      g.beginPath();g.ellipse(ps.fF.x+legR*0.3,ps.fF.y-legR*0.25,legR*(0.95+0.55*P.bootSize),legR*(0.75+0.32*P.bootSize),0,0,TAU);g.fill();
+    bone(hip,knee,ps.fF,legR,P.colSuit,P.colSuit2);
+    if(P.armour>0){                       // shin plate
+      const a2=Math.atan2(ps.fF.y-knee.y,ps.fF.x-knee.x);
+      g.save();g.translate((knee.x+ps.fF.x)/2,(knee.y+ps.fF.y)/2);g.rotate(a2);
+      g.fillStyle=shade(P.colSuit2,0.06);
+      const pw=ps.leg*0.34*P.armour,ph=Math.max(1.2,legR*0.62);
+      g.beginPath();
+      g.moveTo(-pw,-ph);g.lineTo(pw,-ph*0.72);g.lineTo(pw,ph*0.72);g.lineTo(-pw,ph);
+      g.closePath();g.fill();
+      g.restore();
     }
+    if(P.bootSize>0)boot(ps.fF,legR*0.86,1,P.colSuit2,shade(P.colSuit2,-0.20));
   }
 
   /* --- weapon --- */
@@ -379,13 +601,31 @@ function drawChar(g,ps,C,opts){
   /* --- front arm --- */
   {
     const el=ik(shF.x,shF.y,front.x,front.y,ps.arm*0.5,ps.arm*0.5,1);
-    limb(shF,el,armR,P.colSuit);
-    limb(el,front,armR*0.88,P.colSuit);
-    if(P.gloveSize>0)dot(front,armR*(0.9+0.45*P.gloveSize),P.colSuit2);
-    if(P.pads>0){g.fillStyle=P.colAccent;
-      g.beginPath();g.arc(shF.x,shF.y,H*0.030*P.pads,0,TAU);g.fill();}
+    bone(shF,el,front,armR,P.colSuit,P.colSuit2);
+    if(P.gloveSize>0)glove(front,armR,Math.atan2(front.y-el.y,front.x-el.x),
+                           P.colSuit2,shade(P.colSuit2,-0.20));
+    if(P.pads>0)pauldron(shF.x,shF.y,H*0.038*P.pads,1,P.colAccent,shade(P.colAccent,-0.28));
   }
   return muzzle;
+}
+
+/* Static value noise for the grit pass. Regenerated only when the seed
+   changes: the grain is part of a build, not per-frame sparkle. */
+const NW=64;
+let NOISE=new Float32Array(NW*NW), NOISE_SEED=null;
+function buildNoise(seed){
+  if(NOISE_SEED===seed)return;
+  NOISE_SEED=seed;
+  const r=rng(seed>>>0);
+  const g=new Float32Array(NW*NW);
+  for(let i=0;i<g.length;i++)g[i]=r();
+  /* A light touch of neighbour mixing so the grain reads as wear and
+     scuffing rather than salt-and-pepper, but not so much that it
+     clumps into patches. */
+  for(let y=0;y<NW;y++)for(let x=0;x<NW;x++){
+    const a=g[y*NW+x],b=g[y*NW+(x+1)%NW],c=g[((y+1)%NW)*NW+x];
+    NOISE[y*NW+x]=a*0.72+b*0.15+c*0.13;
+  }
 }
 
 /* ---------- rasterise: alpha cut, palette snap, edge shade, outline ---------- */
@@ -400,12 +640,63 @@ function rasterise(ctx,w,h,pal){
     idx[i]=k;
   }
   if(P.shading){
+    /* Surface shading, not edge marking. The old pass lit exactly the
+       top pixel of a run and sank the bottom one, leaving everything
+       between as one flat fill — which is what read as cartoon. This
+       walks each pixel along its family ramp by an amount derived from
+       how it sits in the silhouette:
+
+         rim      two pixels of highlight down from a lit top edge
+         core     the underside sinks two steps
+         seam     a pixel touching a DIFFERENT material darkens, so
+                  armour reads as sitting on top of the suit
+         grit     ordered-dithered noise nudges the ramp ±1 so flat
+                  areas carry texture instead of dead colour
+
+       Grit is sampled in cell-local coordinates so the texture is
+       locked to the sprite rather than swimming underneath it as the
+       animation plays. */
     const src=idx.slice();
+    const CW=P.__cellW||w, CH=P.__cellH||h;
+    const gAmt=clamp(P.grit===undefined?0.55:P.grit,0,1.5);
+    const B4=[0,8,2,10,12,4,14,6,3,11,1,9,15,7,13,5];   // 4x4 Bayer
     for(let y=0;y<h;y++)for(let x=0;x<w;x++){
-      const i=y*w+x;if(src[i]<0)continue;
-      const up=y>0?src[i-w]:-1, dn=y<h-1?src[i+w]:-1;
-      if(up<0)idx[i]=pal.light[src[i]];
-      else if(dn<0)idx[i]=pal.dark[src[i]];
+      const i=y*w+x;const c0=src[i];if(c0<0)continue;
+      const up  =y>0    ?src[i-w]:-1, dn=y<h-1?src[i+w]:-1;
+      const up2 =y>1    ?src[i-2*w]:-1, dn2=y<h-2?src[i+2*w]:-1;
+      const lf  =x>0    ?src[i-1]:-1,  rt=x<w-1?src[i+1]:-1;
+      let n=0;
+      if(up<0)      n+=2;            // top facet catches the key light
+      else if(up2<0)n+=1;
+      if(dn<0)      n-=2;            // underside falls away
+      else if(dn2<0)n-=1;
+      // a vertical seam between two materials reads as a lip
+      if(lf>=0&&pal.rampOf[lf]!==pal.rampOf[c0])n-=1;
+      /* No blanket darkening of the trailing edge: the sheet mirrors
+         at runtime, so any horizontal light term lands on the wrong
+         side half the time, and darkening BOTH silhouette edges just
+         drains the sprite. The key light is straight down the y axis,
+         which survives the mirror. */
+      if(lf<0&&rt<0)n-=1;            // a one-pixel-wide sliver reads as an edge
+      /* Grit must be centred, or it only ever darkens and the sprite
+         comes out blotched like camouflage instead of textured. The
+         noise is recentred on zero, the Bayer cell biases the
+         threshold, and the visor is left alone — it is the one part
+         that should read as a clean lit surface. */
+      /* Grit only where the surface is already flat. Texturing the rim
+         highlight and the core shadow as well destroys the form — the
+         sprite comes out as static with a body-shaped hole in it. Held
+         to the mid-tones it reads as scuffed material and the lighting
+         still describes the shape. */
+      if(gAmt>0.01&&n===0&&pal.rampOf[c0]!==pal.visorRamp){
+        const nz=NOISE[((y%CH)%NW)*NW+((x%CW)%NW)];
+        const v=(nz-0.5)*2*gAmt;
+        const dth=(B4[(y&3)*4+(x&3)]+0.5)/16-0.5;
+        const t=v+dth*0.35;
+        if(t>0.58)n+=1;
+        else if(t<-0.58)n-=1;
+      }
+      if(n)idx[i]=pal.step(c0,n);
     }
   }
   if(P.outline){
@@ -437,6 +728,7 @@ function aimAngles(){
 function geoKey(){
   return [P.height,P.headSize,P.torsoLen,P.legLen,P.armLen,P.shoulderW,P.hipW,P.limbThick,
     P.bootSize,P.gloveSize,P.helmet,P.antenna,P.pads,P.backpack,P.plates,P.gun,P.gunSize,
+    P.taper,P.armour,
     P.twoHanded,P.muzzleBrake,P.runFrames,P.stride,P.lift,P.bounce,P.lean,P.runLean,
     P.idleBob,P.tuck,P.aimRows,P.outline].join('|');
 }
@@ -472,6 +764,7 @@ function measureCell(cols,angles,pal){
 }
 
 function buildSheet(){
+  buildNoise(P.seed>>>0);
   const pal=buildPalette();
   const ST=states();
   const cols=[];
@@ -498,6 +791,7 @@ function buildSheet(){
       muzzle[r][c]={x:+(anchor.x+m.x).toFixed(2),y:+(anchor.y+m.y).toFixed(2)};
     }
   }
+  P.__cellW=CW;P.__cellH=CH;              // grit is sampled cell-local
   rasterise(sctx,sc.width,sc.height,pal);   // one pass over the whole sheet
 
   SHEET={canvas:sc,CW,CH,cols,angles,anchor,muzzle,
@@ -515,53 +809,17 @@ function buildSheet(){
 /* ---------- game entry point ---------- */
 const P_DEFAULTS = Object.assign({}, P);
 
-/* Build a sheet from an explicit param set. Synchronous, so swapping
+/* randomParams() is not shimmed here: it lives in the tool core, which
+   is the whole point — a copy of it in this file drifted from the tool
+   the first time the proportions were retuned.
+
+   Build a sheet from an explicit param set. Synchronous, so swapping
    the module-global P around the call is safe. */
 function forge(params) {
   const saved = Object.assign({}, P);
   Object.assign(P, P_DEFAULTS, params || {});
   try { return buildSheet(); }
   finally { Object.assign(P, saved); }
-}
-
-/* The tool's randomizer, as a pure function of a seed. */
-function randomParams(seed) {
-  const R = rng(seed >>> 0);
-  const pick = a => a[(R() * a.length) | 0];
-  const h = R() * 360, comp = (h + 120 + R() * 140) % 360;
-  return {
-    seed: seed >>> 0,
-    height: 22 + ((R() * 20) | 0),
-    headSize: 0.8 + R() * 0.7,
-    torsoLen: 0.22 + R() * 0.16,
-    legLen: 0.34 + R() * 0.20,
-    armLen: 0.30 + R() * 0.20,
-    shoulderW: 0.20 + R() * 0.24,
-    hipW: 0.14 + R() * 0.14,
-    limbThick: 0.045 + R() * 0.05,
-    bootSize: R() * 1.6,
-    gloveSize: R() * 1.6,
-    helmet: pick(['none', 'visor', 'full', 'crest']),
-    backpack: pick(['none', 'tank', 'jet', 'pack']),
-    gun: pick(['pistol', 'smg', 'rifle', 'cannon', 'beam']),
-    gunSize: 0.75 + R() * 0.8,
-    twoHanded: R() > 0.3,
-    plates: R() > 0.35,
-    antenna: R() > 0.65,
-    muzzleBrake: R() > 0.4,
-    pads: R() * 1.2,
-    colSuit: hsl(h, 18 + R() * 30, 38 + R() * 16),
-    colSuit2: hsl(h + (R() * 20 - 10), 22 + R() * 24, 16 + R() * 10),
-    colAccent: hsl(comp, 55 + R() * 35, 44 + R() * 14),
-    colSkin: hsl(22 + R() * 14, 32 + R() * 22, 50 + R() * 24),
-    colVisor: hsl((comp + 40) % 360, 70 + R() * 25, 58 + R() * 14),
-    colGun: hsl(h + 180, 6 + R() * 10, 40 + R() * 14),
-    stride: 0.18 + R() * 0.26,
-    lift: 0.06 + R() * 0.14,
-    bounce: R() * 0.05,
-    runLean: 2 + R() * 16,
-    tuck: 0.2 + R() * 0.45
-  };
 }
 
 return { P_DEFAULTS, CONTROLS, PRESETS, forge, randomParams, states, gunSpec, buildPalette, hsl, shade, hx, rh, rng, clamp };
