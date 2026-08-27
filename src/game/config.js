@@ -189,6 +189,10 @@ window.CONFIG = (function () {
         runFrames: 6, aimRows: 5
       })
     },
+    overlord: {
+      label: 'OVERLORD', hp: 260, speed: 0, aggro: 2.2, burst: 1, cooldown: 1.15,
+      score: 5000, lash: 15, crawler: true, boss: true
+    },
     crawler: {
       label: 'CRAWLER', hp: 11, speed: 0, aggro: 1.15, burst: 1, cooldown: 1.5,
       score: 400, lash: 11, crawler: true
@@ -211,7 +215,12 @@ window.CONFIG = (function () {
   /* Hostiles share the level's colour world so they read as locals,
      but their accent is pushed off the player's hue so a silhouette
      in a firefight is never ambiguous. */
-  function archetypeParams(kind, seed, style) {
+  /* How much of a level's garrison has been got at. Later difficulties
+     field more corrupted mercs, which is a real threat change: they
+     hover, they vent, and they hit harder. */
+  const CORRUPT_RATE = { recruit: 0.18, regular: 0.30, veteran: 0.45, vitriol: 0.62 };
+
+  function archetypeParams(kind, seed, style, corruptRate) {
     const A = ARCHETYPES[kind];
     // Crawlers are grown by CRAWLER FORGE and have no MERC FORGE build;
     // asking for merc params for one is a wiring mistake, not a shrug.
@@ -221,6 +230,12 @@ window.CONFIG = (function () {
     }
     const R = GW.makeRng((seed ^ 0x1f2e) >>> 0);
     const base = A.build(R);
+    const rate = corruptRate === undefined ? 0.30 : corruptRate;
+    const rotten = R.chance(rate);
+    base.corrupt = rotten ? R.range(0.45, 1.0) : 0;
+    base.growths = R.range(0.6, 1.3);
+    base.rotVeins = R.range(0.6, 1.3);
+    base.colRot = window.MERCFORGE.hsl(348 + R.range(0, 24), 62 + R.range(0, 28), 28 + R.range(0, 16));
     const h = R.range(0, 360);
     return Object.assign({ seed: seed >>> 0 }, base, {
       colSuit:   window.MERCFORGE.hsl(h, 10 + R.range(0, 18), 26 + R.range(0, 12)),
@@ -283,6 +298,27 @@ window.CONFIG = (function () {
     return p;
   }
 
+  /* The boss is a crawler grown past the point of needing the floor.
+     Same generator, pushed to the size band where it reads as a mass
+     rather than a creature. */
+  function overlordParams(seed, levelCfg) {
+    const p = crawlerParams(seed, levelCfg, 0);
+    const R = GW.makeRng((seed ^ 0x0b055) >>> 0);
+    p.size = 52 + R.int(0, 10);
+    p.lobes = R.int(6, 10);
+    p.chaos = R.range(0.6, 1.05);
+    p.tentacles = R.int(7, 9);
+    p.tentVariants = 3;
+    p.tentLen = Math.round(p.size * R.range(1.6, 2.1));
+    p.tentThick = Math.max(8, Math.round(p.size * 0.20));
+    p.eyes = R.int(4, 7);
+    p.spikes = R.range(0.6, 1.5);
+    p.metal = R.range(0.35, 0.75);
+    p.slime = R.range(0.8, 1.4);
+    p.SS = 3;                    // it is big; keep the bake affordable
+    return p;
+  }
+
   /* A starting point for hand-editing a crawler, rather than one of
      the wilder random rolls. */
   function defaultCrawler() {
@@ -311,8 +347,8 @@ window.CONFIG = (function () {
   return {
     LEVEL_DEFAULTS, RUN_DEFAULTS, DIFFICULTY,
     STYLE_AFFINITY, STYLE_KEYS, HARSH_PALETTES,
-    ARCHETYPES, archetypeParams, defaultMerc, randomMerc,
-    CRAWLER_PALETTES, crawlerParams, defaultCrawler,
+    ARCHETYPES, archetypeParams, CORRUPT_RATE, defaultMerc, randomMerc,
+    CRAWLER_PALETTES, crawlerParams, overlordParams, defaultCrawler,
     randomLevelCfg, applyCityPreset
   };
 })();

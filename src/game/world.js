@@ -65,20 +65,36 @@ window.WORLD = (function () {
         } else {
           yield { phase: 'rigs', weight: 0.14,
                   msg: 'forging hostiles — ' + kind + ' ' + (v + 1) + '/' + variants };
-          rigs[kind].push(new window.SPRITE.Rig(
-            window.CONFIG.archetypeParams(kind, seed, cfg.style)));
+          rigs[kind].push(new window.SPRITE.Rig(window.CONFIG.archetypeParams(
+            kind, seed, cfg.style,
+            window.CONFIG.CORRUPT_RATE[opts.difficulty] || 0.30)));
         }
         done++;
       }
     }
 
+    /* ---- 4. scrap: the physics debris scattered through the level ---- */
+    yield { phase: 'rigs', weight: 0.04, msg: 'stamping scrap — crates and rubble' };
+    const scrapSeed = (cfg.seed ^ 0x5c2a) >>> 0;
+    const scrapParams = Object.assign(
+      window.SCRAPFORGE.randomParams(scrapSeed),
+      { size: 15 + (cfg.seed % 6) },
+      opts.scrap || {},          // the build screen's debris panel, if used
+      { dmgFrames: 3 });
+    const scrap = window.SCRAPFORGE.forgeSet(scrapSeed, { params: scrapParams });
+
+    /* ---- 5. the boss ---- */
+    yield { phase: 'rigs', weight: 0.10, msg: 'something large is already here' };
+    const overlordRig = new window.SPRITE.CrawlerRig(
+      window.CONFIG.overlordParams((cfg.seed ^ 0x0b055) >>> 0, cfg));
+
     yield { phase: 'deploy', msg: 'deploying hostiles', weight: 0.02 };
-    const M = new Mission(L, cfg, playerRig, rigs, mix, diff, opts, rng);
+    const M = new Mission(L, cfg, playerRig, rigs, mix, diff, opts, rng, scrap, overlordRig);
     return M;
   }
 
   /* ---------------- mission ---------------- */
-  function Mission(L, cfg, playerRig, rigs, mix, diff, opts, rng) {
+  function Mission(L, cfg, playerRig, rigs, mix, diff, opts, rng, scrap, overlordRig) {
     this.L = L; this.cfg = cfg; this.diff = diff; this.opts = opts;
     this.world = new window.PHYSICS.World(L.plats);
     this.rigs = rigs;
@@ -102,6 +118,15 @@ window.WORLD = (function () {
     this.pickups = [];
     this.slime = [];        // trail stuck to the terrain
     this.gibs = [];         // chunks with their own little physics
+    this.vapors = [];       // the demonic exhaust the corrupted vent
+    this.scrap = scrap || null;
+    this.rigid = new window.RIGID.Sim(this.world);
+    this.rigid.levelWidth = L.LW;
+    if (scrap) this.scatterScrap(rng);
+    this.overlordRig = overlordRig || null;
+    this.overlord = null;
+    this.bossBanner = 0;
+    if (overlordRig) this.placeOverlord();
     this.spawnEnemies(mix, rng);
 
     this.scroll = 0;
@@ -167,6 +192,12 @@ window.WORLD = (function () {
       }
       const e = new E.Enemy(rig, x, y, kind, window.CONFIG.ARCHETYPES[kind],
                             this.diff, (this.cfg.seed + i * 2654435761) >>> 0);
+      e.corrupt = rig.params.corrupt || 0;
+      if (e.corrupt > 0) {
+        // whatever is in them makes them meaner
+        e.maxHp = Math.round(e.maxHp * (1 + e.corrupt * 0.5));
+        e.hp = e.maxHp;
+      }
       this.enemies.push(e);
     }
 
@@ -178,6 +209,191 @@ window.WORLD = (function () {
       g.isGuard = true;
       this.enemies.push(g);
     }
+  };
+
+  /* Scatter debris along the ground runs. Bodies start asleep, so a
+     level full of crates costs nothing until something disturbs one. */
+  Mission.prototype.scatterScrap = function (rng) {
+    const kinds = window.SCRAPFORGE.KINDS;
+    const runs = this.ground;
+    if (!runs.length) return;
+    const want = Math.round(this.L.LW / 105);
+    const safeX = this.player.x + 90;      // not on top of the drop-in
+    for (let i = 0; i < want; i++) {
+      const run = runs[rng.int(0, runs.length - 1)];
+      if (run.w < 44) continue;
+      if (run.x + run.w < safeX) continue;
+      const kind = kinds[rng.int(0, kinds.length - 1)];
+      const sheet = this.scrap[kind];
+      if (!sheet) continue;
+      const x = rng.range(Math.max(run.x + 14, safeX), run.x + run.w - 14);
+      const b = new window.RIGID.Body(sheet, x, run.y - sheet.body.halfH - 1, 0);
+      // stack a second piece on some of them
+      b.asleep = true; b.rest = 99;
+      this.rigid.add(b);
+      if (rng.chance(0.34)) {
+        const k2 = kinds[rng.int(0, kinds.length - 1)];
+        const s2 = this.scrap[k2];
+        if (s2) {
+          const t = new window.RIGID.Body(s2, x + rng.range(-4, 4),
+            run.y - sheet.body.halfH * 2 - s2.body.halfH - 1, 0);
+          t.asleep = true; t.rest = 99;
+          this.rigid.add(t);
+        }
+      }
+    }
+  };
+
+  /* The boss holds the ground before the extraction pad — you have to
+     go through it, and there is room to fight. */
+  Mission.prototype.placeOverlord = function () {
+    const last = this.ground[this.ground.length - 1];
+    if (!last) return;
+    const x = Math.max(this.player.x + 400, this.exit.x - 210);
+    const y = clamp(last.y - 78, this.overlordRig.radiusMax + 14, LV.H - 40);
+    const O = new E.Overlord(this.overlordRig, x, y,
+      window.CONFIG.ARCHETYPES.overlord, this.diff, (this.cfg.seed ^ 0xb055) >>> 0);
+    this.overlord = O;
+    this.enemies.push(O);
+  };
+
+  /* ---------------- debris ---------------- */
+
+  /* Splinters off a body, coloured from the piece that was hit. */
+  Mission.prototype.chipBody = function (b, n) {
+    const pal = window.SCRAPFORGE.PALETTES[b.sheet.palette] ||
+                window.SCRAPFORGE.PALETTES.steel;
+    for (let i = 0; i < n; i++) {
+      const g = b.b.gibs.length ? b.b.gibs[(Math.random() * b.b.gibs.length) | 0] : { x: 0, y: 0 };
+      const a = Math.random() * TAU, sp = 0.6 + Math.random() * 2.2;
+      this.parts.push(new E.Particle(b.x + g.x, b.y + g.y,
+        Math.cos(a) * sp, Math.sin(a) * sp - 0.5,
+        0.25 + Math.random() * 0.4,
+        Math.random() < 0.4 ? pal.trim[1] : pal.body[Math.random() < 0.5 ? 0 : 1], 0.08));
+    }
+  };
+
+  Mission.prototype.breakBody = function (b) {
+    if (b.dead) return;
+    b.dead = true;
+    if (b.held && b.held.grab === b) { b.held.grab = null; b.held = null; }
+    this.chipBody(b, 16);
+    const pal = window.SCRAPFORGE.PALETTES[b.sheet.palette] ||
+                window.SCRAPFORGE.PALETTES.steel;
+    this.explode(b.x, b.y, pal.body[0], pal.mark, 0.8);
+    window.AUDIO.play('boom', null, this.distTo(b.x));
+    // things keep useful items in crates
+    if (Math.random() < 0.30) {
+      const r = Math.random();
+      this.pickups.push(new E.Pickup(b.x, b.y,
+        r < 0.45 ? 'health' : 'ammo', r < 0.45 ? 25 : null));
+    }
+  };
+
+  /* A body moving fast enough hurts whatever it lands on — which is
+     the entire point of the boss picking them up. */
+  Mission.prototype.stepCrush = function (dt) {
+    const P = this.player;
+    if (P.dead || this.state !== 'play') return;
+    for (const b of this.rigid.bodies) {
+      if (b.dead || b.held) continue;
+      const speed = Math.hypot(b.vx, b.vy);
+      if (speed < 2.2 && b.dangerT <= 0) continue;
+      if (Math.abs(b.x - P.x) > b.hw + P.w * 0.5) continue;
+      if (Math.abs(b.y - (P.y - P.h * 0.5)) > b.hh + P.h * 0.5) continue;
+      const dmg = Math.min(34, 6 + speed * 3.2 * (b.mass * 0.6 + 0.5));
+      if (P.hurt(dmg)) {
+        this.hitFlash = 0.32;
+        this.shake = Math.min(6, this.shake + 2.0);
+        b.vx *= -0.3; b.vy *= -0.3;
+        b.dangerT = 0;
+        this.chipBody(b, 6);
+      }
+    }
+    // thrown debris also mangles other hostiles
+    for (const b of this.rigid.bodies) {
+      if (b.dead || b.held || b.dangerT <= 0) continue;
+      const speed = Math.hypot(b.vx, b.vy);
+      if (speed < 2.6) continue;
+      for (const e of this.enemies) {
+        if (e.dead || e === b.thrownBy) continue;
+        if (Math.abs(b.x - e.x) > b.hw + e.w * 0.5) continue;
+        const ey = e.kind === 'crawler' || e.kind === 'overlord' ? e.y : e.y - e.h * 0.5;
+        if (Math.abs(b.y - ey) > b.hh + e.h * 0.5) continue;
+        e.hurtBy(speed * 2.2, this);
+        b.dangerT = 0;
+        b.vx *= -0.25; b.vy *= -0.25;
+        break;
+      }
+    }
+  };
+
+  /* ---------------- demonic vapour ---------------- */
+  Mission.prototype.vapor = function (x, y, scale) {
+    if (this.vapors.length > 260) this.vapors.shift();
+    const s = scale || 1;
+    this.vapors.push({
+      x, y,
+      vx: (Math.random() - 0.5) * 0.34,
+      vy: -0.16 - Math.random() * 0.30,
+      r: (3 + Math.random() * 6) * s,
+      grow: 0.10 + Math.random() * 0.16,
+      life: 0.85 + Math.random() * 1.1, max: 1.95,
+      spin: (Math.random() - 0.5) * 0.06,
+      rot: Math.random() * TAU
+    });
+  };
+
+  Mission.prototype.stepVapor = function (dt) {
+    for (let i = this.vapors.length - 1; i >= 0; i--) {
+      const v = this.vapors[i];
+      v.life -= dt;
+      if (v.life <= 0) { this.vapors.splice(i, 1); continue; }
+      v.x += v.vx; v.y += v.vy;
+      v.vy *= 0.985; v.vx *= 0.99;
+      v.r += v.grow;
+      v.rot += v.spin;
+    }
+  };
+
+  /* ---------------- boss callbacks ---------------- */
+  Mission.prototype.onOverlordWake = function (O) {
+    this.say('THE OVERLORD STIRS');
+    this.bossBanner = 3.2;
+    this.shake = Math.min(6, this.shake + 3);
+    window.AUDIO.play('alarm');
+    for (let i = 0; i < 26; i++) this.vapor(O.x + (Math.random() - 0.5) * 60,
+                                            O.y + (Math.random() - 0.5) * 50, 1.8);
+  };
+  Mission.prototype.onOverlordPhase = function (O, ph) {
+    this.say('OVERLORD — PHASE ' + ph);
+    this.shake = Math.min(6, this.shake + 2.4);
+    O.invuln = 0.6;
+    window.AUDIO.play('alarm');
+    for (let i = 0; i < 30; i++) this.vapor(O.x + (Math.random() - 0.5) * 70,
+                                            O.y + (Math.random() - 0.5) * 60, 2.0);
+  };
+  Mission.prototype.onOverlordGrab = function (O, body) {
+    window.AUDIO.play('hit', null, this.distTo(O.x));
+  };
+  Mission.prototype.onOverlordThrow = function (O, body) {
+    this.shake = Math.min(5, this.shake + 1.4);
+    window.AUDIO.play('lash', null, this.distTo(O.x));
+  };
+  Mission.prototype.onOverlordDeath = function (O) {
+    this.shake = 8;
+    this.kills++;
+    this.player.score += O.A.score;
+    this.say('OVERLORD DOWN');
+    window.AUDIO.play('boom', null, 0);
+    for (let i = 0; i < 60; i++) this.vapor(O.x + (Math.random() - 0.5) * 90,
+                                            O.y + (Math.random() - 0.5) * 80, 2.4);
+    this.gib(O, 40);
+    this.explode(O.x, O.y, '#ff5a3d', '#ffd08a', 2.6);
+    // it drops everything worth having
+    for (let i = 0; i < 3; i++)
+      this.pickups.push(new E.Pickup(O.x + (i - 1) * 16, O.y, 'health', 40));
+    this.pickups.push(new E.Pickup(O.x, O.y - 10, 'weapon', 'cannon'));
   };
 
   /* ---------------- helpers used by entities ---------------- */
@@ -241,8 +457,22 @@ window.WORLD = (function () {
     for (const e of this.enemies) {
       if (e.dead) { e.deathT += dt; continue; }
       // Only simulate what's near the view; the rest hold position.
-      if (Math.abs(e.x - (this.scroll + LV.W / 2)) > LV.W * 1.35) continue;
+      // The boss is never culled: it owns the arena you are fighting in.
+      if (!e.boss && Math.abs(e.x - (this.scroll + LV.W / 2)) > LV.W * 1.35) continue;
       e.step(this.world, P, dt, this);
+      /* Corrupted mercs vent, and ride a little off the deck. The lift
+         is cosmetic — it is applied at draw time, not to the collision
+         position — so the thing you shoot at is still where it stands. */
+      if (e.corrupt > 0) {
+        e.corruptT = (e.corruptT || 0) + dt;
+        e.lift = (1.5 + Math.sin(e.corruptT * 2.2) * 1.2) * Math.min(1, e.corrupt * 1.3);
+        e.ventT = (e.ventT || 0) - dt;
+        if (e.ventT <= 0 && Math.abs(e.x - (this.scroll + LV.W / 2)) < LV.W) {
+          e.ventT = 0.20 + Math.random() * 0.22;
+          this.vapor(e.x + (Math.random() - 0.5) * e.w,
+                     e.y - e.h * (0.3 + Math.random() * 0.6), 0.55 + e.corrupt * 0.5);
+        }
+      }
       if (!P.dead && this.state === 'play') {
         const touching = e.kind === 'crawler'
           ? Math.hypot(P.x - e.x, (P.y - P.h * 0.5) - e.y) < e.rig.r + P.w * 0.5
@@ -258,6 +488,9 @@ window.WORLD = (function () {
     this.stepPickups(dt);
     this.stepSlime(dt);
     this.stepGibs(dt);
+    this.stepVapor(dt);
+    this.rigid.step(dt, b => { /* settled */ });
+    this.stepCrush(dt);
 
     for (let i = this.flashes.length - 1; i >= 0; i--) {
       this.flashes[i].life -= dt;
@@ -340,6 +573,24 @@ window.WORLD = (function () {
         b.x += b.vx / 2; b.y += b.vy / 2;
 
         if (b.x < -20 || b.x > this.L.LW + 20 || b.y < -40 || b.y > LV.H + 60) {
+          this.bullets.splice(i, 1); removed = true; break;
+        }
+        /* Debris is checked before terrain: a crate in front of a wall
+           should eat the shot, and shoving it is most of why it is
+           there in the first place. */
+        const body = this.rigid.hitTest(b.x, b.y, b.size);
+        if (body) {
+          const push = b.dmg * 0.55 + b.size * 0.5;
+          body.applyImpulse(b.vx * push * 0.16, b.vy * push * 0.16, b.x, b.y);
+          if (body.hurt(b.dmg)) {
+            this.chipBody(body, 5);
+            window.AUDIO.play('splat', null, this.distTo(body.x));
+          } else {
+            this.chipBody(body, 2);
+          }
+          if (body.hp <= 0) this.breakBody(body);
+          this.impact(b, -b.vx, -b.vy);
+          window.AUDIO.play('hit', null, this.distTo(b.x));
           this.bullets.splice(i, 1); removed = true; break;
         }
         if (this.world.solidAt(b.x, b.y, true)) {
@@ -551,6 +802,8 @@ window.WORLD = (function () {
     this.state = 'play'; this.endT = 0;
     this.bullets.length = 0;
     this.gibs.length = 0;
+    this.vapors.length = 0;
+    for (const b of this.rigid.bodies) { b.dangerT = 0; b.thrownBy = null; }
     // Let anything that was chasing lose the thread.
     for (const e of this.enemies) if (!e.dead) { e.alerted = false; e.state = 'patrol'; e.burst = 0; }
     this.say('RESPAWN');

@@ -26,17 +26,18 @@
     state: 'title',
     canvas: null, ctx: null,
     scale: 2, offX: 0, offY: 0,
-    cfg: null, merc: null, crawler: null,
+    cfg: null, merc: null, crawler: null, scrap: null,
     opts: Object.assign({}, C.RUN_DEFAULTS),
     mission: null,
     job: null, jobProgress: 0, jobMsg: '', jobPhase: '',
     title: null, titleT: 0,
     mercPreview: null, previewRig: null, previewT: 0, previewTimer: 0,
     crawlerPreview: null, crawlerRig: null, crawlerT: 0, crawlerTimer: 0, crawlerLimbs: [],
+    scrapPreview: null, scrapSet: null, scrapTimer: 0,
     mode: 'random',
     tab: 'level',
     lastStats: null,
-    panels: { level: null, merc: null, crawler: null }
+    panels: { level: null, merc: null, crawler: null, scrap: null }
   };
 
   const input = {
@@ -200,6 +201,7 @@
     App.cfg = C.randomLevelCfg(seed);
     App.merc = C.randomMerc(seed);
     App.crawler = C.crawlerParams(seed, App.cfg, 0);
+    App.scrap = Object.assign(window.SCRAPFORGE.randomParams(seed), { size: 15 + (seed % 6) });
     App.cfg.seed = seed >>> 0;
     App.merc.seed = seed >>> 0;
   }
@@ -225,6 +227,8 @@
     $('rollLevelWrap').style.display = custom && App.tab === 'level' ? '' : 'none';
     $('rollMercWrap').style.display = custom && App.tab === 'merc' ? '' : 'none';
     $('rollCrawlerWrap').style.display = custom && App.tab === 'crawler' ? '' : 'none';
+    $('scrapPreviewWrap').style.display = custom && App.tab === 'scrap' ? '' : 'none';
+    $('rollScrapWrap').style.display = custom && App.tab === 'scrap' ? '' : 'none';
 
     const w = window.WEAPONS.table[App.merc.gun];
     $('rollSummary').innerHTML =
@@ -256,6 +260,12 @@
     mcHost.appendChild(mp.frag);
     App.panels.merc = mp.groups;
 
+    const scHost = $('panel-scrap');
+    scHost.innerHTML = '';
+    const sp = S.scrapPanel(App.scrap, () => { markDirty(); scheduleScrapPreview(); });
+    scHost.appendChild(sp.frag);
+    App.panels.scrap = sp.groups;
+
     const crHost = $('panel-crawler');
     crHost.innerHTML = '';
     const cp = S.crawlerPanel(App.crawler, () => {
@@ -277,6 +287,7 @@
     if (App.panels.level) S.syncGroups(App.panels.level, App.cfg);
     if (App.panels.merc) S.syncGroups(App.panels.merc, App.merc);
     if (App.panels.crawler) S.syncGroups(App.panels.crawler, App.crawler);
+    if (App.panels.scrap) S.syncGroups(App.panels.scrap, App.scrap);
   }
 
   /* live operative preview */
@@ -417,6 +428,57 @@
     }
   }
 
+  /* debris preview: the whole set, laid out as it will be scattered */
+  function scheduleScrapPreview(immediate) {
+    clearTimeout(App.scrapTimer);
+    const go = () => {
+      try {
+        App.scrapSet = window.SCRAPFORGE.forgeSet(App.scrap.seed >>> 0,
+          { params: Object.assign({}, App.scrap, { dmgFrames: 3 }) });
+      } catch (e) { App.scrapSet = null; }
+      drawScrapPreview();
+    };
+    if (immediate) go(); else App.scrapTimer = setTimeout(go, 140);
+  }
+
+  function drawScrapPreview() {
+    const cv = App.scrapPreview;
+    if (!cv) return;
+    const ctx = cv.getContext('2d');
+    ctx.imageSmoothingEnabled = false;
+    ctx.fillStyle = '#0e1113';
+    ctx.fillRect(0, 0, cv.width, cv.height);
+    ctx.fillStyle = '#141819';
+    for (let gx = 0; gx < cv.width; gx += 16) ctx.fillRect(gx, 0, 1, cv.height);
+    for (let gy = 0; gy < cv.height; gy += 16) ctx.fillRect(0, gy, cv.width, 1);
+    const set = App.scrapSet;
+    if (!set) return;
+    const kinds = window.SCRAPFORGE.KINDS;
+    const maxW = Math.max.apply(null, kinds.map(k => set[k].CW));
+    const maxH = Math.max.apply(null, kinds.map(k => set[k].CH));
+    const cols = 3, rows = Math.ceil(kinds.length / cols);
+    const sc = Math.max(1, Math.min(4, Math.floor(Math.min(
+      (cv.width - 16) / (maxW * cols + 8), (cv.height - 30) / (maxH * rows + 8)))));
+    kinds.forEach((k, i) => {
+      const S2 = set[k];
+      const gx = 8 + (i % cols) * (maxW * sc + 8);
+      const gy = 22 + Math.floor(i / cols) * (maxH * sc + 6);
+      // show the intact state, and the wrecked one behind it faintly
+      ctx.globalAlpha = 0.30;
+      ctx.drawImage(S2.canvas, (S2.frames - 1) * S2.CW, 0, S2.CW, S2.CH,
+        gx + 4, gy + 3, S2.CW * sc, S2.CH * sc);
+      ctx.globalAlpha = 1;
+      ctx.drawImage(S2.canvas, 0, 0, S2.CW, S2.CH, gx, gy, S2.CW * sc, S2.CH * sc);
+    });
+    ctx.font = 'bold 9px "Courier New", monospace';
+    ctx.fillStyle = '#5d6a72';
+    ctx.textAlign = 'left';
+    ctx.fillText(kinds.length + ' kinds · 3 damage states', 6, 13);
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#8aa0b4';
+    ctx.fillText(App.scrap.palette, cv.width - 6, 13);
+  }
+
   /* ---------------- loading ---------------- */
   function deploy() {
     window.AUDIO.init();
@@ -428,7 +490,8 @@
       ' · ' + App.cfg.palette + ' · ' + App.cfg.levelLen + ' screens';
     $('l-tip').textContent = S.TIPS[(Math.random() * S.TIPS.length) | 0];
     App.job = {
-      gen: window.WORLD.buildMission(App.cfg, App.merc, App.opts),
+      gen: window.WORLD.buildMission(App.cfg, App.merc,
+              Object.assign({}, App.opts, { scrap: App.scrap })),
       done: 0, seen: 0, t0: performance.now()
     };
   }
@@ -591,6 +654,7 @@
     App.ctx = App.canvas.getContext('2d');
     App.mercPreview = $('mercPreview');
     App.crawlerPreview = $('crawlerPreview');
+    App.scrapPreview = $('scrapPreview');
     resize();
     bindInput();
     bootTitle();
@@ -618,6 +682,7 @@
       syncPanels();
       schedulePreview(true);
       scheduleCrawlerPreview(true);
+      scheduleScrapPreview(true);
     };
     $('seedField').onchange = () => {
       const v = parseInt($('seedField').value.replace(/[^0-9a-fA-F]/g, ''), 16);
@@ -627,6 +692,7 @@
       syncPanels();
       schedulePreview(true);
       scheduleCrawlerPreview(true);
+      scheduleScrapPreview(true);
     };
 
     $('btn-rollLevel').onclick = () => {
@@ -653,6 +719,14 @@
       buildPanels();
       scheduleCrawlerPreview(true);
       if (App.opts.crawler) App.opts.crawler = App.crawler;
+    };
+    $('btn-rollScrap').onclick = () => {
+      App.scrap = Object.assign(window.SCRAPFORGE.randomParams(rollSeed()),
+                                { size: 13 + ((Math.random() * 8) | 0) });
+      markDirty();
+      window.AUDIO.play('ui');
+      buildPanels();
+      scheduleScrapPreview(true);
     };
     $('pinCrawler').onchange = e => {
       App.opts.crawler = e.target.checked ? App.crawler : null;
@@ -689,6 +763,7 @@
     $('tab-level').onclick = () => setTab('level');
     $('tab-merc').onclick = () => setTab('merc');
     $('tab-crawler').onclick = () => setTab('crawler');
+    $('tab-scrap').onclick = () => setTab('scrap');
 
     $('btn-deploy').onclick = deploy;
     $('btn-back').onclick = () => { window.AUDIO.play('ui'); show('title'); };
@@ -731,7 +806,12 @@
     $('rollLevelWrap').style.display = custom && t === 'level' ? '' : 'none';
     $('rollMercWrap').style.display = custom && t === 'merc' ? '' : 'none';
     $('rollCrawlerWrap').style.display = custom && t === 'crawler' ? '' : 'none';
+    $('panel-scrap').style.display = t === 'scrap' ? '' : 'none';
+    $('tab-scrap').classList.toggle('on', t === 'scrap');
+    $('scrapPreviewWrap').style.display = custom && t === 'scrap' ? '' : 'none';
+    $('rollScrapWrap').style.display = custom && t === 'scrap' ? '' : 'none';
     if (t === 'crawler') scheduleCrawlerPreview(true);
+    if (t === 'scrap') scheduleScrapPreview(true);
   }
 
   window.addEventListener('DOMContentLoaded', boot);

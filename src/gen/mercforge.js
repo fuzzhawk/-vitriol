@@ -33,9 +33,10 @@ const P={
   // gear
   helmet:'visor', antenna:false, pads:0.55, backpack:'tank', plates:true,
   taper:0.62, armour:0.7, grit:0.75,
+  corrupt:0, growths:0.8, rotVeins:0.9,
   gun:'rifle', gunSize:1.0, twoHanded:true, muzzleBrake:true,
   // colour
-  colSuit:'#4c6076', colSuit2:'#2b3646', colAccent:'#c2571f',
+  colSuit:'#4c6076', colSuit2:'#2b3646', colAccent:'#c2571f', colRot:'#8c1e22',
   colSkin:'#d9a173', colVisor:'#f0a830', colGun:'#7d8794', colOutline:'#0d0b09',
   rim:0.26, shadow:0.34,
   // motion
@@ -64,7 +65,12 @@ const CONTROLS=[
   {k:'backpack',l:'back unit',t:'s',opt:['none','tank','jet','pack']},
   {k:'pads',l:'shoulder pads',t:'r',min:0,max:1.4,step:0.05},
   {k:'plates',l:'chest plate',t:'c'},
-  {k:'armour',l:'panelling',t:'r',min:0,max:1.5,step:0.05},
+  {k:'armour',l:'panelling',t:'r',min:0,max:1.5,step:0.05}
+ ]},
+ {g:'CORRUPTION',c:[
+  {k:'corrupt',l:'corruption',t:'r',min:0,max:1,step:0.02},
+  {k:'growths',l:'biotech growth',t:'r',min:0,max:1.5,step:0.05},
+  {k:'rotVeins',l:'rot veins',t:'r',min:0,max:1.5,step:0.05},
   {k:'antenna',l:'antenna',t:'c'}
  ]},
  {g:'WEAPON',c:[
@@ -131,12 +137,16 @@ function randomParams(seed){
     antenna:R()>0.65,
     muzzleBrake:R()>0.4,
     pads:R()*1.05,
+    corrupt:R()<0.22?0.35+R()*0.6:0,
+    growths:0.5+R()*0.9,
+    rotVeins:0.5+R()*0.9,
     colSuit:hsl(h,18+R()*30,32+R()*14),
     colSuit2:hsl(h+(R()*20-10),22+R()*24,13+R()*9),
     colAccent:hsl(comp,55+R()*35,42+R()*13),
     colSkin:hsl(22+R()*14,32+R()*22,48+R()*22),
     colVisor:hsl((comp+40)%360,70+R()*25,56+R()*14),
     colGun:hsl(h+180,6+R()*10,36+R()*13),
+    colRot:hsl(348+R()*24,62+R()*28,30+R()*16),
     stride:0.18+R()*0.26,
     lift:0.06+R()*0.14,
     bounce:R()*0.05,
@@ -170,7 +180,7 @@ const PRESETS={
    The ramp arrays let a pixel walk its own family's ramp by ±n without
    the caller knowing which family it belongs to. */
 function buildPalette(){
-  const fams=[P.colSuit,P.colSuit2,P.colAccent,P.colSkin,P.colVisor,P.colGun];
+  const fams=[P.colSuit,P.colSuit2,P.colAccent,P.colSkin,P.colVisor,P.colGun,P.colRot];
   let visorRamp=null;
   const list=[];
   const rampOf=[];      // idx -> the 5 indices of its family ramp
@@ -287,6 +297,10 @@ function gunSpec(){
   }[P.gun];
   return {u,len:t.len*u,h:t.h*u,grip:t.grip*u,mag:t.mag,scope:t.scope,drum:t.drum};
 }
+
+/* Corruption placement needs its own deterministic stream: it is a
+   property of the build, and must not shift frame to frame. */
+function makeRotRng(seed){return rng((seed^0x6b0d)>>>0);}
 
 /* ---------- character renderer (local space: feet at 0, up = -y, faces +x) ---------- */
 function drawChar(g,ps,C,opts){
@@ -598,6 +612,89 @@ function drawChar(g,ps,C,opts){
     g.restore();
   }
 
+  /* --- corruption ---------------------------------------------
+     Something has got inside the suit and is growing back out of it.
+     Drawn last, over armour and limbs alike, because that is what it
+     is doing: rot does not respect the panel lines. Everything is
+     placed off torso anatomy, so it lands on the body without the
+     drawing code needing a silhouette mask. */
+  if(P.corrupt>0.01){
+    const K=P.corrupt;
+    const rot=P.colRot;
+    const cr=makeRotRng(P.seed);
+    g.save();g.translate(ps.hipX,ps.hipY);g.rotate(ps.lean);
+    const sw2=ps.shW*0.5,T2=ps.torso;
+
+    /* veins crawling out from the chest */
+    if(P.rotVeins>0.02){
+      const nv=Math.round((2+K*5)*P.rotVeins);
+      g.strokeStyle=shade(rot,-0.30);
+      for(let i=0;i<nv;i++){
+        let vx=cr()*sw2*0.5-sw2*0.25, vy=-T2*(0.55+cr()*0.25);
+        let ang=cr()*TAU;
+        g.lineWidth=Math.max(1,H*0.012*(0.7+K));
+        g.beginPath();g.moveTo(vx,vy);
+        for(let k=0;k<4;k++){
+          ang+=(cr()-0.5)*1.6;
+          vx+=Math.cos(ang)*H*0.035;vy+=Math.sin(ang)*H*0.035;
+          g.lineTo(vx,vy);
+        }
+        g.stroke();
+      }
+    }
+
+    /* the core: whatever is driving it, glowing through the chest */
+    const coreR=Math.max(1.4,H*0.030*(0.6+K));
+    g.fillStyle=shade(rot,-0.35);
+    g.beginPath();g.arc(0,-T2*0.66,coreR*1.9,0,TAU);g.fill();
+    g.fillStyle=rot;
+    g.beginPath();g.arc(0,-T2*0.66,coreR*1.15,0,TAU);g.fill();
+    g.fillStyle=shade(rot,0.55);
+    g.beginPath();g.arc(0,-T2*0.66,Math.max(1,coreR*0.5),0,TAU);g.fill();
+
+    /* biotech growths: lumps pushing out through the shell */
+    if(P.growths>0.02){
+      const ng=Math.round((1+K*4)*P.growths);
+      for(let i=0;i<ng;i++){
+        const side=cr()<0.5?-1:1;
+        const gx=side*sw2*(0.45+cr()*0.75);
+        const gy=-T2*(0.30+cr()*0.72);
+        const gr=Math.max(1.6,H*(0.022+cr()*0.040)*(0.6+K));
+        // lumpy, not a circle
+        g.fillStyle=shade(rot,-0.18);
+        g.beginPath();
+        for(let k=0;k<7;k++){
+          const aa=(k/7)*TAU, rr=gr*(0.65+cr()*0.7);
+          const qx=gx+Math.cos(aa)*rr, qy=gy+Math.sin(aa)*rr*0.85;
+          k?g.lineTo(qx,qy):g.moveTo(qx,qy);
+        }
+        g.closePath();g.fill();
+        g.fillStyle=shade(rot,0.22);
+        g.beginPath();g.arc(gx-gr*0.25,gy-gr*0.3,Math.max(1,gr*0.34),0,TAU);g.fill();
+        // a tendril whipping off the lump
+        if(cr()<0.55*K+0.2){
+          g.strokeStyle=shade(rot,-0.25);
+          g.lineWidth=Math.max(1,gr*0.34);g.lineCap='round';
+          const ta=cr()*TAU, tl=gr*(1.6+cr()*2.2);
+          g.beginPath();g.moveTo(gx,gy);
+          g.quadraticCurveTo(gx+Math.cos(ta)*tl*0.6-gr,gy+Math.sin(ta)*tl*0.6,
+                             gx+Math.cos(ta)*tl,gy+Math.sin(ta)*tl);
+          g.stroke();
+        }
+      }
+    }
+    g.restore();
+
+    /* the head goes too: a rot halo behind it and a burning eye */
+    if(K>0.3){
+      const h2=ps.hd,r2=ps.headR;
+      g.fillStyle=shade(rot,-0.42);
+      g.beginPath();g.arc(h2.x-r2*0.2,h2.y-r2*0.15,r2*(0.5+K*0.5),0,TAU);g.fill();
+      g.fillStyle=shade(rot,0.35);
+      g.beginPath();g.arc(h2.x+r2*0.42,h2.y-r2*0.08,Math.max(1,r2*0.24*K),0,TAU);g.fill();
+    }
+  }
+
   /* --- front arm --- */
   {
     const el=ik(shF.x,shF.y,front.x,front.y,ps.arm*0.5,ps.arm*0.5,1);
@@ -728,7 +825,7 @@ function aimAngles(){
 function geoKey(){
   return [P.height,P.headSize,P.torsoLen,P.legLen,P.armLen,P.shoulderW,P.hipW,P.limbThick,
     P.bootSize,P.gloveSize,P.helmet,P.antenna,P.pads,P.backpack,P.plates,P.gun,P.gunSize,
-    P.taper,P.armour,
+    P.taper,P.armour,P.corrupt,P.growths,
     P.twoHanded,P.muzzleBrake,P.runFrames,P.stride,P.lift,P.bounce,P.lean,P.runLean,
     P.idleBob,P.tuck,P.aimRows,P.outline].join('|');
 }

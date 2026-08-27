@@ -586,8 +586,243 @@ window.ENTITIES = (function () {
     }
   };
 
+  /* ============================================================
+     OVERLORD — the levitating super blob
+
+     A crawler that has stopped needing the floor. It does not anchor
+     to terrain: it hangs in the air on its own and uses its tentacles
+     for the two things it has left, lashing and throwing. The rigid
+     bodies scattered around the level are its ammunition.
+
+     Fought in three phases that change what it reaches for, so a
+     fight has a shape rather than being a damage sponge with a health
+     bar over it.
+     ============================================================ */
+  const OVER = {
+    hover: 0.055,        // bob amplitude per step
+    drift: 0.020,        // how hard it accelerates toward its station
+    damp: 0.955,
+    standoff: 108,       // where it likes to sit relative to the player
+    grabRange: 150,
+    holdTime: 0.85,      // wind-up before a throw, so it can be read
+    throwSpeed: 6.2
+  };
+
+  function Overlord(rig, x, y, arche, diff, seed) {
+    Crawler.call(this, rig, x, y, arche, diff, seed);
+    this.kind = 'overlord';
+    this.boss = true;
+    this.flying = true;
+    this.ground = false;
+    this.orient = 'floor';       // it never clings, so the row never changes
+    this.phase = 1;
+    this.phaseT = 0;
+    this.grab = null;            // the body it is holding
+    this.grabT = 0;
+    this.aggroed = false;
+    this.stationT = 0;
+    this.station = { x, y };
+    this.slamT = 0;
+    this.vaporT = 0;
+    /* Lash range has to cover the standoff it actually keeps, or it
+       hovers just outside its own reach and never swings at anything.
+       A tentacle strip warps to any length, so a long lash costs
+       nothing to draw. */
+    this.maxReach = Math.max(rig.tent.length * 1.15, OVER.standoff + 95);
+    this.minReach = rig.radiusMax * 1.2;
+    this.invuln = 0;
+  }
+  Overlord.prototype = Object.create(Crawler.prototype);
+  Overlord.prototype.constructor = Overlord;
+
+  Overlord.prototype.phaseOf = function () {
+    const f = this.hp / this.maxHp;
+    return f > 0.66 ? 1 : f > 0.33 ? 2 : 3;
+  };
+
+  Overlord.prototype.step = function (world, player, dt, out) {
+    if (this.dead) { this.deathT += dt; return; }
+    this.t += dt;
+    this.pulse += dt * 2.2;
+    this.phaseT += dt;
+    if (this.flash > 0) this.flash -= dt;
+    if (this.invuln > 0) this.invuln -= dt;
+    this.strikeCool -= dt;
+
+    const ph = this.phaseOf();
+    if (ph !== this.phase) {
+      this.phase = ph; this.phaseT = 0;
+      out.onOverlordPhase(this, ph);
+    }
+
+    const dx = player.x - this.x;
+    const dy = (player.y - player.h * 0.5) - this.y;
+    const dist = Math.hypot(dx, dy);
+    /* It is the size of a room; it notices you from further away than
+       a merc does, and mostly by how close you are horizontally —
+       being on a deck below it is still walking into its arena. */
+    const wake = Math.abs(dx) < 300 && Math.abs(dy) < 200;
+    if (!this.aggroed && wake && !player.dead) {
+      this.aggroed = true; this.alerted = true;
+      out.onOverlordWake(this);
+    }
+    if (!this.aggroed) { this.idleHover(dt); return; }
+
+    /* --- station keeping: hold a standoff, higher in later phases --- */
+    this.stationT -= dt;
+    if (this.stationT <= 0) {
+      this.stationT = 1.4 + Math.random() * 1.2;
+      const side = dx > 0 ? -1 : 1;
+      const lift = this.phase === 3 ? 78 : this.phase === 2 ? 60 : 46;
+      this.station = {
+        x: player.x + side * (OVER.standoff + Math.random() * 40),
+        y: clamp((player.y - player.h * 0.5) - lift + (Math.random() - 0.5) * 30,
+                 this.rig.radiusMax + 8, LV.H - this.rig.radiusMax - 30)
+      };
+    }
+    this.vx += (this.station.x - this.x) * OVER.drift;
+    this.vy += (this.station.y - this.y) * OVER.drift;
+    this.vy += Math.sin(this.pulse * 0.8) * OVER.hover;
+    this.vx *= OVER.damp; this.vy *= OVER.damp;
+    this.vx = clamp(this.vx, -2.6, 2.6);
+    this.vy = clamp(this.vy, -2.2, 2.2);
+    this.x += this.vx; this.y += this.vy;
+    this.x = clamp(this.x, 20, out.L.LW - 20);
+    this.y = clamp(this.y, this.rig.radiusMax + 6, LV.H - this.rig.radiusMax - 6);
+    this.face = dx > 0 ? 1 : -1;
+
+    /* --- vapor: it is always venting --- */
+    this.vaporT -= dt;
+    if (this.vaporT <= 0) {
+      this.vaporT = 0.05;
+      out.vapor(this.x + (Math.random() - 0.5) * this.rig.radiusMax * 1.6,
+                this.y + (Math.random() - 0.5) * this.rig.radiusMax * 1.4,
+                1.1 + this.phase * 0.25);
+    }
+
+    this.stepGrab(world, player, dt, dist, out);
+    this.stepLimbsBoss(world, player, dt, dist, out);
+    this.animateBlob(dt);
+  };
+
+  /* Crawler animates inline rather than through Actor.animate, so the
+     boss carries its own. It tenses while winding up a throw and
+     flinches when hit; otherwise it breathes. */
+  Overlord.prototype.animateBlob = function (dt) {
+    const want = this.flash > 0 ? 'hurt' : (this.grab ? 'pull' : 'idle');
+    if (want !== this.anim) { this.anim = want; this.t = 0; }
+    this.t += dt;
+    this.frame = this.rig.frameOf(this.anim, this.t);
+  };
+
+  Overlord.prototype.idleHover = function (dt) {
+    this.vy += Math.sin(this.pulse * 0.6) * OVER.hover * 0.6;
+    this.vy *= 0.94; this.vx *= 0.94;
+    this.y += this.vy; this.x += this.vx;
+    this.animateBlob(dt);
+  };
+
+  /* Grab a rigid body, wind up where the player can see it, throw. */
+  Overlord.prototype.stepGrab = function (world, player, dt, dist, out) {
+    if (this.phase === 1) return;                   // phase 1 is lashes only
+    if (this.grab) {
+      this.grabT += dt;
+      // carry it out to one side while winding up
+      const orbit = this.pulse * 2.4;
+      const rr = this.rig.radiusMax * 1.5;
+      this.grab.x = this.x + Math.cos(orbit) * rr;
+      this.grab.y = this.y + Math.sin(orbit) * rr * 0.6 - this.rig.radiusMax * 0.4;
+      this.grab.spin = 0.16;
+      if (this.grabT >= OVER.holdTime) {
+        const tx = player.x, ty = player.y - player.h * 0.5;
+        const a = Math.atan2(ty - this.grab.y, tx - this.grab.x);
+        const sp = OVER.throwSpeed * (this.phase === 3 ? 1.2 : 1);
+        this.grab.held = null;
+        this.grab.wake();
+        this.grab.vx = Math.cos(a) * sp;
+        this.grab.vy = Math.sin(a) * sp;
+        this.grab.spin = (Math.random() - 0.5) * 0.5;
+        this.grab.dangerT = 1.6;
+        this.grab.thrownBy = this;
+        out.onOverlordThrow(this, this.grab);
+        this.grab = null; this.grabT = 0;
+        this.throwCool = this.phase === 3 ? 1.1 : 1.8;
+      }
+      return;
+    }
+    this.throwCool = (this.throwCool || 0) - dt;
+    if (this.throwCool > 0) return;
+    const body = out.rigid.nearest(this.x, this.y, OVER.grabRange, b => !b.dangerT || b.dangerT <= 0);
+    if (!body) { this.throwCool = 0.5; return; }
+    body.held = this;
+    body.wake();
+    this.grab = body; this.grabT = 0;
+    out.onOverlordGrab(this, body);
+  };
+
+  /* Tentacles have nothing to hold onto up here, so they lash and
+     coil rather than cast for anchors. */
+  Overlord.prototype.stepLimbsBoss = function (world, player, dt, dist, out) {
+    for (const l of this.limbs) {
+      l.t += dt;
+      if (l.state === 'strike') {
+        const k = clamp(l.t / LIMB.strikeTime, 0, 1);
+        l.cast = { x: l.from.x + (l.to.x - l.from.x) * k,
+                   y: l.from.y + (l.to.y - l.from.y) * k };
+        if (k >= 1) {
+          const pd = Math.hypot(player.x - l.to.x, (player.y - player.h * 0.5) - l.to.y);
+          if (pd < 20 && !player.dead) {
+            if (player.hurt(this.A.lash || 14)) out.onCrawlerHit(this, player);
+          }
+          l.state = 'retract'; l.t = 0;
+        }
+        continue;
+      }
+      if (l.state === 'retract') {
+        if (l.t > 0.16) { l.state = 'idle'; l.cast = null; l.t = 0; }
+        continue;
+      }
+      /* idle: coil in the air, and lash when the player is close */
+      const socket = this.rig.socket(l.i, this.x, this.y, this.face < 0, this.orient);
+      if (this.strikeCool <= 0 && dist < this.maxReach && !player.dead) {
+        // later phases swing more often rather than swinging harder
+        this.strikeCool = (this.A.cooldown || 1.2) / this.diff.fireRate /
+                          (this.phase === 3 ? 1.8 : this.phase === 2 ? 1.3 : 1);
+        l.state = 'strike'; l.t = 0;
+        l.from = { x: socket.x, y: socket.y };
+        l.to = { x: player.x, y: player.y - player.h * 0.5 };
+        out.onCrawlerLash(this, l.to.x, l.to.y);
+        continue;
+      }
+      // resting coil: a slow drifting reach into empty air
+      const swirl = this.pulse * 0.7 + l.phase;
+      const reach = this.rig.tent.length * (0.34 + 0.14 * Math.sin(swirl));
+      const a = Math.atan2(socket.ny, socket.nx) + Math.sin(swirl * 0.6) * 0.5;
+      l.anchor = { x: socket.x + Math.cos(a) * reach,
+                   y: socket.y + Math.sin(a) * reach };
+      l.state = 'coil';
+    }
+  };
+
+  Overlord.prototype.hurtBy = function (n, out) {
+    if (this.dead || this.invuln > 0) return;
+    this.hp -= n;
+    this.flash = 0.12;
+    this.alerted = true; this.aggroed = true;
+    out.gib(this, Math.min(4, 1 + Math.round(n * 0.5)));
+    out.vapor(this.x + (Math.random() - 0.5) * 20, this.y + (Math.random() - 0.5) * 20, 1.6);
+    if (this.hp <= 0) this.kill(out, false);
+  };
+
+  Overlord.prototype.kill = function (out, silent) {
+    this.dead = true; this.deathT = 0;
+    if (this.grab) { this.grab.held = null; this.grab.wake(); this.grab = null; }
+    for (const l of this.limbs) { l.state = 'idle'; l.anchor = null; l.cast = null; }
+    if (!silent) out.onOverlordDeath(this);
+  };
+
   return {
-    Actor, Player, Enemy, Crawler, Bullet, Particle, Pickup,
-    PICKUP_KINDS, MOVE, LIMB, foldAim, clamp
+    Actor, Player, Enemy, Crawler, Overlord, Bullet, Particle, Pickup,
+    PICKUP_KINDS, MOVE, LIMB, OVER, foldAim, clamp
   };
 })();

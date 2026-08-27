@@ -29,6 +29,10 @@ window.RENDER = (function () {
        walks over it. */
     for (const sl of M.slime) drawSlime(ctx, sl, S);
 
+    /* Debris sits on the terrain and in front of it, but behind
+       anything alive. */
+    for (const b of M.rigid.bodies) drawBody(ctx, b, S);
+
     for (const p of M.pickups) drawPickup(ctx, p, S);
 
     /* corpses first, so the living stand in front of them */
@@ -53,9 +57,9 @@ window.RENDER = (function () {
       if (e.dead) continue;
       const sx = e.x - S;
       if (sx < -60 || sx > LV.W + 60) continue;
-      if (e.kind === 'crawler') drawCrawler(ctx, e, sx, S, time);
-      else drawActor(ctx, e, sx, e.y, e.flash > 0);
-      drawEnemyPip(ctx, e, sx);
+      if (e.kind === 'crawler' || e.kind === 'overlord') drawCrawler(ctx, e, sx, S, time);
+      else drawActor(ctx, e, sx, e.y - (e.lift || 0), e.flash > 0);
+      if (!e.boss) drawEnemyPip(ctx, e, sx);
     }
 
     for (const g of M.gibs) drawGib(ctx, g, S);
@@ -68,6 +72,9 @@ window.RENDER = (function () {
 
     for (const b of M.bullets) drawBullet(ctx, b, S);
     for (const p of M.parts) drawParticle(ctx, p, S);
+
+    /* Vapour goes over everything it is pouring off. */
+    for (const v of M.vapors) drawVapor(ctx, v, S);
 
     /* muzzle flashes and blast light, additive */
     ctx.save();
@@ -117,7 +124,21 @@ window.RENDER = (function () {
   }
 
   function drawActor(ctx, a, sx, sy, flashing) {
-    contactShadow(ctx, a, sx, a.ground);
+    contactShadow(ctx, a, sx, a.ground && !(a.lift > 0.5));
+    if (a.corrupt > 0) {
+      // a rot-coloured bloom, so a corrupted merc reads across a room
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      const r = a.h * 0.9;
+      const beat = 0.5 + 0.5 * Math.sin((a.corruptT || 0) * 3.1);
+      const g = ctx.createRadialGradient(sx, sy - a.h * 0.5, 0, sx, sy - a.h * 0.5, r);
+      const k = 0.20 * a.corrupt * (0.55 + beat * 0.45);
+      g.addColorStop(0, 'rgba(190,30,34,' + k + ')');
+      g.addColorStop(1, 'rgba(190,30,34,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(sx - r, sy - a.h * 0.5 - r, r * 2, r * 2);
+      ctx.restore();
+    }
     if (a.alerted && !a.dead) halo(ctx, a, sx, sy, 0.20);
     a.rig.draw(ctx, a.anim, a.frame || 0, a.local, sx, sy, a.face < 0);
     if (flashing) {
@@ -144,7 +165,9 @@ window.RENDER = (function () {
     /* --- limbs, behind --- */
     for (const l of cr.limbs) {
       let tip = null;
-      if (l.state === 'gripped' && l.anchor) tip = l.anchor;
+      // 'coil' is the boss's resting state: nothing to grip up there,
+      // so the limb drifts through empty air and still has to be drawn.
+      if ((l.state === 'gripped' || l.state === 'coil') && l.anchor) tip = l.anchor;
       else if (l.cast) tip = l.cast;
       if (!tip) continue;
       const so = rig.socket(l.i, cr.x, cr.y, flip, cr.orient);
@@ -152,7 +175,7 @@ window.RENDER = (function () {
       const rx = so.x - S, ry = so.y;
       if (Math.max(rx, tx) < -70 || Math.min(rx, tx) > LV.W + 70) continue;
       // a limb under tension bows less than one still casting
-      const slack = l.state === 'gripped' ? 0.55 : 1.0;
+      const slack = l.state === 'gripped' ? 0.55 : l.state === 'coil' ? 1.5 : 1.0;
       const bend = l.bend * slack + Math.sin(time * 2.2 + l.phase) * 3;
       const alpha = l.state === 'strike' ? 1 : (l.state === 'retract' ? 0.7 : 0.95);
       window.CRAWLERFORGE.drawTentacle(ctx, rig.tent, l.variant,
@@ -254,6 +277,61 @@ window.RENDER = (function () {
     ctx.translate(Math.round(sx), Math.round(g.y));
     ctx.rotate(g.rot);
     ctx.fillRect(-g.size / 2, -g.size / 2, g.size, g.size);
+    ctx.restore();
+  }
+
+  /* A rigid body, drawn at its spin. The sprite rotates even though
+     the collision box does not — at twenty pixels the eye reads the
+     tumble, not the box. */
+  function drawBody(ctx, b, S) {
+    const sx = b.x - S;
+    if (sx < -40 || sx > LV.W + 40) return;
+    const sh = b.sheet;
+    const src = b.frame * sh.CW;
+    ctx.save();
+    ctx.translate(Math.round(sx), Math.round(b.y));
+    // snap to eighth turns: a pixel sprite spun to arbitrary angles
+    // shimmers, and stepping it reads as tumbling rather than sliding
+    ctx.rotate(Math.round(b.rot / (Math.PI / 8)) * (Math.PI / 8));
+    ctx.drawImage(sh.canvas, src, 0, sh.CW, sh.CH,
+      -Math.round(sh.CW / 2), -Math.round(sh.CH / 2), sh.CW, sh.CH);
+    ctx.restore();
+    // a thrown piece glows at the edges so you know it will hurt
+    if (b.dangerT > 0) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      const a = clamp(b.dangerT / 1.6, 0, 1) * 0.5;
+      const r = Math.max(b.hw, b.hh) * 1.7;
+      const g = ctx.createRadialGradient(sx, b.y, 0, sx, b.y, r);
+      g.addColorStop(0, 'rgba(255,90,50,' + (0.45 * a) + ')');
+      g.addColorStop(1, 'rgba(255,90,50,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(sx - r, b.y - r, r * 2, r * 2);
+      ctx.restore();
+    }
+  }
+
+  /* Demonic vapour. Two passes: a dark body that eats the light, then
+     a dim red core inside it. Smoke that only added light read as
+     steam; something that takes light out first reads as wrong. */
+  function drawVapor(ctx, v, S) {
+    const sx = v.x - S;
+    if (sx < -40 || sx > LV.W + 40) return;
+    const a = clamp(v.life / v.max, 0, 1);
+    const fade = a * a;
+    ctx.save();
+    const g = ctx.createRadialGradient(sx, v.y, 0, sx, v.y, v.r);
+    g.addColorStop(0, 'rgba(18,4,8,' + (0.42 * fade) + ')');
+    g.addColorStop(0.6, 'rgba(28,6,10,' + (0.22 * fade) + ')');
+    g.addColorStop(1, 'rgba(28,6,10,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(sx - v.r, v.y - v.r, v.r * 2, v.r * 2);
+    ctx.globalCompositeOperation = 'lighter';
+    const g2 = ctx.createRadialGradient(sx, v.y, 0, sx, v.y, v.r * 0.55);
+    g2.addColorStop(0, 'rgba(176,26,30,' + (0.30 * fade) + ')');
+    g2.addColorStop(1, 'rgba(176,26,30,0)');
+    ctx.fillStyle = g2;
+    ctx.fillRect(sx - v.r, v.y - v.r, v.r * 2, v.r * 2);
     ctx.restore();
   }
 
@@ -443,6 +521,25 @@ window.RENDER = (function () {
     text(ctx, 'HOSTILES ' + (M.totalEnemies - M.kills) + '/' + M.totalEnemies, 4, LV.H - 18, '#8d9aa2');
     text(ctx, String(P.score).padStart(6, '0'), LV.W - 4, LV.H - 18, vis, 'right');
 
+    /* boss bar — only once it knows you are there */
+    const O = M.overlord;
+    if (O && !O.dead && O.aggroed) {
+      const bw = 170, bx2 = Math.round(LV.W / 2 - bw / 2), by2 = LV.H - 30;
+      ctx.fillStyle = 'rgba(8,10,11,.80)';
+      ctx.fillRect(bx2 - 3, by2 - 10, bw + 6, 17);
+      text(ctx, 'OVERLORD', LV.W / 2, by2 - 9, '#c8323a', 'center');
+      ctx.fillStyle = 'rgba(38,20,22,.95)';
+      ctx.fillRect(bx2, by2, bw, 4);
+      const f = clamp(O.hp / O.maxHp, 0, 1);
+      ctx.fillStyle = O.invuln > 0 && Math.floor(time * 14) % 2 ? '#ffffff' : '#c8323a';
+      ctx.fillRect(bx2, by2, Math.round(bw * f), 4);
+      // phase ticks, so the bar tells you when it changes gear
+      ctx.fillStyle = 'rgba(8,10,11,.9)';
+      ctx.fillRect(bx2 + Math.round(bw * 0.33), by2, 1, 4);
+      ctx.fillRect(bx2 + Math.round(bw * 0.66), by2, 1, 4);
+      text(ctx, 'PHASE ' + O.phase, LV.W / 2 + bw / 2, by2 - 9, '#8d9aa2', 'right');
+    }
+
     /* pickup / event banner */
     if (M.bannerT > 0 && M.banner) {
       const a = clamp(M.bannerT / 0.5, 0, 1);
@@ -537,5 +634,5 @@ window.RENDER = (function () {
   }
 
   return { frame, entityPass, hud, overlay, text, bar, hexA, FONT,
-           drawCrawler, drawSlime, drawGib };
+           drawCrawler, drawSlime, drawGib, drawBody, drawVapor };
 })();

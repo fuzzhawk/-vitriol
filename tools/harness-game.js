@@ -40,8 +40,9 @@ global.setTimeout = global.setTimeout;
 /* ---------------- load ---------------- */
 const FILES = [
   'src/gen/greebleworks.js', 'src/gen/mercforge.js', 'src/gen/crawlerforge.js',
+  'src/gen/scrapforge.js',
   'src/game/config.js', 'src/game/audio.js', 'src/game/weapons.js',
-  'src/game/sprite.js', 'src/game/physics.js', 'src/game/entities.js',
+  'src/game/sprite.js', 'src/game/physics.js', 'src/game/rigid.js', 'src/game/entities.js',
   'src/game/world.js', 'src/game/render.js', 'src/game/screens.js'
 ];
 for (const f of FILES) require(path.join(ROOT, f));
@@ -73,7 +74,7 @@ ok(window.CRAWLERFORGE.ORIENTS.length === 4, '4 surface orientations');
 ok(Object.keys(GW.STYLES).length === 14, '14 facade styles');
 ok(Object.keys(GW.SKYMOODS).length === 15, '15 sky moods');
 ok(Object.keys(GW.CITY_PRESETS).length === 15, '15 city presets');
-for (const m of ['CONFIG', 'WEAPONS', 'SPRITE', 'PHYSICS', 'ENTITIES', 'WORLD', 'RENDER', 'SCREENS', 'AUDIO']) {
+for (const m of ['CONFIG', 'WEAPONS', 'SPRITE', 'PHYSICS', 'RIGID', 'ENTITIES', 'WORLD', 'RENDER', 'SCREENS', 'AUDIO']) {
   ok(!!window[m], 'window.' + m + ' present');
 }
 
@@ -127,7 +128,19 @@ section('merc forge');
      px(base).tones + ' -> ' + px(gritty).tones + ' colours)');
   ok(tapered.CW !== base.CW || tapered.CH !== base.CH || px(tapered).n < px(base).n,
      'taper takes mass out of the limbs (' + px(base).n + ' -> ' + px(tapered).n + ' px)');
-  ok(px(armoured).tones >= px(base).tones, 'panelling adds detail');
+  /* Panelling draws straps and seams in colours already in the ramp,
+     so it need not add palette entries — what it must do is change the
+     pixels. */
+  const differs = (A, B) => {
+    if (A.CW !== B.CW || A.CH !== B.CH) return 1e6;   // a resize is a change
+    const a = A.canvas.getContext('2d').getImageData(0, 0, A.CW, A.CH).data;
+    const b = B.canvas.getContext('2d').getImageData(0, 0, B.CW, B.CH).data;
+    let n = 0;
+    for (let i = 0; i < a.length; i += 4) if (a[i] !== b[i] || a[i + 3] !== b[i + 3]) n++;
+    return n;
+  };
+  ok(differs(armoured, base) > 4, 'panelling changes the drawing (' +
+     differs(armoured, base) + ' px)');
 
   /* A five-step ramp means a lit sprite should carry well more than
      the three tones per family the old two-step shading produced. */
@@ -313,6 +326,145 @@ section('crawler forge');
     ok(p.tentLen >= p.size * 1.7 && p.tentLen <= p.size * 2.7, 'tentacle reach scales with body');
     ok(CF.PALETTES[p.palette] !== undefined, 'game crawler palette is real');
   }
+}
+
+/* ---------------- scrap forge ---------------- */
+section('scrap forge');
+{
+  const SF = window.SCRAPFORGE;
+  ok(SF.KINDS.length === 6, 'six debris kinds');
+  ok(Object.keys(SF.PALETTES).length >= 6, 'a spread of industrial palettes');
+  const before = JSON.stringify(SF.P_DEFAULTS);
+  const set = SF.forgeSet(4242, { params: { size: 16 } });
+  ok(JSON.stringify(SF.P_DEFAULTS) === before, 'forgeSet leaves P_DEFAULTS untouched');
+  for (const k of SF.KINDS) {
+    const S = set[k], B = S.body;
+    ok(!!S && S.canvas.width === S.CW * S.frames, k + ' sheet width matches damage states');
+    ok(S.frames >= 2, k + ' has damage states');
+    ok(S.bodies.length === S.frames, k + ' bakes a body per damage state');
+    ok(B.halfW > 0 && B.halfH > 0, k + ' has real half extents');
+    ok(B.mass > 0, k + ' has mass');
+    ok(B.bounce >= 0 && B.bounce <= 1, k + ' restitution in range');
+    ok(B.friction > 0 && B.friction <= 1, k + ' friction in range');
+    ok(B.hp > 0, k + ' has hit points');
+    ok(B.gibs.length > 0, k + ' has gib seeds');
+    ok(B.hull.length === 16, k + ' hull is a 16-point polygon');
+    /* damage must actually take mass out of the piece */
+    const solidOf = f => {
+      const d = S.canvas.getContext('2d').getImageData(f * S.CW, 0, S.CW, S.CH).data;
+      let n = 0;
+      for (let i = 0; i < S.CW * S.CH; i++) if (d[i * 4 + 3] > 8) n++;
+      return n;
+    };
+    ok(solidOf(S.frames - 1) < solidOf(0), k + ' wrecked state has less of it left');
+    /* every gib seed must land on drawn pixels */
+    const d0 = S.canvas.getContext('2d').getImageData(0, 0, S.CW, S.CH).data;
+    let outside = 0;
+    for (const gg of B.gibs) {
+      const x = Math.round(S.CW / 2 + gg.x), y = Math.round(S.CH / 2 + gg.y);
+      if (x < 0 || y < 0 || x >= S.CW || y >= S.CH || d0[(y * S.CW + x) * 4 + 3] < 8) outside++;
+    }
+    ok(outside === 0, k + ' gib seeds land on drawn pixels');
+  }
+  // heavier things really are heavier
+  ok(set.girder.body.mass > set.panel.body.mass, 'a girder outweighs a torn panel');
+  ok(set.slab.body.bounce < set.drum.body.bounce, 'concrete bounces less than a drum');
+  for (let i = 0; i < 14; i++) {
+    const p = SF.randomParams((i * 2654435761) >>> 0);
+    ok(SF.PALETTES[p.palette] !== undefined, 'random scrap palette is real');
+    ok(p.size >= 8 && p.size <= 40, 'random scrap size in range');
+  }
+}
+
+/* the build screen generates the debris panel from this table */
+{
+  const SF = window.SCRAPFORGE;
+  const keys = new Set(Object.keys(SF.P_DEFAULTS));
+  let n = 0;
+  for (const grp of SF.CONTROLS) {
+    ok(typeof grp.g === 'string' && grp.g.length > 0, 'scrap control group has a name');
+    for (const c of grp.c) {
+      if (c.t === 'buttons') continue;
+      n++;
+      ok(keys.has(c.k), 'scrap control "' + c.k + '" maps to a real parameter');
+      if (c.t === 'r') {
+        ok(c.min < c.max, 'scrap control "' + c.k + '" has a sane range');
+        const v = SF.P_DEFAULTS[c.k];
+        ok(v >= c.min && v <= c.max, 'scrap default for "' + c.k + '" is inside its range');
+      }
+      if (c.t === 's') {
+        const opts2 = typeof c.opt === 'function' ? c.opt() : c.opt;
+        ok(opts2.indexOf(String(SF.P_DEFAULTS[c.k])) >= 0,
+           'scrap default for "' + c.k + '" is one of its options');
+      }
+    }
+  }
+  ok(n > 10, 'the debris panel exposes a real amount of the generator (' + n + ')');
+
+  /* a build-screen debris choice has to reach the mission */
+  const cfgS = window.CONFIG.randomLevelCfg(0x5C2A);
+  cfgS.levelLen = 3;
+  // this section runs before the shared `merc` is built, so roll a local one
+  const mercS = window.CONFIG.randomMerc(0x5C2A);
+  const gs = window.WORLD.buildMission(cfgS, mercS,
+    { difficulty: 'regular', enemyDens: 0.6, lives: 3,
+      scrap: { palette: 'toxic', size: 19, grime: 1.2 } });
+  let rs; while (!(rs = gs.next()).done);
+  const MS = rs.value;
+  ok(MS.scrap.crate.palette === 'toxic', 'the debris panel choice reaches the level');
+  ok(MS.scrap.crate.size === 19, 'the debris size choice reaches the level');
+}
+
+/* ---------------- rigid bodies ---------------- */
+section('rigid bodies');
+{
+  const plats = [{ x: 0, y: 200, w: 600, ground: true }];
+  const W = new window.PHYSICS.World(plats);
+  const sim = new window.RIGID.Sim(W);
+  sim.levelWidth = 600;
+  const sheet = window.SCRAPFORGE.forgeOne('crate', { seed: 7, size: 16 });
+
+  const b = sim.add(new window.RIGID.Body(sheet, 100, 60, 0));
+  for (let i = 0; i < 60 * 6; i++) sim.step(1 / 60);
+  ok(Math.abs((b.y + b.hh) - 200) < 2, 'a dropped body rests on the deck (y=' + b.y.toFixed(1) + ')');
+  ok(b.asleep, 'it goes to sleep once still');
+  ok(Math.abs(b.vx) < 0.1 && Math.abs(b.vy) < 0.1, 'a sleeping body has no velocity');
+
+  // an impulse wakes it and moves it
+  const x0 = b.x;
+  b.applyImpulse(6, -3, b.x + 4, b.y - 4);
+  ok(!b.asleep, 'an impulse wakes a sleeping body');
+  ok(Math.abs(b.spin) > 0, 'an off-centre impulse imparts spin');
+  for (let i = 0; i < 60 * 3; i++) sim.step(1 / 60);
+  ok(b.x > x0 + 2, 'the impulse actually moved it (' + x0.toFixed(0) + ' -> ' + b.x.toFixed(0) + ')');
+
+  // two bodies must not end up inside one another
+  const c1 = sim.add(new window.RIGID.Body(sheet, 300, 100, 0));
+  const c2 = sim.add(new window.RIGID.Body(sheet, 302, 60, 0));
+  for (let i = 0; i < 60 * 8; i++) sim.step(1 / 60);
+  const dx = Math.abs(c1.x - c2.x), dy = Math.abs(c1.y - c2.y);
+  ok(dx >= c1.hw + c2.hw - 1.5 || dy >= c1.hh + c2.hh - 1.5,
+     'stacked bodies separate rather than interpenetrate');
+  ok(c1.y < 260 && c2.y < 260, 'neither fell through the deck');
+
+  // damage steps the sprite and shrinks the box
+  const d = sim.add(new window.RIGID.Body(sheet, 450, 180, 0));
+  const hw0 = d.hw, f0 = d.frame;
+  d.hurt(d.maxHp * 0.9);
+  ok(d.frame > f0, 'damage steps to a later damage state');
+  ok(d.hw <= hw0, 'a wrecked body is no larger than an intact one');
+
+  // hitTest and nearest
+  ok(sim.hitTest(d.x, d.y, 2) === d, 'hitTest finds a body under a point');
+  ok(sim.hitTest(d.x, d.y - 400, 2) === null, 'hitTest misses empty air');
+  ok(sim.nearest(d.x + 8, d.y, 60) !== null, 'nearest finds a grabbable body');
+  ok(sim.nearest(d.x, d.y, 2, () => false) === null, 'nearest respects its filter');
+
+  // terminal-velocity drop must not tunnel the deck
+  const fast = sim.add(new window.RIGID.Body(sheet, 200, 10, 0));
+  fast.vy = 8;
+  for (let i = 0; i < 60 * 4; i++) sim.step(1 / 60);
+  ok(fast.y < 240, 'a fast-falling body does not tunnel the deck');
 }
 
 /* ---------------- weapons ---------------- */
@@ -525,6 +677,36 @@ section('30s of play');
 /* Bullets must actually be able to kill: fire point blank at a hostile. */
 section('damage path');
 {
+  /* Both damage checks need the same thing: a muzzle position with
+     clear air between it and the target. Terrain, one-way decks and
+     debris all stop bullets, and a test that assumes a firing line
+     fails for reasons that have nothing to do with the damage path.
+     Ask the world instead. */
+  var clearLineIn = (M, ox, oy, tx, ty) => {
+    const steps = Math.ceil(Math.hypot(tx - ox, ty - oy) / 2) || 1;
+    for (let k = 0; k <= steps; k++) {
+      const t = k / steps;
+      const px = ox + (tx - ox) * t, py = oy + (ty - oy) * t;
+      if (M.world.solidAt(px, py, true)) return false;
+      if (M.rigid.hitTest(px, py, 1)) return false;
+      }
+    return true;
+  };
+  var approachTo = (M, tx, ty, dist) => {
+    /* Sweep the full circle, and fall back to shorter stand-off
+       distances: a hostile wedged into a step has clear air close in
+       even when every long line is blocked. */
+    for (const scale of [1, 0.65, 0.4]) {
+      for (let i = 0; i < 16; i++) {
+        const a = (i / 16) * Math.PI * 2;
+        const d = [Math.cos(a), Math.sin(a)];
+        const r = dist * scale;
+        const ox = tx + d[0] * r, oy = ty + d[1] * r;
+        if (clearLineIn(M, ox, oy, tx, ty)) return { d, ox, oy, r };
+      }
+    }
+    return null;
+  };
   const M2 = (() => {
     const g = window.WORLD.buildMission(
       Object.assign({}, cfg, { seed: 4242, levelLen: 3 }),
@@ -532,14 +714,27 @@ section('damage path');
     let rr; while (!(rr = g.next()).done);
     return rr.value;
   })();
-  const target = M2.enemies.find(e => !e.flying && e.kind !== 'crawler');
-  ok(!!target, 'found a walking hostile to shoot');
+  /* Pick a hostile that can actually be shot. A merc standing in a
+     doorway or wedged against a step has no clear line to it from any
+     angle — that is the level being a level, not the damage path being
+     broken, and pinning the test to enemies[0] made it fail whenever
+     the layout shifted. */
+  const W = window.WEAPONS.table.rifle;
+  let target = null, ap0 = null;
+  for (const e of M2.enemies) {
+    if (e.flying || e.kind === 'crawler' || e.boss || e.dead) continue;
+    const a = approachTo(M2, e.x, e.y - e.h * 0.5, 30);
+    if (a) { target = e; ap0 = a; break; }
+  }
+  ok(!!target, 'found a walking hostile with a clear firing line');
   if (target) {
     const hpBefore = target.hp;
-    const W = window.WEAPONS.table.rifle;
+    const ty = target.y - target.h * 0.5;
+    const d0 = ap0 ? ap0.d : [-1, 0], r0 = ap0 ? ap0.r : 30;
     for (let i = 0; i < 12; i++) {
       M2.bullets.push(new window.ENTITIES.Bullet(
-        target.x - 30, target.y - target.h * 0.5, 0, W, true, '#fff'));
+        target.x + d0[0] * r0, ty + d0[1] * r0,
+        Math.atan2(-d0[1], -d0[0]), W, true, '#fff'));
     }
     for (let i = 0; i < 40; i++) M2.stepBullets(1 / 60);
     ok(target.hp < hpBefore || target.dead, 'point-blank fire damaged the hostile');
@@ -558,30 +753,14 @@ section('damage path');
          behaviour, and the reason two earlier versions of this check
          failed for reasons that had nothing to do with the code under
          test. Pick the approach by asking the world, not by assuming. */
-      const DIRS = [[0, -1], [0, 1], [1, 0], [-1, 0]];
       const D = 34;
-      /* canSee() is the wrong test here: it ignores one-way decks,
-         which bullets DO collide with. Walk the line with the same
-         solidity the projectile uses, or the "clear" line chosen can
-         still have a catwalk across it. */
-      const clearLine = (ox, oy, tx, ty) => {
-        const steps = Math.ceil(Math.hypot(tx - ox, ty - oy) / 2);
-        for (let k = 0; k <= steps; k++) {
-          const t = k / steps;
-          if (M2.world.solidAt(ox + (tx - ox) * t, oy + (ty - oy) * t, true)) return false;
-        }
-        return true;
-      };
-      let ap = null;
-      for (const d of DIRS) {
-        const ox = cr.x + d[0] * D, oy = cr.y + d[1] * D;
-        if (clearLine(ox, oy, cr.x, cr.y)) { ap = d; break; }
-      }
-      ok(!!ap, 'found a clear firing line to the crawler');
-      if (!ap) ap = [0, -1];
+      const found = approachTo(M2, cr.x, cr.y, D);
+      ok(!!found, 'found a clear firing line to the crawler');
+      let ap = found ? found.d : [0, -1];
+      const apR = found ? found.r : D;
       const shootAt = target => {
         M2.bullets.push(new window.ENTITIES.Bullet(
-          target.x + ap[0] * D, target.y + ap[1] * D,
+          target.x + ap[0] * apR, target.y + ap[1] * apR,
           Math.atan2(-ap[1], -ap[0]), W, true, '#fff'));
       };
       const chpBefore = cr.hp, gibsBefore = M2.gibs.length;
@@ -594,18 +773,14 @@ section('damage path');
       /* a shot that clears the disc must not register */
       const cr2 = M2.enemies.find(e => e.kind === 'crawler' && !e.dead && e !== cr) || cr;
       if (!cr2.dead) {
-        let ap2 = null;
-        for (const d of DIRS) {
-          const ox = cr2.x + d[0] * D, oy = cr2.y + d[1] * D;
-          if (clearLine(ox, oy, cr2.x, cr2.y)) { ap2 = d; break; }
-        }
-        if (!ap2) ap2 = [0, -1];
+        const f2 = approachTo(M2, cr2.x, cr2.y, D);
+        const ap2 = f2 ? f2.d : [0, -1];
         const miss = cr2.hp;
         const perpX = -ap2[1], perpY = ap2[0];
         const off = cr2.rig.r + 12;
         M2.bullets.push(new window.ENTITIES.Bullet(
-          cr2.x + ap2[0] * 34 + perpX * off,
-          cr2.y + ap2[1] * 34 + perpY * off,
+          cr2.x + ap2[0] * (f2 ? f2.r : 34) + perpX * off,
+          cr2.y + ap2[1] * (f2 ? f2.r : 34) + perpY * off,
           Math.atan2(-ap2[1], -ap2[0]), W, true, '#fff'));
         for (let i = 0; i < 40; i++) M2.stepBullets(1 / 60);
         ok(cr2.hp === miss, 'a shot clear of the blob is not a hit');
@@ -804,6 +979,113 @@ function dump(name, cv) {
       c2.fillText(o, i * cell + 8, cell - 8);
     });
     dump('out_crawler_surfaces.png', cv);
+  }
+}
+
+/* the boss, the debris it throws, and the corruption */
+section('overlord + corruption');
+{
+  const cfgB = window.CONFIG.randomLevelCfg(0xB055);
+  cfgB.levelLen = 4;
+  const gb = window.WORLD.buildMission(cfgB, merc,
+    { difficulty: 'veteran', enemyDens: 1.4, lives: 3 });
+  let rb; while (!(rb = gb.next()).done);
+  const MB = rb.value;
+  const O = MB.overlord;
+
+  ok(!!O, 'an overlord was placed');
+  ok(O.boss === true, 'it is flagged as a boss');
+  ok(O.maxHp > 200, 'boss has boss health (' + O.maxHp + ')');
+  ok(O.x > MB.player.x + 200, 'boss holds ground downrange of the spawn');
+  ok(O.x < MB.exit.x, 'boss stands between the player and extraction');
+  ok(O.flying && !O.ground, 'boss levitates rather than clinging');
+  ok(MB.rigid.bodies.length > 4, 'debris scattered through the level (' +
+     MB.rigid.bodies.length + ')');
+
+  /* every body must start seated on terrain, not inside it */
+  let embedded = 0;
+  for (const b of MB.rigid.bodies) if (MB.world.solidAt(b.x, b.y, false)) embedded++;
+  ok(embedded === 0, 'no debris spawned inside terrain (' + embedded + ')');
+
+  /* fight it: wake, phases, grabs, throws */
+  const inp = { left: false, right: false, up: false, down: false, fire: false,
+                jumpPressed: false, reloadPressed: false, cursorX: 224, cursorY: 126,
+                aimX: 0, aimY: 0 };
+  MB.player.x = O.x - 140;
+  const gg = MB.world.groundUnder(MB.player.x, 0, true);
+  if (gg) MB.player.y = gg.y;
+  MB.player.hp = 100;
+  const seen = { phases: new Set(), grabbed: 0, thrown: 0, lashed: 0, maxVapor: 0 };
+  let lastGrab = null;
+  for (let i = 0; i < 60 * 22; i++) {
+    MB.scroll = clamp(O.x - LV.W / 2, 0, Math.max(0, MB.L.LW - LV.W));
+    MB.cursorX = inp.cursorX; MB.cursorY = inp.cursorY;
+    MB.player.hp = 100;                 // keep the fight running
+    MB.update(1 / 60, inp);
+    if (O.dead) break;
+    seen.phases.add(O.phase);
+    seen.maxVapor = Math.max(seen.maxVapor, MB.vapors.length);
+    if (O.grab && O.grab !== lastGrab) { seen.grabbed++; lastGrab = O.grab; }
+    if (!O.grab && lastGrab) { seen.thrown++; lastGrab = null; }
+    for (const l of O.limbs) if (l.state === 'strike') seen.lashed++;
+    // walk it down through its phases
+    if (i % 90 === 89) O.hurtBy(14, MB);
+    ok(Number.isFinite(O.x) && Number.isFinite(O.y), 'boss position stayed finite');
+    ok(O.y > 0 && O.y < LV.H, 'boss stayed inside the frame');
+  }
+  console.log('  phases ' + Array.from(seen.phases).join(',') +
+              ' | grabs ' + seen.grabbed + ' | throws ' + seen.thrown +
+              ' | lashes ' + seen.lashed + ' | peak vapour ' + seen.maxVapor);
+  ok(O.aggroed, 'boss woke when the player closed in');
+  ok(seen.phases.size >= 2, 'boss changed phase under fire');
+  ok(seen.lashed > 0, 'boss lashed with its tentacles');
+  ok(seen.grabbed > 0, 'boss picked up debris (' + seen.grabbed + ')');
+  ok(seen.thrown > 0, 'boss threw what it picked up (' + seen.thrown + ')');
+  ok(seen.maxVapor > 10, 'boss vents demonic vapour');
+  ok(O.dead || O.hp < O.maxHp, 'boss took damage');
+
+  /* it must actually be killable, and drop the goods */
+  const pickBefore = MB.pickups.length;
+  while (!O.dead) O.hurtBy(40, MB);
+  ok(O.dead, 'boss can be killed');
+  ok(MB.pickups.length > pickBefore, 'boss drops pickups on death');
+  ok(MB.gibs.length > 0, 'boss comes apart');
+
+  /* corruption */
+  const mercs = MB.enemies.filter(e => e.kind === 'grunt' || e.kind === 'trooper' ||
+                                       e.kind === 'heavy' || e.kind === 'drone');
+  const rotten = mercs.filter(e => e.corrupt > 0);
+  console.log('  corrupted mercs ' + rotten.length + '/' + mercs.length);
+  for (const e of rotten) {
+    ok(e.corrupt > 0 && e.corrupt <= 1, 'corruption level in range');
+    ok(e.rig.params.colRot !== undefined, 'a corrupted merc has a rot colour');
+    ok(e.maxHp > window.CONFIG.ARCHETYPES[e.kind].hp * MB.diff.enemyHp * 0.99,
+       'corruption makes them tougher');
+  }
+  /* the generator must draw it, not just flag it */
+  const clean = window.MERCFORGE.forge({ seed: 31, corrupt: 0 });
+  const foul = window.MERCFORGE.forge({ seed: 31, corrupt: 1 });
+  const count = S => {
+    const d = S.canvas.getContext('2d').getImageData(0, 0, S.CW, S.CH).data;
+    let n = 0;
+    for (let i = 0; i < S.CW * S.CH; i++) if (d[i * 4 + 3] > 8) n++;
+    return n;
+  };
+  ok(foul.CW !== clean.CW || foul.CH !== clean.CH || count(foul) !== count(clean),
+     'corruption changes the sprite');
+
+  /* a thrown body has to be able to hurt the player */
+  {
+    const b = MB.rigid.bodies.find(x => !x.dead);
+    if (b) {
+      MB.player.dead = false; MB.player.hp = 100; MB.player.invuln = 0;
+      MB.state = 'play';
+      b.held = null; b.dead = false;
+      b.x = MB.player.x; b.y = MB.player.y - MB.player.h * 0.5;
+      b.vx = 7; b.vy = 0; b.dangerT = 1.5;
+      MB.stepCrush(1 / 60);
+      ok(MB.player.hp < 100, 'a thrown body hurts the player');
+    }
   }
 }
 

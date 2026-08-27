@@ -12,6 +12,7 @@ consumed by the game as libraries:
 | **GREEBLEWORKS** | procedural texture foundry + side-scroller level generator |
 | **MERC FORGE** | procedural spritesheet generator for the run-and-gun rig |
 | **CRAWLER FORGE** | procedural eldritch crawlers — meat, metal and tentacles |
+| **SCRAP FORGE** | procedural physics debris — crates, drums, rubble |
 
 ## Play
 
@@ -51,6 +52,9 @@ under, so a random level looks deliberate instead of like a slot machine.
   unpinned and each level grows its own crawlers coloured to suit the
   architecture; tick **use this exact build** and every crawler in the run is
   the one you designed.
+- **DEBRIS · SCRAP FORGE** — size, palette and surface for the crates, drums and
+  rubble scattered through the level, with all six kinds previewed and their
+  wrecked states ghosted behind them.
 
 The last two panels are generated directly from their tool's own `CONTROLS`
 table, so the tools and the game cannot drift apart. The harness asserts every
@@ -70,12 +74,14 @@ src/gen/                GENERATED generator cores (see below)
   greebleworks.js
   mercforge.js
   crawlerforge.js
+  scrapforge.js
 src/game/
   config.js             level + merc configs, coherent randomizer, archetypes
   audio.js              procedural WebAudio SFX and ambience — no samples
   weapons.js            one definition per weapon: sprite AND behaviour
   sprite.js             MERC FORGE sheet consumer (blit / aim row / muzzle)
   physics.js            swept AABB against the generator's `plats` data
+  rigid.js              impulse solver for the debris
   entities.js           player, enemy AI, projectiles, pickups
   world.js              mission build generator + simulation
   render.js             entity pass, HUD, overlays
@@ -85,6 +91,7 @@ tools/
   greebleworks.html     the authoring tools, standalone and single-file
   mercforge.html
   crawlerforge.html
+  scrapforge.html
   extract.js            slices the generator cores out of the tools
   harness.js            the original MERC FORGE validator
   harness-game.js       validates the game layer + dumps contact sheets
@@ -136,6 +143,41 @@ path in both directions, and writes contact sheets to `out/`:
 Per the MERC FORGE handoff: keep dumping contact sheets. `out_collision.png` in
 particular is the one that catches layout bugs — misaligned collision is
 invisible in code review and obvious in a PNG.
+
+## The Overlord, the debris, and the rot
+
+**SCRAP FORGE** bakes the physics props: crates, drums, concrete slabs, girder
+offcuts, scrap bales and torn plate, in seven industrial palettes. Two things
+make it different from a sprite tool. Its columns are DAMAGE STATES rather than
+animation frames — damage is not a crack decal, it chips the silhouette, opens
+the seams and takes mass out of the piece — and like CRAWLER FORGE it emits a
+physics bake measured off the pixels: hull, half extents, mass, restitution,
+friction, hit points and gib seeds. A crate that has been shot twice really does
+become a smaller obstacle, because its baked body shrank with its silhouette.
+
+`rigid.js` is the solver. Not a general engine: boxes with linear velocity,
+impulse response, pairwise separation, sleeping, and the material numbers the
+generator measured. Bullets shove and damage them, and an off-centre hit imparts
+spin. Rotation is deliberately visual only — rotating collision on a 20-pixel
+sprite buys nothing the eye can see and costs an SAT solver plus every tunnelling
+edge case that comes with it.
+
+**The Overlord** is a crawler that has stopped needing the floor. Same generator,
+pushed to the size band where it reads as a mass rather than a creature, and it
+hovers instead of anchoring. Three phases: phase one is tentacle lashes, phase
+two adds picking a rigid body out of the level and hurling it at you, phase three
+does both faster. It vents demonic vapour continuously and drops the good weapon
+when it dies.
+
+**Corruption** is a MERC FORGE parameter, not a palette swap: `corrupt` grows a
+core through the chest, rot veins out from it, and biotech lumps with tendrils
+pushing out through the shell. In game a corrupted merc hovers slightly, vents
+vapour, carries a rot-coloured bloom and has more health. How much of a garrison
+has been got at scales with difficulty, from 18% on recruit to 62% on vitriol.
+
+The vapour is drawn in two passes — a dark body that eats light, then a dim red
+core inside it. Smoke that only added light read as steam; taking light out
+first is what makes it read as wrong.
 
 ## Design notes
 

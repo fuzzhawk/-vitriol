@@ -268,6 +268,26 @@ window.SCREENS = (function () {
     return { frag, groups };
   }
 
+  /* ---------------- debris panel ----------------
+     Generated from SCRAP FORGE's CONTROLS. The `kind` and damage-state
+     controls are dropped: the game forges the whole set every run, so
+     picking one kind would be meaningless here. */
+  function scrapPanel(params, onChange) {
+    const frag = document.createDocumentFragment();
+    const groups = [];
+    let first = true;
+    for (const grp of window.SCRAPFORGE.CONTROLS) {
+      const specs = grp.c.filter(c =>
+        c.t !== 'buttons' && c.k !== 'kind' && c.k !== 'dmgFrames');
+      if (!specs.length) continue;
+      const g = group(grp.g, specs, params, onChange, !first);
+      groups.push(g);
+      frag.appendChild(g);
+      first = false;
+    }
+    return { frag, groups };
+  }
+
   function levelPanel(cfg, onChange) {
     const frag = document.createDocumentFragment();
     const groups = [];
@@ -295,6 +315,6 @@ window.SCREENS = (function () {
   ];
 
   return {
-    LEVEL_PANEL, control, group, syncGroups, mercPanel, crawlerPanel, levelPanel, TIPS, el, $
+    LEVEL_PANEL, control, group, syncGroups, mercPanel, crawlerPanel, scrapPanel, levelPanel, TIPS, el, $
   };
 })();

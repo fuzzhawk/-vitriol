@@ -131,11 +131,12 @@ button{font:inherit;cursor:pointer}
 .ctl .chk input{accent-color:var(--amber)}
 .ctl-wide label{flex:0 0 60px}
 
-#previewWrap,#crawlerPreviewWrap{border:1px solid var(--line);background:#0e1113}
-#previewWrap .cap,#crawlerPreviewWrap .cap{padding:6px 9px;border-bottom:1px solid var(--line);
+#previewWrap,#crawlerPreviewWrap,#scrapPreviewWrap{border:1px solid var(--line);background:#0e1113}
+#previewWrap .cap,#crawlerPreviewWrap .cap,#scrapPreviewWrap .cap{padding:6px 9px;border-bottom:1px solid var(--line);
   background:#171b1d;color:var(--amber);letter-spacing:3px;font-size:9.5px}
 #crawlerPreviewWrap .cap{color:#d4536a}
-#mercPreview,#crawlerPreview{display:block;width:100%;image-rendering:pixelated}
+#scrapPreviewWrap .cap{color:#8aa0b4}
+#mercPreview,#crawlerPreview,#scrapPreview{display:block;width:100%;image-rendering:pixelated}
 .pinrow{display:flex;align-items:center;gap:7px;padding:6px 2px 2px;cursor:pointer}
 .pinrow input{accent-color:var(--amber)}
 .pinrow span{color:var(--dim);letter-spacing:2px;font-size:9.5px}
@@ -215,6 +216,10 @@ button{font:inherit;cursor:pointer}
     <p>Not everything here walks. Crawlers come up walls and across ceilings,
     haul themselves along on tentacles, and leave a trail you can follow back.
     Shoot them and they come apart.</p>
+    <p>Crates and rubble are real weight — shoot them and they move, and they
+    will stop a bullet meant for you. Some of the garrison has been got at:
+    corrupted mercs hover, vent, and take more killing. Something much larger
+    is already waiting near the extraction pad, and it throws the scenery.</p>
     <p>Fight east to the extraction pad. Nothing here was drawn by hand — the walls,
     decks, skyline, weather and every merc in the level are generated from your build
     seed the moment you deploy.</p>
@@ -251,11 +256,13 @@ button{font:inherit;cursor:pointer}
           <button id="tab-level" class="on">LEVEL · GREEBLEWORKS</button>
           <button id="tab-merc">OPERATIVE · MERC FORGE</button>
           <button id="tab-crawler">CRAWLERS · CRAWLER FORGE</button>
+          <button id="tab-scrap">DEBRIS · SCRAP FORGE</button>
         </div>
         <div class="panels">
           <div id="panel-level"></div>
           <div id="panel-merc" style="display:none"></div>
           <div id="panel-crawler" style="display:none"></div>
+          <div id="panel-scrap" style="display:none"></div>
         </div>
       </div>
     </div>
@@ -277,6 +284,16 @@ button{font:inherit;cursor:pointer}
       <div id="rollMercWrap" style="display:none">
         <button id="btn-rollMerc" class="mini" style="width:100%;margin-bottom:6px">⟳ REROLL OPERATIVE</button>
         <button id="btn-presetMerc" class="mini" style="width:100%">LOAD PRESET</button>
+      </div>
+
+      <div id="scrapPreviewWrap" style="display:none">
+        <div class="cap">DEBRIS PREVIEW</div>
+        <canvas id="scrapPreview" width="268" height="150"></canvas>
+      </div>
+      <div id="rollScrapWrap" style="display:none">
+        <button id="btn-rollScrap" class="mini" style="width:100%">⟳ REROLL DEBRIS</button>
+        <p class="pinnote">Crates, drums, slabs, girders, bales and torn plate.
+        Shoot them and they move; the Overlord picks them up and throws them.</p>
       </div>
 
       <div id="rollCrawlerWrap" style="display:none">
@@ -355,11 +372,13 @@ button{font:inherit;cursor:pointer}
 <script src="src/gen/greebleworks.js"></script>
 <script src="src/gen/mercforge.js"></script>
 <script src="src/gen/crawlerforge.js"></script>
+<script src="src/gen/scrapforge.js"></script>
 <script src="src/game/config.js"></script>
 <script src="src/game/audio.js"></script>
 <script src="src/game/weapons.js"></script>
 <script src="src/game/sprite.js"></script>
 <script src="src/game/physics.js"></script>
+<script src="src/game/rigid.js"></script>
 <script src="src/game/entities.js"></script>
 <script src="src/game/world.js"></script>
 <script src="src/game/render.js"></script>

@@ -177,10 +177,46 @@ function randomParams(seed) {
   ]);
 }
 
+/* ---------------- scrap forge ---------------- */
+function scrapforge() {
+  const js = scriptBody(read('tools/scrapforge.html'));
+  const uiAt = js.indexOf('   UI\n');
+  if (uiAt < 0) throw new Error('scrapforge: UI banner not found');
+  let core = js.slice(0, js.lastIndexOf('/* =', uiAt));
+  core = core.replace(/^\s*"use strict";\s*/, '');
+
+  const shim = `
+/* ---------- game entry point ---------- */
+const P_DEFAULTS = Object.assign({}, P);
+
+/* forgeOne()/forgeSet() already swap P around a synchronous build, so
+   they are the entry points as-is. This only adds the seeded roll. */
+function randomParams(seed) {
+  const R = makeRng(seed >>> 0);
+  return {
+    seed: seed >>> 0,
+    palette: R.pick(Object.keys(PALETTES)),
+    size: R.int(11, 22),
+    grime: R.range(0.5, 1.3),
+    grit: R.range(0.6, 1.2),
+    wear: R.range(0.35, 1.1),
+    markings: R.range(0.2, 1.2),
+    lightdir: R.int(0, 359)
+  };
+}
+`;
+
+  return wrap('SCRAP FORGE — generator core (UI stripped)', 'SCRAPFORGE', core + shim, [
+    'P_DEFAULTS', 'CONTROLS', 'PALETTES', 'KINDS',
+    'forgeOne', 'forgeSet', 'randomParams', 'makeRng', 'clamp'
+  ]);
+}
+
 const outputs = [
   ['src/gen/greebleworks.js', greebleworks()],
   ['src/gen/mercforge.js', mercforge()],
-  ['src/gen/crawlerforge.js', crawlerforge()]
+  ['src/gen/crawlerforge.js', crawlerforge()],
+  ['src/gen/scrapforge.js', scrapforge()]
 ];
 for (const [p, src] of outputs) {
   fs.writeFileSync(path.join(ROOT, p), src);
