@@ -25,6 +25,10 @@ window.RENDER = (function () {
 
     drawExit(M, ctx, S, time);
 
+    /* Slime is on the terrain, so it goes down before anything that
+       walks over it. */
+    for (const sl of M.slime) drawSlime(ctx, sl, S);
+
     for (const p of M.pickups) drawPickup(ctx, p, S);
 
     /* corpses first, so the living stand in front of them */
@@ -35,7 +39,13 @@ window.RENDER = (function () {
       if (sx < -50 || sx > LV.W + 50) continue;
       ctx.save();
       ctx.globalAlpha = clamp(1 - e.deathT / 1.2, 0, 1) * 0.7;
-      e.rig.draw(ctx, 'crouch', 1, 0, sx, e.y, e.face < 0);
+      if (e.kind === 'crawler') {
+        // it collapses rather than falling over
+        ctx.globalAlpha *= 0.8;
+        e.rig.draw(ctx, 'hurt', e.rig.framesOf('hurt') - 1, e.orient, sx, e.y, e.face < 0);
+      } else {
+        e.rig.draw(ctx, 'crouch', 1, 0, sx, e.y, e.face < 0);
+      }
       ctx.restore();
     }
 
@@ -43,9 +53,12 @@ window.RENDER = (function () {
       if (e.dead) continue;
       const sx = e.x - S;
       if (sx < -60 || sx > LV.W + 60) continue;
-      drawActor(ctx, e, sx, e.y, e.flash > 0);
+      if (e.kind === 'crawler') drawCrawler(ctx, e, sx, S, time);
+      else drawActor(ctx, e, sx, e.y, e.flash > 0);
       drawEnemyPip(ctx, e, sx);
     }
+
+    for (const g of M.gibs) drawGib(ctx, g, S);
 
     const P = M.player;
     if (!P.dead) {
@@ -117,11 +130,141 @@ window.RENDER = (function () {
     }
   }
 
+  /* ============================================================
+     Crawler: tentacles BEHIND the body, then the body, then the eyes.
+
+     The tentacle sheet is a second sheet for exactly this reason —
+     the limbs have to pass behind the mass they are hauling, and a
+     single sheet cannot be both in front of and behind itself.
+     ============================================================ */
+  function drawCrawler(ctx, cr, sx, S, time) {
+    const rig = cr.rig;
+    const flip = cr.face < 0;
+
+    /* --- limbs, behind --- */
+    for (const l of cr.limbs) {
+      let tip = null;
+      if (l.state === 'gripped' && l.anchor) tip = l.anchor;
+      else if (l.cast) tip = l.cast;
+      if (!tip) continue;
+      const so = rig.socket(l.i, cr.x, cr.y, flip, cr.orient);
+      const tx = tip.x - S, ty = tip.y;
+      const rx = so.x - S, ry = so.y;
+      if (Math.max(rx, tx) < -70 || Math.min(rx, tx) > LV.W + 70) continue;
+      // a limb under tension bows less than one still casting
+      const slack = l.state === 'gripped' ? 0.55 : 1.0;
+      const bend = l.bend * slack + Math.sin(time * 2.2 + l.phase) * 3;
+      const alpha = l.state === 'strike' ? 1 : (l.state === 'retract' ? 0.7 : 0.95);
+      window.CRAWLERFORGE.drawTentacle(ctx, rig.tent, l.variant,
+        rx, ry, tx, ty, bend, { alpha });
+      // a wet highlight where it grips
+      if (l.state === 'gripped') {
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalAlpha = 0.30;
+        ctx.fillStyle = cr.slimeColour();
+        ctx.fillRect(Math.round(tx) - 1, Math.round(ty) - 1, 3, 3);
+        ctx.restore();
+      }
+    }
+
+    /* --- body --- */
+    if (cr.alerted) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = 0.10;
+      rig.draw(ctx, cr.anim, cr.frame, cr.orient, sx - 1, cr.y, flip);
+      rig.draw(ctx, cr.anim, cr.frame, cr.orient, sx + 1, cr.y, flip);
+      ctx.restore();
+    }
+    rig.draw(ctx, cr.anim, cr.frame, cr.orient, sx, cr.y, flip);
+    if (cr.flash > 0) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = 0.6;
+      rig.draw(ctx, cr.anim, cr.frame, cr.orient, sx, cr.y, flip);
+      ctx.restore();
+    }
+
+    /* --- eyes ---
+       Baked eyes are three pixels of iris; the live glow on top is
+       what makes them read, and it brightens once the thing has seen
+       you, which is the only tell a creature with no face can give. */
+    const pal = window.CRAWLERFORGE.PALETTES[rig.params.palette] ||
+                window.CRAWLERFORGE.PALETTES.raw;
+    const eyes = rig.eyes(sx, cr.y, flip, cr.orient);
+    if (eyes.length) {
+      /* Kept deliberately dim. Several eyes under 'lighter' add up
+         fast, and an over-bright crawler stops being a thing lurking
+         on a wall and becomes a lamp. */
+      const beat = cr.alerted
+        ? 0.46 + 0.22 * Math.sin(cr.pulse * 2.6)
+        : 0.15 + 0.07 * Math.sin(cr.pulse * 0.8);
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      for (const e of eyes) {
+        const r = Math.max(2, e.r * 1.9);
+        const g = ctx.createRadialGradient(e.x, e.y, 0, e.x, e.y, r);
+        g.addColorStop(0, hexA(pal.glow, 0.55 * beat));
+        g.addColorStop(0.45, hexA(pal.glow, 0.18 * beat));
+        g.addColorStop(1, hexA(pal.glow, 0));
+        ctx.fillStyle = g;
+        ctx.fillRect(e.x - r, e.y - r, r * 2, r * 2);
+      }
+      ctx.restore();
+    }
+  }
+
+  /* Slime pooled on a deck or running down a wall, oriented by the
+     normal of whatever it was laid on. */
+  function drawSlime(ctx, sl, S) {
+    const sx = sl.x - S;
+    if (sx < -30 || sx > LV.W + 30) return;
+    const a = clamp(sl.life / sl.max, 0, 1);
+    const r = sl.r * 1.25;
+    ctx.save();
+    ctx.globalAlpha = 0.46 * a;
+    ctx.fillStyle = sl.col;
+    // spread along the surface, thin against its normal
+    const alongX = Math.abs(sl.ny), alongY = Math.abs(sl.nx);
+    const rx = Math.max(1.5, r * (alongX ? 1 : 0.45));
+    const ry = Math.max(1.5, r * (alongY ? 1 : 0.32));
+    ctx.beginPath();
+    ctx.ellipse(sx, sl.y - sl.ny * 1.5, rx, ry, 0, 0, TAU);
+    ctx.fill();
+    // a run creeping away from the surface under gravity
+    if (sl.ny <= 0 && sl.drip > 0.6) {
+      const len = Math.min(r * 1.6, sl.drip * 2.2) * a;
+      ctx.globalAlpha = 0.34 * a;
+      ctx.fillRect(Math.round(sx) - 1, Math.round(sl.y), 2, len);
+    }
+    ctx.globalAlpha = 0.30 * a;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(Math.round(sx - rx * 0.3), Math.round(sl.y - sl.ny * 2 - ry * 0.4), 1, 1);
+    ctx.restore();
+  }
+
+  function drawGib(ctx, g, S) {
+    const sx = g.x - S;
+    if (sx < -20 || sx > LV.W + 20) return;
+    const a = clamp(g.life / g.max, 0, 1);
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, a * 2.2);
+    ctx.fillStyle = g.col;
+    ctx.translate(Math.round(sx), Math.round(g.y));
+    ctx.rotate(g.rot);
+    ctx.fillRect(-g.size / 2, -g.size / 2, g.size, g.size);
+    ctx.restore();
+  }
+
   /* A hostile's health as a two-pixel bar; only while damaged, so a
      quiet level stays clean. */
   function drawEnemyPip(ctx, e, sx) {
     if (e.hp >= e.maxHp) return;
-    const w = Math.max(10, e.w + 4), x = Math.round(sx - w / 2), y = Math.round(e.y - e.h - 6);
+    const w = Math.max(10, e.w + 4), x = Math.round(sx - w / 2);
+    const y = Math.round(e.kind === 'crawler'
+      ? e.y - e.rig.r - 7          // centre-anchored, so measure off the radius
+      : e.y - e.h - 6);
     ctx.fillStyle = 'rgba(8,9,10,.8)';
     ctx.fillRect(x, y, w, 2);
     ctx.fillStyle = e.hp / e.maxHp > 0.4 ? '#e0552a' : '#ff9b3d';
@@ -393,5 +536,6 @@ window.RENDER = (function () {
     overlay(M, ctx, M.time);
   }
 
-  return { frame, entityPass, hud, overlay, text, bar, hexA, FONT };
+  return { frame, entityPass, hud, overlay, text, bar, hexA, FONT,
+           drawCrawler, drawSlime, drawGib };
 })();

@@ -142,9 +142,80 @@ function randomParams(seed) {
   ]);
 }
 
+/* ---------------- crawler forge ---------------- */
+function crawlerforge() {
+  const js = scriptBody(read('tools/crawlerforge.html'));
+  const uiAt = js.indexOf('   UI\n');
+  if (uiAt < 0) throw new Error('crawlerforge: UI banner not found');
+  let core = js.slice(0, js.lastIndexOf('/* =', uiAt));
+  core = core.replace(/^\s*"use strict";\s*/, '');
+
+  /* drawTentacle sits above the UI banner in the tool — it is runtime
+     code, and the game and the tool's own preview share it — so the
+     core slice already carries it. */
+  if (core.indexOf('function drawTentacle(') < 0)
+    throw new Error('crawlerforge: drawTentacle fell outside the core slice');
+
+  /* Same shape as MERC FORGE's forge(): buildSheet() reads the module
+     global P, so give the game a pure entry point that swaps it for
+     the duration of one synchronous build. */
+  const shim = `
+/* ---------- game entry point ---------- */
+const P_DEFAULTS = Object.assign({}, P);
+
+function forge(params) {
+  const saved = Object.assign({}, P);
+  Object.assign(P, P_DEFAULTS, params || {});
+  try { return buildSheet(); }
+  finally { Object.assign(P, saved); }
+}
+
+/* The tool's randomizer as a pure function of a seed. */
+function randomParams(seed) {
+  const R = makeRng(seed >>> 0);
+  return {
+    seed: seed >>> 0,
+    size: R.int(22, 44),
+    lobes: R.int(3, 9),
+    chaos: R.range(0.25, 1.05),
+    squat: R.range(0.7, 1.35),
+    asym: R.range(0.15, 1.1),
+    metal: R.range(0.05, 0.85),
+    plates: R.range(0.2, 1.6),
+    bolts: R.range(0.3, 1.6),
+    rebar: R.range(0, 1.4),
+    spikes: R.range(0, 1.5),
+    veins: R.range(0.3, 1.6),
+    pustules: R.range(0.2, 1.6),
+    pores: R.range(0.4, 1.6),
+    eyes: R.int(0, 6),
+    mouth: R.chance(0.8),
+    teeth: R.range(0.2, 1.6),
+    slime: R.range(0.3, 1.5),
+    grit: R.range(0.5, 1.5),
+    wet: R.range(0.2, 1.3),
+    palette: R.pick(Object.keys(PALETTES)),
+    tentacles: R.int(3, 8),
+    tentVariants: R.int(2, 4),
+    tentLen: R.int(64, 150),
+    tentThick: R.int(6, 14),
+    tentTaper: R.range(0.5, 0.9),
+    tentHooks: R.range(0.2, 1.6),
+    tentRings: R.range(0.3, 1.5)
+  };
+}
+`;
+
+  return wrap('CRAWLER FORGE — generator core (UI stripped)', 'CRAWLERFORGE', core + shim, [
+    'P_DEFAULTS', 'PALETTES', 'ORIENTS',
+    'forge', 'randomParams', 'drawTentacle', 'states', 'makeRng', 'clamp'
+  ]);
+}
+
 const outputs = [
   ['src/gen/greebleworks.js', greebleworks()],
-  ['src/gen/mercforge.js', mercforge()]
+  ['src/gen/mercforge.js', mercforge()],
+  ['src/gen/crawlerforge.js', crawlerforge()]
 ];
 for (const [p, src] of outputs) {
   fs.writeFileSync(path.join(ROOT, p), src);

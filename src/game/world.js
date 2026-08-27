@@ -21,11 +21,12 @@ window.WORLD = (function () {
   function roster(cfg, opts, rng) {
     const span = cfg.levelLen;
     const dens = opts.enemyDens;
-    const n = Math.round(span * 2.6 * dens);
+    const n = Math.round(span * 2.9 * dens);
     const mix = [];
     for (let i = 0; i < n; i++) {
       const r = rng.rnd();
-      mix.push(r < 0.44 ? 'grunt' : r < 0.72 ? 'trooper' : r < 0.88 ? 'drone' : 'heavy');
+      mix.push(r < 0.36 ? 'grunt' : r < 0.60 ? 'trooper' :
+               r < 0.76 ? 'drone' : r < 0.90 ? 'crawler' : 'heavy');
     }
     return mix;
   }
@@ -56,10 +57,17 @@ window.WORLD = (function () {
       rigs[kind] = [];
       const variants = (kind === 'heavy' || kind === 'drone') ? 1 : 2;
       for (let v = 0; v < variants; v++) {
-        yield { phase: 'rigs', weight: 0.14,
-                msg: 'forging hostiles — ' + kind + ' ' + (v + 1) + '/' + variants };
-        const params = window.CONFIG.archetypeParams(kind, (cfg.seed + done * 7717 + v * 131) >>> 0, cfg.style);
-        rigs[kind].push(new window.SPRITE.Rig(params));
+        const seed = (cfg.seed + done * 7717 + v * 131) >>> 0;
+        if (kind === 'crawler') {
+          yield { phase: 'rigs', weight: 0.14,
+                  msg: 'growing crawler ' + (v + 1) + '/' + variants + ' — meat and metal' };
+          rigs[kind].push(new window.SPRITE.CrawlerRig(window.CONFIG.crawlerParams(seed, cfg, v)));
+        } else {
+          yield { phase: 'rigs', weight: 0.14,
+                  msg: 'forging hostiles — ' + kind + ' ' + (v + 1) + '/' + variants };
+          rigs[kind].push(new window.SPRITE.Rig(
+            window.CONFIG.archetypeParams(kind, seed, cfg.style)));
+        }
         done++;
       }
     }
@@ -92,6 +100,8 @@ window.WORLD = (function () {
     this.parts = [];
     this.flashes = [];
     this.pickups = [];
+    this.slime = [];        // trail stuck to the terrain
+    this.gibs = [];         // chunks with their own little physics
     this.spawnEnemies(mix, rng);
 
     this.scroll = 0;
@@ -120,6 +130,27 @@ window.WORLD = (function () {
       const rig = variants[rng.int(0, variants.length - 1)];
 
       let x, y;
+      if (kind === 'crawler') {
+        // Seat it against a real surface, using the reach the generator
+        // measured, so it starts flush instead of hovering.
+        let placed = null;
+        for (let t = 0; t < 30 && !placed; t++) {
+          const px = rng.range(safeX, Math.max(safeX + 1, L.LW - 40));
+          const py = rng.range(LV.H * 0.20, LV.H * 0.90);
+          const cands = this.world.surfacesNear(px, py, 70);
+          if (!cands.length) continue;
+          const c = cands[rng.int(0, cands.length - 1)];
+          if (!c.orient) continue;
+          placed = { x: c.x + c.nx * rig.reach(c.orient),
+                     y: c.y + c.ny * rig.reach(c.orient), orient: c.orient };
+        }
+        if (!placed) continue;
+        const cr = new E.Crawler(rig, placed.x, placed.y,
+          window.CONFIG.ARCHETYPES.crawler, this.diff, (this.cfg.seed + i * 40503) >>> 0);
+        cr.orient = placed.orient;
+        this.enemies.push(cr);
+        continue;
+      }
       if (kind === 'drone') {
         x = rng.range(safeX, Math.max(safeX + 1, L.LW - 40));
         y = rng.range(LV.H * 0.28, LV.H * 0.62);
@@ -212,14 +243,21 @@ window.WORLD = (function () {
       // Only simulate what's near the view; the rest hold position.
       if (Math.abs(e.x - (this.scroll + LV.W / 2)) > LV.W * 1.35) continue;
       e.step(this.world, P, dt, this);
-      if (!P.dead && this.state === 'play' && window.PHYSICS.overlap(e, e.w, e.h, P, P.w, P.h)) {
-        if (P.hurt(e.A.label === 'HEAVY' ? 14 : 7)) this.shake = Math.min(5, this.shake + 1.2);
+      if (!P.dead && this.state === 'play') {
+        const touching = e.kind === 'crawler'
+          ? Math.hypot(P.x - e.x, (P.y - P.h * 0.5) - e.y) < e.rig.r + P.w * 0.5
+          : window.PHYSICS.overlap(e, e.w, e.h, P, P.w, P.h);
+        if (touching && P.hurt(e.A.label === 'HEAVY' ? 14 : e.kind === 'crawler' ? 9 : 7)) {
+          this.shake = Math.min(5, this.shake + 1.2);
+        }
       }
     }
 
     this.stepBullets(dt);
     this.stepParticles(dt);
     this.stepPickups(dt);
+    this.stepSlime(dt);
+    this.stepGibs(dt);
 
     for (let i = this.flashes.length - 1; i >= 0; i--) {
       this.flashes[i].life -= dt;
@@ -312,8 +350,12 @@ window.WORLD = (function () {
         if (b.friendly) {
           for (const e of this.enemies) {
             if (e.dead) continue;
-            if (Math.abs(b.x - e.x) < e.w * 0.62 + b.size &&
-                b.y > e.y - e.h && b.y < e.y + 2) {
+            const hit = e.kind === 'crawler'
+              // a blob is a disc around its centre, not a standing box
+              ? Math.hypot(b.x - e.x, b.y - e.y) < e.rig.r + b.size
+              : (Math.abs(b.x - e.x) < e.w * 0.62 + b.size &&
+                 b.y > e.y - e.h && b.y < e.y + 2);
+            if (hit) {
               if (b.hitList && b.hitList.indexOf(e) >= 0) continue;
               e.hurtBy(b.dmg, this);
               this.impact(b, -b.vx, -b.vy);
@@ -389,6 +431,104 @@ window.WORLD = (function () {
 
   Mission.prototype.say = function (text) { this.banner = text; this.bannerT = 2.0; };
 
+  /* ---------------- crawler hooks ----------------
+     The Crawler calls back into the mission for anything that leaves
+     a mark on the world, so the entity itself stays about locomotion. */
+
+  /* Slime is laid where a tentacle is actually gripping, oriented to
+     that surface's normal so it pools on a deck and runs down a wall. */
+  Mission.prototype.addSlime = function (x, y, nx, ny, col, r) {
+    if (this.slime.length > 220) this.slime.shift();
+    this.slime.push({
+      x, y, nx, ny, col,
+      r: r * (0.34 + Math.random() * 0.30),
+      life: 7.5 + Math.random() * 5, max: 12.5,
+      drip: Math.random() * 6
+    });
+  };
+
+  /* Chunks of the thing. They bounce off terrain, smear slime where
+     they land, and are the main reason shooting one feels good. */
+  Mission.prototype.gib = function (cr, n) {
+    const col = cr.slimeColour();
+    const pal = window.CRAWLERFORGE.PALETTES[cr.rig.params.palette] ||
+                window.CRAWLERFORGE.PALETTES.raw;
+    for (let i = 0; i < n; i++) {
+      if (this.gibs.length > 140) this.gibs.shift();
+      const g = cr.rig.gib(cr.x, cr.y, cr.face < 0, cr.orient);
+      const a = Math.random() * TAU, sp = 0.7 + Math.random() * 2.6;
+      this.gibs.push({
+        x: g.x, y: g.y,
+        vx: Math.cos(a) * sp + cr.vx * 0.4,
+        vy: Math.sin(a) * sp - 0.8,
+        life: 1.1 + Math.random() * 1.5, max: 2.6,
+        size: Math.random() < 0.3 ? 3 : 2,
+        spin: (Math.random() - 0.5) * 0.4,
+        rot: Math.random() * TAU,
+        col: Math.random() < 0.28 ? pal.metal[1] : (Math.random() < 0.5 ? pal.meat[0] : pal.meat[1]),
+        wet: col, rest: 0
+      });
+    }
+  };
+
+  Mission.prototype.burst = function (cr) {
+    this.shake = Math.min(6, this.shake + 3.0);
+    const pal = window.CRAWLERFORGE.PALETTES[cr.rig.params.palette] ||
+                window.CRAWLERFORGE.PALETTES.raw;
+    this.explode(cr.x, cr.y, pal.meat[0], pal.glow, 1.2);
+    this.addSlime(cr.x, cr.y, 0, 1, pal.slime, cr.rig.r * 2.4);
+    window.AUDIO.play('splat', null, this.distTo(cr.x));
+  };
+
+  Mission.prototype.onCrawlerLash = function (cr, tx, ty) {
+    window.AUDIO.play('lash', null, this.distTo(cr.x));
+  };
+
+  Mission.prototype.onCrawlerHit = function (cr, player) {
+    this.hitFlash = 0.3;
+    this.shake = Math.min(5, this.shake + 1.4);
+    const pal = window.CRAWLERFORGE.PALETTES[cr.rig.params.palette] ||
+                window.CRAWLERFORGE.PALETTES.raw;
+    for (let i = 0; i < 8; i++) {
+      const a = Math.random() * TAU, sp = 0.6 + Math.random() * 1.8;
+      this.parts.push(new E.Particle(player.x, player.y - player.h * 0.5,
+        Math.cos(a) * sp, Math.sin(a) * sp, 0.3 + Math.random() * 0.3, pal.slime, 0.08));
+    }
+  };
+
+  Mission.prototype.stepSlime = function (dt) {
+    for (let i = this.slime.length - 1; i >= 0; i--) {
+      const s = this.slime[i];
+      s.life -= dt;
+      s.drip += dt * 0.6;
+      if (s.life <= 0) this.slime.splice(i, 1);
+    }
+  };
+
+  Mission.prototype.stepGibs = function (dt) {
+    for (let i = this.gibs.length - 1; i >= 0; i--) {
+      const g = this.gibs[i];
+      g.life -= dt;
+      if (g.life <= 0) { this.gibs.splice(i, 1); continue; }
+      if (g.rest > 0) { g.rest -= dt; continue; }
+      g.vy += E.MOVE.gravity * 0.55;
+      g.vy = Math.min(g.vy, 7);
+      g.rot += g.spin;
+      const nx = g.x + g.vx, ny = g.y + g.vy;
+      if (this.world.solidAt(nx, ny, true)) {
+        // stick where it hits, and leave a smear behind
+        g.vx *= -0.22; g.vy *= -0.25;
+        g.spin *= 0.4;
+        if (Math.abs(g.vy) < 0.5) {
+          g.rest = g.life;
+          if (Math.random() < 0.55) this.addSlime(g.x, g.y, 0, -1, g.wet, 5);
+        }
+        g.x += g.vx; g.y += g.vy;
+      } else { g.x = nx; g.y = ny; }
+      if (g.y > LV.H + 60) this.gibs.splice(i, 1);
+    }
+  };
+
   Mission.prototype.stepParticles = function (dt) {
     for (let i = this.parts.length - 1; i >= 0; i--) {
       const p = this.parts[i];
@@ -410,6 +550,7 @@ window.WORLD = (function () {
     P.weapon.ammo = P.weapon.def.mag; P.weapon.reloading = 0;
     this.state = 'play'; this.endT = 0;
     this.bullets.length = 0;
+    this.gibs.length = 0;
     // Let anything that was chasing lose the thread.
     for (const e of this.enemies) if (!e.dead) { e.alerted = false; e.state = 'patrol'; e.burst = 0; }
     this.say('RESPAWN');

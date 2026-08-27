@@ -157,5 +157,105 @@ window.PHYSICS = (function () {
     return true;
   };
 
-  return { World, overlap, DECK_H, THIN_H, thickOf };
+  /* ============================================================
+     Surface queries — what the crawler grips.
+
+     A crawler does not walk on `plats`, it grabs them: the top of a
+     deck, the underside of a catwalk, the vertical face where one
+     ground run steps up against another. Each candidate is a point on
+     a rect face plus that face's outward normal, which is what tells
+     the sprite which orientation row to use and how far to sit off
+     the surface.
+     ============================================================ */
+  const FACE_ORIENT = {         // outward normal -> sheet row
+    '0,-1': 'floor',            // top of a deck: the blob sits on it
+    '0,1': 'ceiling',           // underside: it hangs from it
+    '1,0': 'wallL',             // face points right, so the wall is on its left
+    '-1,0': 'wallR'
+  };
+
+  /* Closest point on the axis-aligned segment (ax,ay)-(bx,by). */
+  function closestOnSeg(px, py, ax, ay, bx, by) {
+    const dx = bx - ax, dy = by - ay;
+    const len2 = dx * dx + dy * dy;
+    if (len2 < 1e-9) return { x: ax, y: ay };
+    let t = ((px - ax) * dx + (py - ay) * dy) / len2;
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    return { x: ax + dx * t, y: ay + dy * t };
+  }
+
+  /* Every grippable point within `maxR` of (x, y). */
+  World.prototype.surfacesNear = function (x, y, maxR) {
+    const out = [];
+    const r2 = maxR * maxR;
+    for (const p of this.near(x - maxR, x + maxR)) {
+      const th = thickOf(p);
+      const top = p.y, bot = p.y + th;
+      const faces = [
+        [p.x, top, p.x + p.w, top, 0, -1]                     // walkable top
+      ];
+      if (!p.ground) {
+        // A deck is grippable all the way round; ground mass runs off
+        // the bottom of the frame, so it has no underside to hang from.
+        faces.push([p.x, bot, p.x + p.w, bot, 0, 1]);
+      }
+      faces.push([p.x, top, p.x, Math.min(bot, LV.H), -1, 0]);
+      faces.push([p.x + p.w, top, p.x + p.w, Math.min(bot, LV.H), 1, 0]);
+
+      for (const f of faces) {
+        /* Sample ALONG the face, not just its nearest point. A crawler
+           standing on a long deck is closest to the spot directly
+           under it, and if that is the only candidate the anchor
+           search finds nothing beyond its own minimum stride and the
+           creature never takes a step. Walking a deck means reaching
+           further along the same face. */
+        const ax = f[0], ay = f[1], bx = f[2], by = f[3];
+        const len = Math.hypot(bx - ax, by - ay);
+        const ux = len ? (bx - ax) / len : 0, uy = len ? (by - ay) / len : 0;
+        const c0 = closestOnSeg(x, y, ax, ay, bx, by);
+        const t0 = (c0.x - ax) * ux + (c0.y - ay) * uy;
+        const step = Math.max(7, maxR / 5);
+        let seenT = -1e9;
+        for (let s = -maxR; s <= maxR + 0.001; s += step) {
+          const t = s < -t0 ? 0 : (t0 + s > len ? len : t0 + s);
+          if (Math.abs(t - seenT) < 1) continue;      // clamped duplicates
+          seenT = t;
+          const px = ax + ux * t, py = ay + uy * t;
+          const dx = px - x, dy = py - y;
+          const d2 = dx * dx + dy * dy;
+          if (d2 > r2) continue;
+          out.push({
+            x: px, y: py, nx: f[4], ny: f[5], plat: p,
+            dist: Math.sqrt(d2),
+            orient: FACE_ORIENT[f[4] + ',' + f[5]]
+          });
+        }
+      }
+    }
+    return out;
+  };
+
+  /* The best grip in a wanted direction: prefer points that lie the
+     way the crawler is trying to travel, and that are a comfortable
+     stride away rather than right under it. */
+  World.prototype.pickAnchor = function (x, y, minR, maxR, wantX, wantY, rnd) {
+    const cands = this.surfacesNear(x, y, maxR);
+    if (!cands.length) return null;
+    let best = null, bs = -1e9;
+    const wl = Math.hypot(wantX, wantY) || 1;
+    const ux = wantX / wl, uy = wantY / wl;
+    for (const c of cands) {
+      if (c.dist < minR) continue;
+      const dx = (c.x - x) / (c.dist || 1), dy = (c.y - y) / (c.dist || 1);
+      // dot with the wanted heading, plus a bonus for using most of
+      // the reach, plus a little noise so a pack does not move in lockstep
+      const score = (dx * ux + dy * uy) * 2.4
+                  + (c.dist / maxR) * 0.7
+                  + (rnd ? (rnd() - 0.5) * 0.5 : 0);
+      if (score > bs) { bs = score; best = c; }
+    }
+    return best;
+  };
+
+  return { World, overlap, DECK_H, THIN_H, thickOf, FACE_ORIENT, closestOnSeg };
 })();

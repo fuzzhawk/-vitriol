@@ -1,0 +1,1717 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CRAWLER FORGE — eldritch crawler spritesheets</title>
+<style>
+:root{--bg:#0a0c0d;--bg2:#101314;--panel:#141719;--line:#1e2325;--line2:#2b3235;
+  --ink:#c8d2d6;--dim:#6e7c84;--amber:#f0a830;--hot:#e05a1e;--meat:#b8465a}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;height:100%;background:var(--bg);color:var(--ink);
+  font:12px/1.45 "Courier New",ui-monospace,monospace;overflow:hidden}
+.app{display:flex;height:100%}
+.rail{width:296px;flex:0 0 296px;border-right:1px solid var(--line);background:var(--bg2);
+  overflow-y:auto;padding:10px 12px 40px}
+.head{padding:2px 0 12px}
+.head h1{margin:0;font-size:14px;letter-spacing:6px;color:var(--meat);font-weight:700}
+.head p{margin:4px 0 0;color:var(--dim);font-size:10px;letter-spacing:2px}
+.grp{border:1px solid var(--line);background:var(--panel);margin-bottom:8px}
+.grp-h{padding:7px 10px;border-bottom:1px solid var(--line);background:#1a1e20;
+  display:flex;justify-content:space-between;cursor:pointer;user-select:none}
+.grp-h b{font-size:10px;letter-spacing:3px;color:var(--amber);font-weight:700}
+.grp-h i{font-style:normal;color:var(--dim)}
+.grp.closed .grp-b{display:none}
+.grp-b{padding:7px 10px 9px}
+.ctl{display:flex;align-items:center;gap:8px;padding:2px 0;min-height:21px}
+.ctl label{flex:0 0 98px;color:var(--dim);font-size:10.5px}
+.ctl select{flex:1;background:#0d1011;border:1px solid var(--line2);color:var(--ink);
+  padding:3px 5px;font:inherit;font-size:10.5px;min-width:0}
+.ctl input[type=range]{flex:1;-webkit-appearance:none;appearance:none;height:16px;background:transparent;min-width:0}
+.ctl input[type=range]::-webkit-slider-runnable-track{height:2px;background:var(--line2)}
+.ctl input[type=range]::-moz-range-track{height:2px;background:var(--line2)}
+.ctl input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:8px;height:14px;
+  background:var(--amber);margin-top:-6px;border:none}
+.ctl input[type=range]::-moz-range-thumb{width:8px;height:14px;background:var(--amber);border:none;border-radius:0}
+.ctl input[type=color]{flex:1;height:18px;padding:0;border:1px solid var(--line2);background:#0d1011}
+.ctl .val{flex:0 0 50px;text-align:right;color:var(--amber);font-size:10px}
+.ctl .chk{flex:1}.ctl .chk input{accent-color:var(--amber)}
+.row{display:flex;gap:6px;margin-top:7px}
+button{background:#22282b;border:1px solid var(--line2);color:var(--ink);padding:7px 10px;
+  font:inherit;font-size:10.5px;letter-spacing:2px;cursor:pointer;flex:1}
+button:hover{background:#2c3438}
+button.primary{background:var(--meat);border-color:var(--meat);color:#180608;font-weight:700}
+button.primary:hover{background:#d4536a}
+.stage{flex:1;display:flex;flex-direction:column;min-width:0}
+.modebar{display:flex;border-bottom:1px solid var(--line);background:#141719}
+.modebar button{flex:1;border:none;border-right:1px solid var(--line);background:transparent;
+  color:var(--dim);padding:9px 6px;letter-spacing:3px}
+.modebar button.on{background:#1f2426;color:var(--amber);box-shadow:inset 0 -2px 0 var(--amber)}
+.view{flex:1;overflow:auto;padding:16px;background:
+  repeating-conic-gradient(#191c1e 0% 25%,#141718 0% 50%) 50%/16px 16px}
+.view canvas{image-rendering:pixelated;display:block;margin:0 auto;
+  box-shadow:0 0 0 1px #262c2f,0 12px 40px rgba(0,0,0,.6)}
+.foot{border-top:1px solid var(--line);background:#101314;padding:7px 12px;display:flex;
+  gap:18px;font-size:10px;color:var(--dim);letter-spacing:1px}
+.foot b{color:var(--dim);font-weight:400}
+.foot span{color:var(--amber)}
+.hide{display:none}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="rail">
+    <div class="head">
+      <h1>CRAWLER FORGE</h1>
+      <p>ELDRITCH CRAWLER SPRITESHEETS</p>
+    </div>
+    <div id="rail"></div>
+  </div>
+  <div class="stage">
+    <div class="modebar">
+      <button id="mb-live" class="on">LIVE</button>
+      <button id="mb-body">BODY SHEET</button>
+      <button id="mb-tent">TENTACLE SHEET</button>
+      <button id="mb-phys">PHYSICS BAKE</button>
+    </div>
+    <div class="view">
+      <canvas id="live" width="640" height="440"></canvas>
+      <canvas id="body" class="hide"></canvas>
+      <canvas id="tent" class="hide"></canvas>
+      <canvas id="phys" class="hide"></canvas>
+    </div>
+    <div class="foot">
+      <div><b>CELL</b> <span id="f_cell">—</span></div>
+      <div><b>SHEET</b> <span id="f_sheet">—</span></div>
+      <div><b>SOCKETS</b> <span id="f_sock">—</span></div>
+      <div><b>HULL</b> <span id="f_hull">—</span></div>
+      <div><b>BAKE</b> <span id="f_ms">—</span></div>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+/* ================================================================
+   CRAWLER FORGE — eldritch crawler spritesheets
+
+   A blob of meat and metal that drags itself along on tentacles.
+
+   Two sheets come out of one bake:
+     BODY      columns = animation frames, rows = surface orientation
+     TENTACLE  one tapered strip per variant, warped along a spline
+               at runtime and drawn BEHIND the body
+
+   ...and a third thing that is not pixels at all: a PHYSICS bake.
+   The silhouette, hull, tentacle sockets with their outward normals,
+   grip radius and gib seed points are all measured off the rendered
+   buffers, so the simulation reads the shape that was actually drawn
+   instead of a set of numbers that hopefully match it.
+
+   Pipeline follows the house style: draw into albedo + height +
+   emissive at supersample, light from the height buffer, crush down,
+   then snap to a palette with edge shading and an outline dilate.
+   The grit comes out of the downscale, not out of drawing chunky.
+   ================================================================ */
+
+/* ---------------- utils ---------------- */
+const clamp=(v,a,b)=>v<a?a:v>b?b:v;
+const TAU=Math.PI*2;
+const lerp=(a,b,t)=>a+(b-a)*t;
+const smooth=t=>t*t*(3-2*t);
+
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);
+  t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+function makeRng(seed){
+  const r=mulberry32(seed>>>0);
+  return{rnd:r,
+    range:(a,b)=>a+r()*(b-a),
+    int:(a,b)=>a+Math.floor(r()*(b-a+1)),
+    pick:a=>a[Math.floor(r()*a.length)%a.length],
+    chance:p=>r()<p,
+    sign:()=>r()<0.5?-1:1};
+}
+function hx(h){h=h.replace('#','');if(h.length===3)h=h.split('').map(c=>c+c).join('');
+  return[parseInt(h.slice(0,2),16),parseInt(h.slice(2,4),16),parseInt(h.slice(4,6),16)];}
+function rh(r,g,b){return'#'+[r,g,b].map(v=>clamp(Math.round(v),0,255).toString(16).padStart(2,'0')).join('');}
+function shade(h,a){const c=hx(h);if(a>=0)return rh(c[0]+(255-c[0])*a,c[1]+(255-c[1])*a,c[2]+(255-c[2])*a);
+  return rh(c[0]*(1+a),c[1]*(1+a),c[2]*(1+a));}
+function mkCanvas(w,h){const c=document.createElement('canvas');c.width=Math.max(1,w|0);
+  c.height=Math.max(1,h|0);return c;}
+
+/* Value-noise fBm. Not tileable — sprites do not wrap. */
+function noiseField(rng,w,h,res,oct){
+  const out=new Float32Array(w*h);
+  let amp=1,tot=0,scale=res;
+  for(let o=0;o<oct;o++){
+    const gw=Math.max(2,Math.ceil(w/scale)+2),gh=Math.max(2,Math.ceil(h/scale)+2);
+    const g=new Float32Array(gw*gh);
+    for(let i=0;i<g.length;i++)g[i]=rng.rnd();
+    for(let y=0;y<h;y++){
+      const fy=y/scale,y0=Math.floor(fy),ty=smooth(fy-y0);
+      for(let x=0;x<w;x++){
+        const fx=x/scale,x0=Math.floor(fx),tx=smooth(fx-x0);
+        const a=g[y0*gw+x0],b=g[y0*gw+x0+1],c=g[(y0+1)*gw+x0],d=g[(y0+1)*gw+x0+1];
+        out[y*w+x]+=amp*lerp(lerp(a,b,tx),lerp(c,d,tx),ty);
+      }
+    }
+    tot+=amp;amp*=0.5;scale*=0.5;
+    if(scale<1.5)break;
+  }
+  for(let i=0;i<out.length;i++)out[i]/=tot;
+  return out;
+}
+const sampleF=(f,w,h,x,y)=>{
+  const xi=clamp(x|0,0,w-1),yi=clamp(y|0,0,h-1);
+  return f[yi*w+xi];
+};
+
+/* ---------------- palettes ----------------
+   Each is a meat family, a metal family, and the wet/hot accents.
+   Variation inside a run comes from the seed; variation between runs
+   comes from picking a different set here. */
+const PALETTES={
+  raw:      {label:'Raw',        meat:['#8e2f3c','#b8465a','#5a1a24'],metal:['#7d8794','#aeb8c2','#3f464e'],
+             accent:'#e08a6a',glow:'#ff6b4a',slime:'#c98a92',bone:'#d8cbb0'},
+  bile:     {label:'Bile',       meat:['#7a7a2c','#a9a83e','#43431a'],metal:['#8a7c4a','#c0ae72','#4a4126'],
+             accent:'#d6d24e',glow:'#c8ff3d',slime:'#b9c268',bone:'#ded6ac'},
+  necrotic: {label:'Necrotic',   meat:['#5c4a63','#7f6a88','#332839'],metal:['#6b6257','#948877','#3a352e'],
+             accent:'#9b7fae',glow:'#b06bff',slime:'#8d7f96',bone:'#c4bcae'},
+  ember:    {label:'Ember',      meat:['#6b2a1c','#98402a','#3a1510'],metal:['#5e5852','#8e857c','#332f2b'],
+             accent:'#e2612a',glow:'#ff9028',slime:'#a35c3c',bone:'#cbb79a'},
+  deepsea:  {label:'Deep sea',   meat:['#2c4f63','#3f7089','#182c38'],metal:['#4d6b6a','#74968f','#2a3b3a'],
+             accent:'#59a3b8',glow:'#3ee0ff',slime:'#6d9db0',bone:'#b8c9c4'},
+  fungal:   {label:'Fungal',     meat:['#8a5a2c','#b8823f','#4b2f16'],metal:['#7a6a4e','#a8916d','#453b2b'],
+             accent:'#d2a45c',glow:'#ffd06b',slime:'#b28e5e',bone:'#dccfae'},
+  chrome:   {label:'Chrome meat',meat:['#a8747a','#cf9aa0','#6b464b'],metal:['#98a2ac','#d2dae2','#525a63'],
+             accent:'#e0b0b6',glow:'#ffffff',slime:'#c2a8ac',bone:'#eae2d4'},
+  void:     {label:'Void',       meat:['#2a2334','#453a54','#16121c'],metal:['#3f3a4a','#635c74','#241f2c'],
+             accent:'#7a5ea8',glow:'#c060ff',slime:'#4e4460',bone:'#8e86a0'},
+  toxic:    {label:'Toxic',      meat:['#3d6b3a','#589a4f','#22401f'],metal:['#5e7060','#8aa08c','#333d34'],
+             accent:'#7fd06a',glow:'#8cff5a',slime:'#82b478',bone:'#c8d4b4'},
+  rust:     {label:'Rust',       meat:['#7a3a24','#a45636','#431f13'],metal:['#7a5540','#a87c5e','#42301f'],
+             accent:'#c07848',glow:'#ff8c3a',slime:'#9c6a4c',bone:'#d0bc9a'}
+};
+/* one malformed hex slipped in above would poison the palette snap,
+   so scrub the table on load rather than trusting it */
+for(const k in PALETTES){
+  const P0=PALETTES[k];
+  const fix=v=>/^#[0-9a-f]{6}$/i.test(v)?v:'#808080';
+  P0.meat=P0.meat.map(fix);P0.metal=P0.metal.map(fix);
+  P0.accent=fix(P0.accent);P0.glow=fix(P0.glow);P0.slime=fix(P0.slime);P0.bone=fix(P0.bone);
+}
+
+/* ---------------- parameters ---------------- */
+const P={
+  seed:8821,
+  // body
+  size:34, lobes:5, chaos:0.55, squat:1.0, asym:0.5,
+  // composition
+  metal:0.45, plates:1.0, bolts:1.0, rebar:0.6, spikes:0.35,
+  // flesh detail
+  veins:0.8, pustules:0.55, pores:0.7, membrane:0.6,
+  eyes:3, mouth:true, teeth:0.7,
+  // surface
+  slime:0.8, grit:0.9, wet:0.7, relief:1.0, lightdir:300,
+  // tentacles
+  tentacles:5, tentVariants:3, tentLen:104, tentThick:9, tentTaper:0.72,
+  tentHooks:0.7, tentRings:0.8,
+  // colour
+  palette:'raw', rim:0.30, shadow:0.34, outline:true, shading:true,
+  // sheet
+  idleFrames:4, pullFrames:4, hurtFrames:2, SS:4
+};
+
+/* Surface orientations. Rows of the body sheet. Gravity — and so the
+   drips, the sag and the squash — points a different way on each, and
+   that is the whole reason this is baked rather than rotated at
+   runtime: a rotated pixel sprite shears its own dither. */
+const ORIENTS=[
+  {id:'floor',   down:[0, 1]},
+  {id:'wallL',   down:[-1,0]},   // clinging to a wall on its left
+  {id:'wallR',   down:[1, 0]},
+  {id:'ceiling', down:[0,-1]}
+];
+
+function states(){
+  return[
+    {id:'idle', frames:P.idleFrames, fps:5,  loop:true},
+    {id:'pull', frames:P.pullFrames, fps:11, loop:true},
+    {id:'hurt', frames:P.hurtFrames, fps:14, loop:false}
+  ];
+}
+
+/* ---------------- palette ---------------- */
+function buildPalette(){
+  const S=PALETTES[P.palette]||PALETTES.raw;
+  const fams=[S.meat[0],S.meat[1],S.meat[2],S.metal[0],S.metal[1],S.metal[2],
+              S.accent,S.slime,S.bone];
+  const list=[],light=[],dark=[];
+  const push=hex=>{const c=hx(hex);list.push({r:c[0],g:c[1],b:c[2]});return list.length-1;};
+  for(const f of fams){
+    const b=push(f),l=push(shade(f,P.rim)),d=push(shade(f,-P.shadow));
+    light[b]=l;dark[b]=d;light[l]=l;dark[l]=d;light[d]=l;dark[d]=d;
+  }
+  const g=push(S.glow);light[g]=g;dark[g]=g;           // glow never shades
+  const matchCount=list.length;                         // outline excluded from matching
+  const o=push('#0b0809');light[o]=o;dark[o]=o;
+  return{list,light,dark,outline:o,matchCount,glow:g,S,cache:new Map()};
+}
+function nearest(pal,r,g,b){
+  let best=0,bd=1e9;
+  for(let i=0;i<pal.matchCount;i++){
+    const c=pal.list[i],dr=c.r-r,dg=c.g-g,db=c.b-b;
+    const d=dr*dr*0.35+dg*dg*0.5+db*db*0.15;
+    if(d<bd){bd=d;best=i;}
+  }
+  return best;
+}
+
+/* ---------------- lighting from the height buffer ----------------
+   Normals come out of a Sobel difference on height, then Lambert plus
+   a cavity term read off a blurred copy, plus a tight spec. This is
+   what makes a lump of meat read as round and a bolted plate read as
+   flat and hard, without either being shaded by hand. */
+function blurBuf(src,w,h,r){
+  const tmp=new Float32Array(w*h),out=new Float32Array(w*h);
+  const R=Math.max(1,r|0),norm=1/(R*2+1);
+  for(let y=0;y<h;y++){let acc=0;
+    for(let x=-R;x<=R;x++)acc+=src[y*w+clamp(x,0,w-1)];
+    for(let x=0;x<w;x++){tmp[y*w+x]=acc*norm;
+      acc+=src[y*w+clamp(x+R+1,0,w-1)]-src[y*w+clamp(x-R,0,w-1)];}
+  }
+  for(let x=0;x<w;x++){let acc=0;
+    for(let y=-R;y<=R;y++)acc+=tmp[clamp(y,0,h-1)*w+x];
+    for(let y=0;y<h;y++){out[y*w+x]=acc*norm;
+      acc+=tmp[clamp(y+R+1,0,h-1)*w+x]-tmp[clamp(y-R,0,h-1)*w+x];}
+  }
+  return out;
+}
+
+function lightPass(A,H,E,w,h){
+  const ctx=A.getContext('2d');
+  const img=ctx.getImageData(0,0,w,h),d=img.data;
+  const em=E.getContext('2d').getImageData(0,0,w,h).data;
+  const cav=blurBuf(H,w,h,Math.max(2,(w*0.06)|0));
+  const rad=P.lightdir*Math.PI/180;
+  const lx=Math.cos(rad),ly=Math.sin(rad),lz=0.72;
+  const rel=P.relief*(w/128);
+  for(let y=0;y<h;y++){
+    for(let x=0;x<w;x++){
+      const i=y*w+x,p=i*4;
+      if(d[p+3]<8)continue;
+      const hl=H[y*w+clamp(x-1,0,w-1)],hr=H[y*w+clamp(x+1,0,w-1)];
+      const hu=H[clamp(y-1,0,h-1)*w+x],hd=H[clamp(y+1,0,h-1)*w+x];
+      let nx=(hl-hr)*rel,ny=(hu-hd)*rel,nz=1;
+      const il=1/Math.hypot(nx,ny,nz);nx*=il;ny*=il;nz*=il;
+      const lam=clamp(nx*lx+ny*ly+nz*lz,0,1);
+      // cavity: sitting below the local average reads as a crease
+      const ao=clamp(0.55+(H[i]-cav[i])*2.6,0.30,1.18);
+      // tight spec off the same normal
+      const hx2=(lx+0)*0.5,hy2=(ly+0)*0.5,hz2=(lz+1)*0.5;
+      const ih=1/Math.hypot(hx2,hy2,hz2);
+      const sp=Math.pow(clamp(nx*hx2*ih+ny*hy2*ih+nz*hz2*ih,0,1),22)*0.85;
+      const k=(0.34+0.78*lam)*ao;
+      const eA=em[p+3]/255*0.85;
+      d[p  ]=clamp(d[p  ]*k+sp*220+em[p  ]*eA,0,255);
+      d[p+1]=clamp(d[p+1]*k+sp*220+em[p+1]*eA,0,255);
+      d[p+2]=clamp(d[p+2]*k+sp*220+em[p+2]*eA,0,255);
+    }
+  }
+  ctx.putImageData(img,0,0);
+  return A;
+}
+
+/* ---------------- crush: downscale, then snap ----------------
+   Halve repeatedly with smoothing so the grit averages into real
+   pixels instead of aliasing into noise. */
+function crush(src,outW,outH){
+  let cur=src;
+  while(cur.width>outW*2&&cur.height>outH*2){
+    const n=mkCanvas(Math.max(outW,cur.width>>1),Math.max(outH,cur.height>>1));
+    const c=n.getContext('2d');
+    c.imageSmoothingEnabled=true;c.imageSmoothingQuality='high';
+    c.drawImage(cur,0,0,n.width,n.height);
+    cur=n;
+  }
+  const out=mkCanvas(outW,outH),oc=out.getContext('2d');
+  oc.imageSmoothingEnabled=true;oc.imageSmoothingQuality='high';
+  oc.drawImage(cur,0,0,outW,outH);
+  return out;
+}
+
+/* Alpha cut, palette snap, edge shading, outline dilate. One pass over
+   a whole sheet — which is why every cell needs >= 2px of padding, or
+   one cell's outline bleeds into its neighbour. */
+function rasterise(ctx,w,h,pal){
+  const img=ctx.getImageData(0,0,w,h),d=img.data;
+  const idx=new Int16Array(w*h).fill(-1);
+  for(let i=0;i<w*h;i++){
+    const p=i*4;
+    if(d[p+3]<114){d[p+3]=0;continue;}
+    d[p+3]=255;
+    const key=(d[p]>>2<<12)|(d[p+1]>>2<<6)|(d[p+2]>>2);
+    let ci=pal.cache.get(key);
+    if(ci===undefined){ci=nearest(pal,d[p],d[p+1],d[p+2]);pal.cache.set(key,ci);}
+    idx[i]=ci;
+  }
+  if(P.shading){
+    const src=Int16Array.from(idx);
+    for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+      const i=y*w+x;if(src[i]<0)continue;
+      const up=y>0?src[i-w]:-1,dn=y<h-1?src[i+w]:-1;
+      if(up<0&&pal.light[src[i]]!==undefined)idx[i]=pal.light[src[i]];
+      else if(dn<0&&pal.dark[src[i]]!==undefined)idx[i]=pal.dark[src[i]];
+    }
+  }
+  for(let i=0;i<w*h;i++){
+    const p=i*4;
+    if(idx[i]<0)continue;
+    const c=pal.list[idx[i]];
+    d[p]=c.r;d[p+1]=c.g;d[p+2]=c.b;d[p+3]=255;
+  }
+  if(P.outline){
+    const solid=new Uint8Array(w*h);
+    for(let i=0;i<w*h;i++)solid[i]=d[i*4+3]>0?1:0;
+    const oc=pal.list[pal.outline];
+    for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+      const i=y*w+x;
+      if(solid[i])continue;
+      if((x>0&&solid[i-1])||(x<w-1&&solid[i+1])||(y>0&&solid[i-w])||(y<h-1&&solid[i+w])){
+        const p=i*4;d[p]=oc.r;d[p+1]=oc.g;d[p+2]=oc.b;d[p+3]=255;
+      }
+    }
+  }
+  ctx.putImageData(img,0,0);
+}
+
+/* ================================================================
+   BODY GENERATOR
+
+   The silhouette is a metaball sum over a handful of lobes, with the
+   threshold pushed around by fBm so the edge comes out lumpy and
+   irregular instead of a tidy blob of circles. Everything else is
+   painted onto that mask.
+   ================================================================ */
+const BASE=128;   // flat height
+
+function lobeSet(rng,R){
+  const n=clamp(P.lobes|0,2,12),out=[];
+  /* Lobes have to sit far enough apart to read as separate masses that
+     merged, not as one ball. Clustered tightly they sum into a circle,
+     which is the opposite of what this thing is supposed to look like. */
+  for(let i=0;i<n;i++){
+    const a=rng.range(0,TAU);
+    const d=i===0?0:rng.range(0.34,0.95)*R*(0.55+P.asym*0.55);
+    // wider than tall: a crawler is a thing that spreads over a surface
+    const stretch=1+P.asym*0.35;
+    out.push({
+      x:Math.cos(a)*d*stretch*rng.range(0.8,1.25),
+      y:Math.sin(a)*d*rng.range(0.5,1.0)*P.squat,
+      r:R*(i===0?rng.range(0.34,0.46):rng.range(0.17,0.40)),
+      ph:rng.range(0,TAU),
+      meat:i===0?1:(rng.rnd()<P.metal?0:1)     // 0 = this lobe is a metal mass
+    });
+  }
+  return out;
+}
+
+/* One animation frame's deformation of the lobe set. */
+function deform(lobes,state,f,nf,orient,rng){
+  const t=nf>0?f/nf:0, ph=t*TAU;
+  const dx=orient.down[0],dy=orient.down[1];
+  let breathe=1,pull=0,flinch=0;
+  if(state==='idle')  breathe=1+Math.sin(ph)*0.055;
+  if(state==='pull'){ pull=Math.sin(ph); breathe=1+Math.cos(ph)*0.10; }
+  if(state==='hurt')  flinch=(f===0?1:0.45);
+  return lobes.map((L,i)=>{
+    const w=Math.sin(ph+L.ph+i*1.7);
+    // Weight sags along the surface normal it is stuck to.
+    const sag=(state==='pull'?0.10:0.16)*(1+flinch);
+    return{
+      x:L.x+w*L.r*0.13+dx*L.r*sag*0.5+pull*dx*L.r*-0.22,
+      y:L.y+Math.cos(ph*1.3+L.ph)*L.r*0.11+dy*L.r*sag+pull*dy*L.r*-0.22,
+      r:L.r*breathe*(1+w*0.07)*(1-flinch*0.10)*(state==='pull'?(1+pull*0.09):1),
+      meat:L.meat
+    };
+  });
+}
+
+/* Metaball field + the lumpy threshold that turns it into a mask.
+
+   Two things keep this from coming out as a circle. The kernel has
+   compact support and a cubic falloff, so lobes stay legible as
+   separate masses where they merge instead of summing into one smooth
+   ball. And the field is sampled through a DOMAIN WARP — the lookup
+   position itself is displaced by fBm — which chews the contour into
+   something irregular far more convincingly than pushing the
+   threshold up and down ever did. */
+function fieldAndMask(lobes,W,H,cx,cy,warp,R){
+  const field=new Float32Array(W*H);
+  const meatF=new Float32Array(W*H);
+  const amp=P.chaos*R*0.42;
+  for(const L of lobes){
+    const lx=cx+L.x,ly=cy+L.y;
+    const reach=L.r*2;
+    const pad=reach+amp+2;
+    const x0=clamp((lx-pad)|0,0,W-1),x1=clamp((lx+pad)|0,0,W-1);
+    const y0=clamp((ly-pad)|0,0,H-1),y1=clamp((ly+pad)|0,0,H-1);
+    const inv=1/(reach*reach);
+    for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++){
+      const i=y*W+x;
+      // domain warp: two decorrelated taps off the one noise field
+      const wx=x+(sampleF(warp,W,H,x,y)-0.5)*amp;
+      const wy=y+(sampleF(warp,W,H,x+W*0.37,y+H*0.61)-0.5)*amp;
+      const dx=wx-lx,dy=wy-ly;
+      const q=(dx*dx+dy*dy)*inv;
+      if(q>=1)continue;
+      const m=1-q;
+      const v=m*m*m;                         // Wyvill-ish compact kernel
+      field[i]+=v;
+      if(L.meat)meatF[i]+=v; else meatF[i]-=v*1.15;
+    }
+  }
+  const solid=new Uint8Array(W*H);
+  const T=0.34;
+  for(let i=0;i<W*H;i++)if(field[i]>T)solid[i]=1;
+  return{field,meatF,solid};
+}
+
+/* Paint the base: meat or metal per pixel, grit in both albedo and
+   height, and a dome in height driven by the field. */
+function paintBase(ca,ch,W,H,fm,grit,pal,rng){
+  const {field,meatF,solid}=fm;
+  const ai=ca.getImageData(0,0,W,H),ad=ai.data;
+  const hi=ch.getImageData(0,0,W,H),hd=hi.data;
+  const S=pal.S;
+  const m0=hx(S.meat[0]),m1=hx(S.meat[1]),m2=hx(S.meat[2]);
+  const k0=hx(S.metal[0]),k1=hx(S.metal[1]),k2=hx(S.metal[2]);
+  for(let i=0;i<W*H;i++){
+    if(!solid[i])continue;
+    const p=i*4;
+    const g=sampleF(grit,W,H,i%W,(i/W)|0);
+    const isMeat=meatF[i]>0;
+    // Field height above the threshold reads as how proud this pixel is.
+    const bulge=clamp((field[i]-0.34)*1.35,0,1);
+    let c1,c2,c3;
+    if(isMeat){c1=m0;c2=m1;c3=m2;} else {c1=k0;c2=k1;c3=k2;}
+    // Three-way mix by grit so the surface is mottled, not flat.
+    const t=clamp(g*(0.55+P.grit*0.9)+bulge*0.35,0,1);
+    let r,gg,b;
+    if(t<0.5){const u=t*2;r=lerp(c3[0],c1[0],u);gg=lerp(c3[1],c1[1],u);b=lerp(c3[2],c1[2],u);}
+    else{const u=(t-0.5)*2;r=lerp(c1[0],c2[0],u);gg=lerp(c1[1],c2[1],u);b=lerp(c1[2],c2[2],u);}
+    ad[p]=r;ad[p+1]=gg;ad[p+2]=b;ad[p+3]=255;
+    // Height: the dome, plus grit relief. Metal is flatter and harder.
+    const relief=isMeat?(g-0.5)*26*P.grit:(g-0.5)*10*P.grit;
+    const hv=BASE+bulge*(isMeat?58:40)+relief;
+    hd[p]=hd[p+1]=hd[p+2]=clamp(hv,0,255);hd[p+3]=255;
+  }
+  ca.putImageData(ai,0,0);
+  ch.putImageData(hi,0,0);
+}
+
+/* ---------------- creature spec ----------------
+   Built ONCE per crawler, in rest space, and reused for every frame.
+   If the details were rolled per frame the thing would boil: plates
+   and eyes would jump around and it would stop reading as one animal.
+   Each detail is attached to its nearest lobe and rides that lobe's
+   per-frame displacement, so the parts move with the flesh. */
+function buildSpec(rng,R,cx,cy,lobesRest,fmRest,pal){
+  const S=pal.S;
+  const inside=(x,y)=>{const xi=x|0,yi=y|0;
+    return xi>=0&&yi>=0&&xi<fmRest.W&&yi<fmRest.H&&fmRest.solid[yi*fmRest.W+xi];};
+  const isMeat=(x,y)=>{const xi=clamp(x|0,0,fmRest.W-1),yi=clamp(y|0,0,fmRest.H-1);
+    return fmRest.meatF[yi*fmRest.W+xi]>0;};
+  /* nearest lobe, so the detail can be carried by it */
+  const bind=(x,y)=>{
+    let bi=0,bd=1e9;
+    for(let i=0;i<lobesRest.length;i++){
+      const L=lobesRest[i],d=Math.hypot(x-(cx+L.x),y-(cy+L.y))-L.r;
+      if(d<bd){bd=d;bi=i;}
+    }
+    return bi;
+  };
+  const spot=(spread,meatOnly)=>{
+    for(let t=0;t<26;t++){
+      const a=rng.range(0,TAU),d=rng.range(0,R*spread);
+      const x=cx+Math.cos(a)*d,y=cy+Math.sin(a)*d*P.squat;
+      if(!inside(x,y))continue;
+      if(meatOnly&&!isMeat(x,y))continue;
+      return{x,y,li:bind(x,y)};
+    }
+    return null;
+  };
+
+  const spec={plates:[],bars:[],veins:[],pustules:[],pores:[],eyes:[],mouth:null,spikes:[]};
+
+  /* bolted plates */
+  const nPlate=Math.round(rng.int(2,6)*P.plates*(0.4+P.metal));
+  for(let i=0;i<nPlate;i++){
+    const s=spot(0.78,false);if(!s)continue;
+    const pw=rng.range(R*0.30,R*0.78),ph=rng.range(R*0.20,R*0.52);
+    const bolts=[];
+    const nb=Math.round(rng.int(2,6)*P.bolts);
+    for(let b=0;b<nb;b++)bolts.push({a:rng.range(0,TAU),r:rng.range(0.34,0.5),
+      rad:Math.max(1.6,R*rng.range(0.035,0.055))});
+    spec.plates.push({x:s.x,y:s.y,li:s.li,pw,ph,rot:rng.range(0,TAU),
+      chew:Math.min(pw,ph)*rng.range(0.15,0.4),bolts});
+  }
+
+  /* exposed structure */
+  const nBar=Math.round(rng.int(0,4)*P.rebar);
+  for(let i=0;i<nBar;i++){
+    const s=spot(0.6,false);if(!s)continue;
+    const a=rng.range(0,TAU),len=rng.range(R*0.7,R*1.5);
+    spec.bars.push({x:s.x,y:s.y,li:s.li,a,len,w:Math.max(2,R*rng.range(0.05,0.10))});
+  }
+
+  /* veins: a random walk baked to a fixed polyline */
+  const nVein=Math.round(rng.int(3,9)*P.veins);
+  for(let i=0;i<nVein;i++){
+    const s=spot(0.7,true);if(!s)continue;
+    let vx=s.x,vy=s.y,a=rng.range(0,TAU);
+    const segs=rng.int(4,9),step=R*rng.range(0.10,0.20),pts=[[vx,vy]];
+    for(let k=0;k<segs;k++){
+      a+=rng.range(-0.9,0.9);
+      const nx2=vx+Math.cos(a)*step,ny2=vy+Math.sin(a)*step;
+      pts.push([(vx+nx2)/2+rng.range(-step,step)*0.3,(vy+ny2)/2+rng.range(-step,step)*0.3,nx2,ny2]);
+      vx=nx2;vy=ny2;
+    }
+    spec.veins.push({li:s.li,pts,w:Math.max(1.2,R*rng.range(0.018,0.040))});
+  }
+
+  /* pustules and pores */
+  const nPus=Math.round(rng.int(3,11)*P.pustules);
+  for(let i=0;i<nPus;i++){
+    const s=spot(0.82,true);if(!s)continue;
+    spec.pustules.push({x:s.x,y:s.y,li:s.li,
+      r:Math.max(1.8,R*rng.range(0.045,0.115)),hot:rng.chance(0.22)});
+  }
+  const nPore=Math.round(rng.int(8,26)*P.pores);
+  for(let i=0;i<nPore;i++){
+    const s=spot(0.9,false);if(!s)continue;
+    spec.pores.push({x:s.x,y:s.y,li:s.li,
+      r:Math.max(1,R*rng.range(0.012,0.032)),meat:isMeat(s.x,s.y)});
+  }
+
+  /* Eyes cluster toward the leading edge (+x); the sheet mirrors at
+     runtime, so this is "the front" whichever way it is crawling.
+     They are placed as a cluster around one seed point rather than
+     scattered: a knot of eyes reads as a face at 30 pixels, where
+     the same eyes spread over the whole body read as more pustules. */
+  const nEye=clamp(P.eyes|0,0,8);
+  if(nEye){
+    let seed0=null;
+    for(let t=0;t<40&&!seed0;t++){
+      const x=cx+rng.range(R*0.12,R*0.80),y=cy+rng.range(-R*0.5,R*0.5)*P.squat;
+      if(inside(x,y)&&isMeat(x,y))seed0={x,y};
+    }
+    if(!seed0)for(let t=0;t<40&&!seed0;t++){
+      const x=cx+rng.range(R*0.0,R*0.80),y=cy+rng.range(-R*0.6,R*0.6)*P.squat;
+      if(inside(x,y))seed0={x,y};
+    }
+    if(seed0){
+      const spreadR=R*rng.range(0.22,0.42);
+      for(let i=0;i<nEye;i++){
+        let e=null;
+        for(let t=0;t<22&&!e;t++){
+          const a=rng.range(0,TAU),d=rng.range(0,spreadR);
+          const x=seed0.x+Math.cos(a)*d,y=seed0.y+Math.sin(a)*d;
+          if(inside(x,y))e={x,y,li:bind(x,y)};
+        }
+        if(!e)continue;
+        // big enough to survive the crush: sub-pixel eyes vanish
+        e.r=Math.max(2.8,R*rng.range(0.130,0.205));
+        e.look=rng.range(-0.5,0.5);
+        spec.eyes.push(e);
+      }
+    }
+  }
+
+  /* maw */
+  if(P.mouth){
+    let m=null;
+    for(let t=0;t<24&&!m;t++){
+      const x=cx+rng.range(R*0.1,R*0.62),y=cy+rng.range(-R*0.25,R*0.5);
+      if(inside(x,y))m={x,y,li:bind(x,y)};
+    }
+    if(m){
+      m.w=R*rng.range(0.46,0.82);m.h=R*rng.range(0.22,0.42);
+      m.rot=rng.range(-0.6,0.6);
+      m.teeth=[];
+      const nt=Math.round(rng.int(3,8)*P.teeth);
+      for(let i=0;i<nt;i++)m.teeth.push({t:rng.range(0.08,0.92),
+        len:rng.range(0.3,0.95),up:rng.chance(0.5),w:rng.range(0.06,0.14)});
+      spec.mouth=m;
+    }
+  }
+
+  /* spikes: rebar and bone pushing out through the skin. These stick
+     OUT past the silhouette, which is exactly why the cell has to be
+     measured rather than computed. */
+  const nSpike=Math.round(rng.int(0,7)*P.spikes);
+  for(let i=0;i<nSpike;i++){
+    const a=rng.range(0,TAU);
+    // walk out from the centre to find the edge along this ray
+    let hit=null;
+    for(let d=R*0.35;d<R*1.4;d+=1.5){
+      const x=cx+Math.cos(a)*d,y=cy+Math.sin(a)*d*P.squat;
+      if(!inside(x,y)){hit={x,y,d};break;}
+    }
+    if(!hit)continue;
+    spec.spikes.push({a,d:hit.d*0.86,li:bind(hit.x,hit.y),
+      len:R*rng.range(0.16,0.42),w:Math.max(2,R*rng.range(0.045,0.085)),
+      bone:rng.chance(0.45)});
+  }
+  return spec;
+}
+
+/* Per-frame displacement of a bound detail: it rides its lobe. */
+function warper(lobesRest,lobesNow){
+  return (x,y,li)=>{
+    const a=lobesRest[li],b=lobesNow[li];
+    if(!a||!b)return[x,y,1];
+    return[x+(b.x-a.x),y+(b.y-a.y),b.r/(a.r||1)];
+  };
+}
+
+/* ---------------- draw the spec into one frame ---------------- */
+function drawSpec(spec,dA,dH,dE,W,H,R,pal,warp,orient,state,frame,openness){
+  const S=pal.S;
+  const ac=dA.getContext('2d'),hc=dH.getContext('2d'),ec=dE.getContext('2d');
+  const hgrey=v=>{const c=clamp(v,0,255)|0;return'rgb('+c+','+c+','+c+')';};
+
+  /* plates */
+  for(const pl of spec.plates){
+    const [px,py,sc]=warp(pl.x,pl.y,pl.li);
+    const pw=pl.pw*sc,ph=pl.ph*sc,ch2=pl.chew*sc;
+    const path=c=>{
+      const w2=pw/2,h2=ph/2;
+      c.beginPath();
+      c.moveTo(-w2+ch2,-h2);c.lineTo(w2-ch2,-h2);c.lineTo(w2,-h2+ch2);
+      c.lineTo(w2,h2-ch2);c.lineTo(w2-ch2,h2);c.lineTo(-w2+ch2,h2);
+      c.lineTo(-w2,h2-ch2);c.lineTo(-w2,-h2+ch2);c.closePath();
+    };
+    ac.save();ac.translate(px,py);ac.rotate(pl.rot);
+    ac.fillStyle=S.metal[0];path(ac);ac.fill();
+    ac.strokeStyle=shade(S.metal[0],-0.35);ac.lineWidth=Math.max(1.5,R*0.035);ac.stroke();
+    ac.restore();
+    hc.save();hc.translate(px,py);hc.rotate(pl.rot);
+    hc.fillStyle=hgrey(BASE+34);path(hc);hc.fill();
+    hc.strokeStyle=hgrey(BASE+72);hc.lineWidth=Math.max(2,R*0.05);hc.stroke();
+    hc.restore();
+    for(const b of pl.bolts){
+      const bx=px+Math.cos(pl.rot)*Math.cos(b.a)*pw*b.r-Math.sin(pl.rot)*Math.sin(b.a)*ph*b.r;
+      const by=py+Math.sin(pl.rot)*Math.cos(b.a)*pw*b.r+Math.cos(pl.rot)*Math.sin(b.a)*ph*b.r;
+      const rad=b.rad*sc;
+      ac.fillStyle=shade(S.metal[1],0.10);
+      ac.beginPath();ac.arc(bx,by,rad,0,TAU);ac.fill();
+      ac.fillStyle=shade(S.metal[2],-0.10);
+      ac.beginPath();ac.arc(bx,by,rad*0.45,0,TAU);ac.fill();
+      const g=hc.createRadialGradient(bx,by,0,bx,by,rad*1.9);
+      g.addColorStop(0,hgrey(BASE+84));g.addColorStop(0.55,hgrey(BASE+50));
+      g.addColorStop(1,'rgba(128,128,128,0)');
+      hc.fillStyle=g;hc.beginPath();hc.arc(bx,by,rad*1.9,0,TAU);hc.fill();
+    }
+  }
+
+  /* exposed structure */
+  for(const b of spec.bars){
+    const [bx,by,sc]=warp(b.x,b.y,b.li);
+    const l=b.len*sc/2;
+    const x0=bx-Math.cos(b.a)*l,y0=by-Math.sin(b.a)*l;
+    const x1=bx+Math.cos(b.a)*l,y1=by+Math.sin(b.a)*l;
+    ac.lineCap='round';hc.lineCap='round';
+    ac.strokeStyle=shade(S.metal[2],0.05);ac.lineWidth=b.w*sc;
+    ac.beginPath();ac.moveTo(x0,y0);ac.lineTo(x1,y1);ac.stroke();
+    ac.strokeStyle=shade(S.metal[1],0.18);ac.lineWidth=Math.max(1,b.w*sc*0.34);
+    ac.beginPath();ac.moveTo(x0,y0);ac.lineTo(x1,y1);ac.stroke();
+    hc.strokeStyle=hgrey(BASE+58);hc.lineWidth=b.w*sc;
+    hc.beginPath();hc.moveTo(x0,y0);hc.lineTo(x1,y1);hc.stroke();
+  }
+
+  /* veins */
+  for(const v of spec.veins){
+    const p0=warp(v.pts[0][0],v.pts[0][1],v.li);
+    const off=[p0[0]-v.pts[0][0],p0[1]-v.pts[0][1]];
+    ac.strokeStyle=shade(S.meat[2],-0.15);ac.lineWidth=v.w;ac.lineCap='round';
+    hc.strokeStyle=hgrey(BASE-16);hc.lineWidth=v.w;hc.lineCap='round';
+    ac.beginPath();ac.moveTo(p0[0],p0[1]);
+    hc.beginPath();hc.moveTo(p0[0],p0[1]);
+    for(let i=1;i<v.pts.length;i++){
+      const s=v.pts[i];
+      ac.quadraticCurveTo(s[0]+off[0],s[1]+off[1],s[2]+off[0],s[3]+off[1]);
+      hc.quadraticCurveTo(s[0]+off[0],s[1]+off[1],s[2]+off[0],s[3]+off[1]);
+    }
+    ac.stroke();hc.stroke();
+  }
+
+  /* pustules */
+  for(const pu of spec.pustules){
+    const [px,py,sc]=warp(pu.x,pu.y,pu.li);
+    const r=pu.r*sc*(1+(state==='pull'?0.12:0)*Math.sin(frame));
+    const g=ac.createRadialGradient(px-r*0.3,py-r*0.3,0,px,py,r);
+    g.addColorStop(0,shade(pu.hot?S.accent:S.meat[1],0.30));
+    g.addColorStop(0.7,shade(S.meat[1],-0.05));
+    g.addColorStop(1,shade(S.meat[2],-0.20));
+    ac.fillStyle=g;ac.beginPath();ac.arc(px,py,r,0,TAU);ac.fill();
+    const hg=hc.createRadialGradient(px,py,0,px,py,r);
+    hg.addColorStop(0,hgrey(BASE+88));hg.addColorStop(0.72,hgrey(BASE+40));
+    hg.addColorStop(1,'rgba(128,128,128,0)');
+    hc.fillStyle=hg;hc.beginPath();hc.arc(px,py,r,0,TAU);hc.fill();
+    if(pu.hot){
+      const eg=ec.createRadialGradient(px,py,0,px,py,r*1.05);
+      eg.addColorStop(0,shade(S.glow,-0.35));eg.addColorStop(1,'rgba(0,0,0,0)');
+      ec.fillStyle=eg;ec.beginPath();ec.arc(px,py,r*1.05,0,TAU);ec.fill();
+    }
+  }
+
+  /* pores */
+  for(const po of spec.pores){
+    const [px,py]=warp(po.x,po.y,po.li);
+    ac.fillStyle=shade(po.meat?S.meat[2]:S.metal[2],-0.28);
+    ac.beginPath();ac.arc(px,py,po.r,0,TAU);ac.fill();
+    hc.fillStyle=hgrey(BASE-32);
+    hc.beginPath();hc.arc(px,py,po.r,0,TAU);hc.fill();
+  }
+
+  /* maw — opens as it pulls, gapes when hurt */
+  if(spec.mouth){
+    const m=spec.mouth;
+    const [mx,my,sc]=warp(m.x,m.y,m.li);
+    const open=clamp(openness,0,1);
+    const mw=m.w*sc,mh=m.h*sc*(0.35+open*1.5);
+    ac.save();ac.translate(mx,my);ac.rotate(m.rot);
+    // a raised lip around the gash, or it disappears into dark meat
+    ac.fillStyle=shade(S.meat[1],0.18);
+    ac.beginPath();ac.ellipse(0,0,mw/2+R*0.055,mh/2+R*0.055,0,0,TAU);ac.fill();
+    ac.fillStyle='#0a0607';
+    ac.beginPath();ac.ellipse(0,0,mw/2,mh/2,0,0,TAU);ac.fill();
+    ac.restore();
+    hc.save();hc.translate(mx,my);hc.rotate(m.rot);
+    hc.fillStyle=hgrey(BASE+30);
+    hc.beginPath();hc.ellipse(0,0,mw/2+R*0.055,mh/2+R*0.055,0,0,TAU);hc.fill();
+    hc.fillStyle=hgrey(BASE-46);
+    hc.beginPath();hc.ellipse(0,0,mw/2,mh/2,0,0,TAU);hc.fill();
+    hc.restore();
+    // teeth ring
+    ac.save();ac.translate(mx,my);ac.rotate(m.rot);
+    hc.save();hc.translate(mx,my);hc.rotate(m.rot);
+    for(const t of m.teeth){
+      const tx=(-0.5+t.t)*mw;
+      const ty=t.up?-mh/2:mh/2;
+      const tl=t.len*mh*0.5*(0.5+open*0.8);
+      const tw=t.w*mw;
+      ac.fillStyle=shade(S.bone,0.06);
+      ac.beginPath();ac.moveTo(tx-tw/2,ty);ac.lineTo(tx+tw/2,ty);
+      ac.lineTo(tx,ty+(t.up?tl:-tl));ac.closePath();ac.fill();
+      hc.fillStyle=hgrey(BASE+66);
+      hc.beginPath();hc.moveTo(tx-tw/2,ty);hc.lineTo(tx+tw/2,ty);
+      hc.lineTo(tx,ty+(t.up?tl:-tl));hc.closePath();hc.fill();
+    }
+    ac.restore();hc.restore();
+  }
+
+  /* eyes — pupils track the leading edge, all of them, together */
+  for(const e of spec.eyes){
+    const [ex,ey,sc]=warp(e.x,e.y,e.li);
+    const r=e.r*sc*(state==='hurt'?0.72:1);
+    /* An eye only reads as an eye if it has a dark surround AND a dark
+       pupil. Earlier this had a wide emissive halo per eye; with a
+       cluster of them the halos summed, saturated, and the whole face
+       came out as one glowing smear. The glow is now barely wider than
+       the iris, and the pupil is big enough to survive the crush. */
+    ac.fillStyle='#0a0708';
+    ac.beginPath();ac.arc(ex,ey,r*1.30,0,TAU);ac.fill();
+    ac.fillStyle=shade(S.bone,-0.20);
+    ac.beginPath();ac.arc(ex,ey,r,0,TAU);ac.fill();
+    ac.fillStyle=shade(S.glow,-0.05);
+    ac.beginPath();ac.arc(ex,ey,r*0.80,0,TAU);ac.fill();
+    ac.fillStyle='#070405';
+    ac.beginPath();ac.arc(ex+r*0.22,ey+e.look*r*0.26,r*0.50,0,TAU);ac.fill();
+    const hg=hc.createRadialGradient(ex,ey,0,ex,ey,r*1.3);
+    hg.addColorStop(0,hgrey(BASE+52));hg.addColorStop(0.62,hgrey(BASE+18));
+    hg.addColorStop(1,'rgba(128,128,128,0)');
+    hc.fillStyle=hg;hc.beginPath();hc.arc(ex,ey,r*1.3,0,TAU);hc.fill();
+    const eg=ec.createRadialGradient(ex,ey,0,ex,ey,r*0.95);
+    eg.addColorStop(0,shade(S.glow,-0.30));
+    eg.addColorStop(0.55,'rgba(0,0,0,0.0)');
+    eg.addColorStop(1,'rgba(0,0,0,0)');
+    ec.fillStyle=eg;ec.beginPath();ec.arc(ex,ey,r*0.95,0,TAU);ec.fill();
+  }
+}
+
+/* Spikes and drips break the silhouette, so they are drawn OUTSIDE
+   the clip. Both must also appear in the measure pass. */
+function drawOutgrowths(spec,dA,dH,W,H,cx,cy,R,pal,warp,orient,silhouetteOnly){
+  const S=pal.S;
+  const ac=dA.getContext('2d'),hc=dH.getContext('2d');
+  const dx=orient.down[0],dy=orient.down[1];
+  const hgrey=v=>{const c=clamp(v,0,255)|0;return'rgb('+c+','+c+','+c+')';};
+
+  for(const s of spec.spikes){
+    const bx=cx+Math.cos(s.a)*s.d,by=cy+Math.sin(s.a)*s.d*P.squat;
+    const [px,py,sc]=warp(bx,by,s.li);
+    const tx=px+Math.cos(s.a)*s.len*sc,ty=py+Math.sin(s.a)*s.len*sc;
+    const nx=-Math.sin(s.a)*s.w*sc/2,ny=Math.cos(s.a)*s.w*sc/2;
+    const tri=c=>{c.beginPath();c.moveTo(px+nx,py+ny);c.lineTo(px-nx,py-ny);
+      c.lineTo(tx,ty);c.closePath();c.fill();};
+    ac.fillStyle=silhouetteOnly?'#fff':shade(s.bone?S.bone:S.metal[1],-0.05);
+    tri(ac);
+    if(!silhouetteOnly){hc.fillStyle=hgrey(BASE+52);tri(hc);}
+  }
+
+  /* slime hanging along the surface normal it is stuck to */
+  if(P.slime>0.02){
+    const n=Math.round(4*P.slime)+2;
+    for(let i=0;i<n;i++){
+      const a=(i/n)*TAU;
+      // only drip from the down-facing side of the blob
+      const fx=Math.cos(a),fy=Math.sin(a);
+      const facing=fx*dx+fy*dy;
+      if(facing<0.25)continue;
+      const bx=cx+fx*R*0.78,by=cy+fy*R*0.78*P.squat;
+      const len=R*(0.12+((i*37)%10)/10*0.34)*P.slime;
+      const w=R*(0.05+((i*53)%7)/7*0.05);
+      const ex=bx+dx*len,ey=by+dy*len;
+      if(silhouetteOnly){
+        ac.fillStyle='#fff';
+        ac.beginPath();ac.moveTo(bx-Math.abs(dy)*w-0,by-Math.abs(dx)*w);
+        ac.lineTo(bx+Math.abs(dy)*w,by+Math.abs(dx)*w);
+        ac.lineTo(ex,ey);ac.closePath();ac.fill();
+        ac.beginPath();ac.arc(ex,ey,w*0.8,0,TAU);ac.fill();
+        continue;
+      }
+      const g=ac.createLinearGradient(bx,by,ex,ey);
+      g.addColorStop(0,shade(S.slime,-0.10));
+      g.addColorStop(1,shade(S.slime,0.22));
+      ac.fillStyle=g;
+      ac.beginPath();ac.moveTo(bx-Math.abs(dy)*w,by-Math.abs(dx)*w);
+      ac.lineTo(bx+Math.abs(dy)*w,by+Math.abs(dx)*w);
+      ac.lineTo(ex,ey);ac.closePath();ac.fill();
+      ac.beginPath();ac.arc(ex,ey,w*0.8,0,TAU);ac.fill();
+      hc.fillStyle=hgrey(BASE+20);
+      hc.beginPath();hc.moveTo(bx-Math.abs(dy)*w,by-Math.abs(dx)*w);
+      hc.lineTo(bx+Math.abs(dy)*w,by+Math.abs(dx)*w);
+      hc.lineTo(ex,ey);hc.closePath();hc.fill();
+      hc.beginPath();hc.arc(ex,ey,w*0.8,0,TAU);hc.fill();
+    }
+  }
+}
+
+/* ================================================================
+   CELL RENDER — one animation frame at supersample
+
+   Detail is drawn into its own layer and clipped to the silhouette
+   with destination-in, so nothing that paints the body has to know
+   where the edge is. Outgrowths are composited after the clip, since
+   spikes and drips are supposed to break it.
+   ================================================================ */
+function renderCell(ctxSpec,orient,state,frame,nFrames,pal,silhouetteOnly){
+  const {L,cx,cy,R,lobesRest,fmRest,spec,warpField,gritField,rngSeed}=ctxSpec;
+  const rng=makeRng(rngSeed);
+  const lobesNow=deform(lobesRest,state,frame,nFrames,orient,rng);
+  const fm=fieldAndMask(lobesNow,L,L,cx,cy,warpField,R);
+  fm.W=L;fm.H=L;
+  const warp=warper(lobesRest,lobesNow);
+
+  const mask=mkCanvas(L,L),mc=mask.getContext('2d');
+  {
+    const mi=mc.createImageData(L,L),md=mi.data;
+    for(let i=0;i<L*L;i++)if(fm.solid[i]){const p=i*4;md[p]=md[p+1]=md[p+2]=255;md[p+3]=255;}
+    mc.putImageData(mi,0,0);
+  }
+
+  if(silhouetteOnly){
+    const out=mkCanvas(L,L),oc=out.getContext('2d');
+    oc.drawImage(mask,0,0);
+    drawOutgrowths(spec,out,out,L,L,cx,cy,R,pal,warp,orient,true);
+    return{canvas:out,fm};
+  }
+
+  const A=mkCanvas(L,L),Hh=mkCanvas(L,L),E=mkCanvas(L,L);
+  const hc0=Hh.getContext('2d');
+  hc0.fillStyle='rgb(128,128,128)';hc0.fillRect(0,0,L,L);
+  paintBase(A.getContext('2d'),hc0,L,L,fm,gritField,pal,rng);
+
+  /* detail layer, clipped to the body */
+  const dA=mkCanvas(L,L),dH=mkCanvas(L,L),dE=mkCanvas(L,L);
+  let openness=0;
+  if(state==='pull')openness=0.5+0.5*Math.sin((frame/Math.max(1,nFrames))*TAU);
+  if(state==='hurt')openness=1;
+  if(state==='idle')openness=0.12+0.10*Math.sin((frame/Math.max(1,nFrames))*TAU);
+  drawSpec(spec,dA,dH,dE,L,L,R,pal,warp,orient,state,frame,openness);
+  for(const [layer,target] of [[dA,A],[dH,Hh],[dE,E]]){
+    const c=layer.getContext('2d');
+    c.globalCompositeOperation='destination-in';
+    c.drawImage(mask,0,0);
+    c.globalCompositeOperation='source-over';
+    target.getContext('2d').drawImage(layer,0,0);
+  }
+
+  /* spikes and drips break the silhouette on purpose */
+  drawOutgrowths(spec,A,Hh,L,L,cx,cy,R,pal,warp,orient,false);
+
+  /* wet sheen on the up-facing side: a broad highlight that the spec
+     pass cannot do, because it needs to know which way is down */
+  if(P.wet>0.02){
+    const ac=A.getContext('2d');
+    const ux=-orient.down[0],uy=-orient.down[1];
+    const g=ac.createRadialGradient(cx+ux*R*0.45,cy+uy*R*0.45,R*0.05,cx,cy,R*1.1);
+    g.addColorStop(0,'rgba(255,255,255,'+(0.16*P.wet)+')');
+    g.addColorStop(0.55,'rgba(255,255,255,'+(0.05*P.wet)+')');
+    g.addColorStop(1,'rgba(255,255,255,0)');
+    ac.save();ac.globalCompositeOperation='source-atop';
+    ac.fillStyle=g;ac.fillRect(0,0,L,L);ac.restore();
+  }
+
+  /* height buffer -> Float32, then light */
+  const hd=hc0.getImageData(0,0,L,L).data;
+  const Hf=new Float32Array(L*L);
+  for(let i=0;i<L*L;i++)Hf[i]=hd[i*4];
+  lightPass(A,Hf,E,L,L);
+  return{canvas:A,fm};
+}
+
+/* ================================================================
+   TENTACLE SHEET
+
+   One tapered strip per variant, root at the left, tip at the right.
+   At runtime the strip is sliced into thin vertical columns and each
+   column is drawn rotated to the local tangent of a spline, so one
+   baked strip covers every reach and curl the simulation asks for.
+   ================================================================ */
+function bakeTentacles(pal,rngSeed){
+  const S=pal.S;
+  const SSt=3;
+  const n=clamp(P.tentVariants|0,1,6);
+  const Lw=Math.max(24,P.tentLen|0), Th=Math.max(4,P.tentThick|0);
+  const W=Lw*SSt, H=Th*SSt;
+  const sheet=mkCanvas(Lw,Th*n);
+  const sc=sheet.getContext('2d');
+  const strips=[];
+
+  for(let v=0;v<n;v++){
+    const rng=makeRng((rngSeed+v*0x9e37)>>>0);
+    const A=mkCanvas(W,H),Hh=mkCanvas(W,H),E=mkCanvas(W,H);
+    const ac=A.getContext('2d'),hc=Hh.getContext('2d'),ec=E.getContext('2d');
+    hc.fillStyle='rgb(128,128,128)';hc.fillRect(0,0,W,H);
+    const hgrey=q=>{const c=clamp(q,0,255)|0;return'rgb('+c+','+c+','+c+')';};
+    const mid=H/2;
+    // taper: thick at the root, whip-thin at the tip
+    const halfAt=t=>mid*(1-t*P.tentTaper)*(0.55+0.45*Math.sin(t*Math.PI*0.9+0.6));
+
+    /* meat body of the tentacle */
+    const mask=mkCanvas(W,H),mc=mask.getContext('2d');
+    mc.fillStyle='#fff';
+    mc.beginPath();mc.moveTo(0,mid-halfAt(0));
+    for(let x=0;x<=W;x+=2)mc.lineTo(x,mid-halfAt(x/W));
+    for(let x=W;x>=0;x-=2)mc.lineTo(x,mid+halfAt(x/W));
+    mc.closePath();mc.fill();
+
+    const grit=noiseField(rng,W,H,10,4);
+    const ai=ac.createImageData(W,H),ad=ai.data;
+    const hi=hc.getImageData(0,0,W,H),hd=hi.data;
+    const md=mc.getImageData(0,0,W,H).data;
+    const m0=hx(S.meat[0]),m1=hx(S.meat[1]),m2=hx(S.meat[2]);
+    for(let y=0;y<H;y++)for(let x=0;x<W;x++){
+      const i=y*W+x,p=i*4;
+      if(md[p+3]<128)continue;
+      const t=x/W;
+      const half=Math.max(0.001,halfAt(t));
+      const across=clamp((y-mid)/half,-1,1);
+      const round=Math.sqrt(Math.max(0,1-across*across));   // cylinder
+      const g=grit[i];
+      const mixv=clamp(round*0.6+g*0.55*P.grit,0,1);
+      let r,gg,b;
+      if(mixv<0.5){const u=mixv*2;r=lerp(m2[0],m0[0],u);gg=lerp(m2[1],m0[1],u);b=lerp(m2[2],m0[2],u);}
+      else{const u=(mixv-0.5)*2;r=lerp(m0[0],m1[0],u);gg=lerp(m0[1],m1[1],u);b=lerp(m0[2],m1[2],u);}
+      ad[p]=r;ad[p+1]=gg;ad[p+2]=b;ad[p+3]=255;
+      hd[p]=hd[p+1]=hd[p+2]=clamp(BASE+round*54+(g-0.5)*20*P.grit,0,255);hd[p+3]=255;
+    }
+    ac.putImageData(ai,0,0);hc.putImageData(hi,0,0);
+
+    /* muscle rings along the length */
+    const nRing=Math.round(Lw/7*P.tentRings);
+    for(let i=0;i<nRing;i++){
+      const t=(i+0.5)/Math.max(1,nRing);
+      const x=t*W,half=halfAt(t);
+      ac.strokeStyle=shade(S.meat[2],-0.12);ac.lineWidth=Math.max(1.4,SSt*0.7);
+      ac.beginPath();ac.moveTo(x,mid-half);ac.lineTo(x,mid+half);ac.stroke();
+      hc.strokeStyle=hgrey(BASE-14);hc.lineWidth=Math.max(1.4,SSt*0.7);
+      hc.beginPath();hc.moveTo(x,mid-half);hc.lineTo(x,mid+half);hc.stroke();
+    }
+
+    /* hooks and barbs: what it actually grips terrain with */
+    const nHook=Math.round(rng.int(2,7)*P.tentHooks);
+    for(let i=0;i<nHook;i++){
+      const t=rng.range(0.25,0.99);
+      const x=t*W,half=halfAt(t),up=rng.chance(0.5);
+      const y=mid+(up?-half:half);
+      const hl=SSt*rng.range(1.4,3.6)*(0.4+t);
+      ac.fillStyle=shade(S.bone,0.02);
+      ac.beginPath();ac.moveTo(x-SSt*0.9,y);ac.lineTo(x+SSt*0.9,y);
+      ac.lineTo(x+SSt*0.4,y+(up?-hl:hl));ac.closePath();ac.fill();
+      hc.fillStyle=hgrey(BASE+60);
+      hc.beginPath();hc.moveTo(x-SSt*0.9,y);hc.lineTo(x+SSt*0.9,y);
+      hc.lineTo(x+SSt*0.4,y+(up?-hl:hl));hc.closePath();hc.fill();
+    }
+
+    /* the pad at the tip, and its glow */
+    {
+      const x=W-SSt*2.2,half=Math.max(SSt*0.9,halfAt(0.97));
+      ac.fillStyle=shade(S.accent,-0.05);
+      ac.beginPath();ac.ellipse(x,mid,SSt*2.4,half*1.5,0,0,TAU);ac.fill();
+      hc.fillStyle=hgrey(BASE+46);
+      hc.beginPath();hc.ellipse(x,mid,SSt*2.4,half*1.5,0,0,TAU);hc.fill();
+      const eg=ec.createRadialGradient(x,mid,0,x,mid,SSt*4);
+      eg.addColorStop(0,shade(S.glow,-0.1));eg.addColorStop(1,'rgba(0,0,0,0)');
+      ec.fillStyle=eg;ec.beginPath();ec.arc(x,mid,SSt*4,0,TAU);ec.fill();
+    }
+
+    /* clip glow and detail to the tentacle, then light and crush */
+    ec.globalCompositeOperation='destination-in';ec.drawImage(mask,0,0);
+    ec.globalCompositeOperation='source-over';
+    const hdd=hc.getImageData(0,0,W,H).data;
+    const Hf=new Float32Array(W*H);
+    for(let i=0;i<W*H;i++)Hf[i]=hdd[i*4];
+    lightPass(A,Hf,E,W,H);
+    const small=crush(A,Lw,Th);
+    sc.drawImage(small,0,v*Th);
+    strips.push({index:v,length:Lw,thickness:Th,
+                 rootHalf:+(halfAt(0)/SSt).toFixed(2),
+                 tipHalf:+(halfAt(1)/SSt).toFixed(2)});
+  }
+  return{canvas:sheet,strips,length:Lw,thickness:Th,count:n};
+}
+
+/* ================================================================
+   PHYSICS BAKE
+
+   Measured off the finished pixels, not declared alongside them.
+   Everything the simulation needs to make this thing interact with
+   the world comes out of the alpha channel that was actually drawn:
+
+     hull      coarse silhouette polygon, centre-relative
+     sockets   where tentacles leave the body, with outward normals
+     contacts  the extreme point in each surface direction, so the
+               blob can be seated flush against floor/wall/ceiling
+     gibs      interior seed points for the chunks that fly off
+     radius    grip radius for collision and for anchor searches
+
+   Ray-march out from the centroid rather than tracing the outline:
+   the silhouette can be concave and can have detached drips, and a
+   ray march degrades into something sane on both.
+   ================================================================ */
+function bakePhysics(sheetCtx,cellX,cellY,CW,CH,anchor,rngSeed,tentCount,spec,cx,cy,SS){
+  const img=sheetCtx.getImageData(cellX,cellY,CW,CH).data;
+  const solid=(x,y)=>{
+    if(x<0||y<0||x>=CW||y>=CH)return false;
+    return img[((y|0)*CW+(x|0))*4+3]>8;
+  };
+  /* centroid of the ink, which is not the cell centre once spikes
+     and drips pull the bbox around */
+  let sx=0,sy=0,n=0;
+  for(let y=0;y<CH;y++)for(let x=0;x<CW;x++)if(solid(x,y)){sx+=x;sy+=y;n++;}
+  if(!n){sx=anchor.x;sy=anchor.y;n=1;}
+  const gx=sx/n,gy=sy/n;
+
+  const RAYS=24;
+  const hull=[];
+  let rMax=0,rSum=0;
+  for(let i=0;i<RAYS;i++){
+    const a=(i/RAYS)*TAU;
+    const ca=Math.cos(a),sa=Math.sin(a);
+    let last=0;
+    for(let d=0;d<Math.max(CW,CH);d+=0.5){
+      if(solid(gx+ca*d,gy+sa*d))last=d;
+    }
+    hull.push({a:+a.toFixed(4),
+               x:+(gx+ca*last-anchor.x).toFixed(2),
+               y:+(gy+sa*last-anchor.y).toFixed(2),
+               d:+last.toFixed(2)});
+    rMax=Math.max(rMax,last);rSum+=last;
+  }
+  const rAvg=rSum/RAYS;
+
+  /* sockets: evenly spaced around the hull so tentacles do not all
+     leave from the same side. The normal is the local hull gradient,
+     which is what makes a tentacle look rooted rather than stuck on. */
+  const rng=makeRng((rngSeed^0x50c6)>>>0);
+  const k=clamp(tentCount|0,1,10);
+  const sockets=[];
+  const off=rng.range(0,TAU/k);
+  for(let i=0;i<k;i++){
+    const a=off+(i/k)*TAU+rng.range(-0.18,0.18);
+    const hi=Math.round((a/TAU)*RAYS+RAYS)%RAYS;
+    const h0=hull[(hi-1+RAYS)%RAYS],h1=hull[(hi+1)%RAYS];
+    // outward normal from the hull tangent
+    const tx=h1.x-h0.x,ty=h1.y-h0.y;
+    let nx=ty,ny=-tx;
+    const hcur=hull[hi];
+    if(nx*hcur.x+ny*hcur.y<0){nx=-nx;ny=-ny;}
+    const il=1/(Math.hypot(nx,ny)||1);
+    // seat the socket just inside the skin
+    const seat=0.82;
+    sockets.push({
+      x:+(hcur.x*seat).toFixed(2), y:+(hcur.y*seat).toFixed(2),
+      nx:+(nx*il).toFixed(3), ny:+(ny*il).toFixed(3),
+      a:+Math.atan2(hcur.y,hcur.x).toFixed(4)
+    });
+  }
+
+  /* the extreme point in each surface direction, so the body can be
+     seated flush instead of floating a few pixels off the deck */
+  const dirs={floor:[0,1],wallL:[-1,0],wallR:[1,0],ceiling:[0,-1]};
+  const contacts={};
+  for(const key in dirs){
+    const [dx,dy]=dirs[key];
+    let best=-1e9,bx=0,by=0;
+    for(const h of hull){
+      const p=h.x*dx+h.y*dy;
+      if(p>best){best=p;bx=h.x;by=h.y;}
+    }
+    contacts[key]={x:+bx.toFixed(2),y:+by.toFixed(2),reach:+best.toFixed(2)};
+  }
+
+  /* interior seed points for gibs */
+  const gibs=[];
+  for(let t=0;t<200&&gibs.length<14;t++){
+    const a=rng.range(0,TAU),d=rng.range(0,rAvg*0.85);
+    const px=gx+Math.cos(a)*d,py=gy+Math.sin(a)*d;
+    if(solid(px,py))gibs.push({x:+(px-anchor.x).toFixed(2),y:+(py-anchor.y).toFixed(2)});
+  }
+
+  /* Eye positions come out of the spec rather than the pixels: at this
+     scale a baked eye is three pixels, so the game drives its own
+     additive glow at these points — brighter when the thing has seen
+     you, which is the only tell a blob with no face can give. */
+  const eyes=(spec&&spec.eyes?spec.eyes:[]).map(e=>({
+    x:+((e.x-cx)/SS).toFixed(2),
+    y:+((e.y-cy)/SS).toFixed(2),
+    r:+(e.r/SS).toFixed(2)
+  }));
+
+  return{
+    hull,sockets,contacts,gibs,eyes,
+    radius:+rAvg.toFixed(2),
+    radiusMax:+rMax.toFixed(2),
+    centre:{x:+(gx-anchor.x).toFixed(2),y:+(gy-anchor.y).toFixed(2)},
+    mass:+(n/(CW*CH)).toFixed(3)
+  };
+}
+
+/* ================================================================
+   SHEET BUILD
+   ================================================================ */
+let SHEET=null;
+
+function activeSS(){
+  return clamp(P.SS|0,2,Math.max(2,Math.floor(230/Math.max(8,P.size))));
+}
+
+function buildContext(pal){
+  const SS=activeSS();
+  const R=P.size*SS/2;
+  const L=Math.ceil(P.size*SS*1.9);
+  const cx=L/2,cy=L/2;
+  const rngSeed=P.seed>>>0;
+  const rng=makeRng(rngSeed);
+  const lobesRest=lobeSet(rng,R);
+  const warpField=noiseField(makeRng((rngSeed^0x1111)>>>0),L,L,Math.max(6,L/7),4);
+  const gritField=noiseField(makeRng((rngSeed^0x2222)>>>0),L,L,Math.max(3,L/22),5);
+  const fmRest=fieldAndMask(lobesRest,L,L,cx,cy,warpField,R);
+  fmRest.W=L;fmRest.H=L;
+  const spec=buildSpec(makeRng((rngSeed^0x3333)>>>0),R,cx,cy,lobesRest,fmRest,pal);
+  return{SS,R,L,cx,cy,lobesRest,fmRest,spec,warpField,gritField,rngSeed};
+}
+
+/* Stack every frame's silhouette in one canvas and take the union
+   bbox. Spikes, drips and the pull-frame stretch all move the edge,
+   and measuring is the only thing that keeps up with that. */
+function measureCell(ctxSpec,pal,cols){
+  const {L,cx,cy,SS}=ctxSpec;
+  const stack=mkCanvas(L,L),st=stack.getContext('2d');
+  for(const o of ORIENTS){
+    for(const c of cols){
+      const r=renderCell(ctxSpec,o,c.state,c.frame,c.frames,pal,true);
+      st.drawImage(r.canvas,0,0);
+    }
+  }
+  const d=st.getImageData(0,0,L,L).data;
+  let x0=L,y0=L,x1=-1,y1=-1;
+  for(let y=0;y<L;y++)for(let x=0;x<L;x++){
+    if(d[(y*L+x)*4+3]>8){if(x<x0)x0=x;if(x>x1)x1=x;if(y<y0)y0=y;if(y>y1)y1=y;}
+  }
+  if(x1<0){x0=y0=0;x1=y1=L-1;}
+  const pad=P.outline?2:1;    // >=2 keeps one cell's outline dilate off its neighbour
+  const innerW=Math.ceil((x1-x0+1)/SS),innerH=Math.ceil((y1-y0+1)/SS);
+  return{
+    box:{x0,y0,x1,y1},
+    CW:innerW+pad*2, CH:innerH+pad*2, pad, innerW, innerH,
+    anchor:{x:(cx-x0)/SS+pad, y:(cy-y0)/SS+pad}
+  };
+}
+
+function buildSheet(){
+  const t0=(typeof performance!=='undefined'?performance.now():Date.now());
+  const pal=buildPalette();
+  const ST=states();
+  const cols=[];
+  ST.forEach(s=>{for(let f=0;f<s.frames;f++)cols.push({state:s.id,frame:f,frames:s.frames});});
+
+  const ctxSpec=buildContext(pal);
+  const M=measureCell(ctxSpec,pal,cols);
+  const {CW,CH,pad,innerW,innerH,anchor,box}=M;
+  const {SS,L}=ctxSpec;
+
+  const sheet=mkCanvas(CW*cols.length,CH*ORIENTS.length);
+  const sctx=sheet.getContext('2d',{willReadFrequently:true});
+  const bw=box.x1-box.x0+1,bh=box.y1-box.y0+1;
+
+  for(let r=0;r<ORIENTS.length;r++){
+    for(let c=0;c<cols.length;c++){
+      const col=cols[c];
+      const cell=renderCell(ctxSpec,ORIENTS[r],col.state,col.frame,col.frames,pal,false);
+      // crop to the measured box, then crush that down to the cell
+      const crop=mkCanvas(bw,bh);
+      crop.getContext('2d').drawImage(cell.canvas,box.x0,box.y0,bw,bh,0,0,bw,bh);
+      const small=crush(crop,innerW,innerH);
+      sctx.drawImage(small,c*CW+pad,r*CH+pad);
+    }
+  }
+  rasterise(sctx,sheet.width,sheet.height,pal);   // one pass over the whole sheet
+
+  const tent=bakeTentacles(pal,ctxSpec.rngSeed);
+  const phys=bakePhysics(sctx,0,0,CW,CH,anchor,ctxSpec.rngSeed,P.tentacles,
+                         ctxSpec.spec,ctxSpec.cx,ctxSpec.cy,ctxSpec.SS);
+
+  const ms=Math.round((typeof performance!=='undefined'?performance.now():Date.now())-t0);
+  SHEET={
+    canvas:sheet, tentacles:tent, physics:phys,
+    CW,CH,cols,anchor,pad,
+    orients:ORIENTS.map(o=>o.id),
+    palette:P.palette, seed:P.seed>>>0, ms,
+    colOf:(state,frame)=>{
+      let i=0;
+      for(const s of ST){if(s.id===state)return i+(((frame%s.frames)+s.frames)%s.frames);i+=s.frames;}
+      return 0;
+    },
+    rowOf:id=>{const i=ORIENTS.findIndex(o=>o.id===id);return i<0?0:i;},
+    framesOf:id=>(ST.find(s=>s.id===id)||ST[0]).frames,
+    fpsOf:id=>(ST.find(s=>s.id===id)||ST[0]).fps,
+    states:ST.map(s=>({id:s.id,frames:s.frames,fps:s.fps,loop:s.loop}))
+  };
+  return SHEET;
+}
+
+/* ================================================================
+   TENTACLE WARP
+
+   The one piece of runtime code that ships with the sheet. A baked
+   strip is sliced into thin columns and each column is drawn rotated
+   to the local tangent of a quadratic through (root -> tip), so one
+   strip serves every reach, curl and direction the sim asks for.
+
+   Slices are drawn one pixel wide over their nominal width so the
+   columns overlap; without that, a sharply curved tentacle shows
+   hairline gaps between slices.
+   ================================================================ */
+function drawTentacle(ctx,T,variant,x0,y0,x1,y1,bend,opts){
+  const o=opts||{};
+  const Lw=T.length,Th=T.thickness;
+  const v=((variant%T.count)+T.count)%T.count;
+  const sy=v*Th;
+  const dx=x1-x0,dy=y1-y0;
+  const dist=Math.hypot(dx,dy)||0.001;
+  // control point pushed perpendicular to the chord
+  const mx=(x0+x1)/2,my=(y0+y1)/2;
+  const px=-dy/dist,py=dx/dist;
+  const cxp=mx+px*bend,cyp=my+py*bend;
+  const at=t=>{
+    const m=1-t;
+    return[m*m*x0+2*m*t*cxp+t*t*x1, m*m*y0+2*m*t*cyp+t*t*y1];
+  };
+  const N=Math.max(6,Math.min(48,Math.round(dist/2.2)));
+  const sliceW=Lw/N;
+  const thick=(o.thickness||1);
+  ctx.save();
+  if(o.alpha!==undefined)ctx.globalAlpha=o.alpha;
+  for(let i=0;i<N;i++){
+    const t0=i/N,t1=(i+1)/N;
+    const a=at(t0),b=at(t1);
+    const ang=Math.atan2(b[1]-a[1],b[0]-a[0]);
+    const segLen=Math.hypot(b[0]-a[0],b[1]-a[1])+1;
+    ctx.save();
+    ctx.translate(a[0],a[1]);
+    ctx.rotate(ang);
+    ctx.drawImage(T.canvas,i*sliceW,sy,sliceW,Th,
+                  0,-Th*thick/2,segLen,Th*thick);
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+/* ================================================================
+   UI
+   ================================================================ */
+const CONTROLS=[
+ {g:'BODY',c:[
+  {k:'size',l:'size',t:'r',min:20,max:56,step:1,fmt:v=>v+'px'},
+  {k:'lobes',l:'lobes',t:'r',min:2,max:12,step:1},
+  {k:'chaos',l:'edge chaos',t:'r',min:0,max:1.4,step:0.02},
+  {k:'squat',l:'squat',t:'r',min:0.5,max:1.5,step:0.02},
+  {k:'asym',l:'asymmetry',t:'r',min:0,max:1.4,step:0.02}
+ ]},
+ {g:'MEAT & METAL',c:[
+  {k:'metal',l:'metal ratio',t:'r',min:0,max:1,step:0.02},
+  {k:'plates',l:'plates',t:'r',min:0,max:2,step:0.05},
+  {k:'bolts',l:'bolts',t:'r',min:0,max:2,step:0.05},
+  {k:'rebar',l:'rebar',t:'r',min:0,max:2,step:0.05},
+  {k:'spikes',l:'spikes',t:'r',min:0,max:2,step:0.05}
+ ]},
+ {g:'FLESH',c:[
+  {k:'veins',l:'veins',t:'r',min:0,max:2,step:0.05},
+  {k:'pustules',l:'pustules',t:'r',min:0,max:2,step:0.05},
+  {k:'pores',l:'pores',t:'r',min:0,max:2,step:0.05},
+  {k:'eyes',l:'eyes',t:'r',min:0,max:8,step:1},
+  {k:'mouth',l:'maw',t:'c'},
+  {k:'teeth',l:'teeth',t:'r',min:0,max:2,step:0.05}
+ ]},
+ {g:'SURFACE',c:[
+  {k:'slime',l:'slime drips',t:'r',min:0,max:2,step:0.05},
+  {k:'grit',l:'grit',t:'r',min:0,max:2,step:0.05},
+  {k:'wet',l:'wet sheen',t:'r',min:0,max:2,step:0.05},
+  {k:'relief',l:'relief',t:'r',min:0,max:2,step:0.05},
+  {k:'lightdir',l:'light angle',t:'r',min:0,max:359,step:1,fmt:v=>v+'°'}
+ ]},
+ {g:'TENTACLES',c:[
+  {k:'tentacles',l:'count',t:'r',min:1,max:10,step:1},
+  {k:'tentVariants',l:'variants',t:'r',min:1,max:6,step:1},
+  {k:'tentLen',l:'strip length',t:'r',min:32,max:180,step:4,fmt:v=>v+'px'},
+  {k:'tentThick',l:'thickness',t:'r',min:4,max:20,step:1,fmt:v=>v+'px'},
+  {k:'tentTaper',l:'taper',t:'r',min:0,max:0.95,step:0.02},
+  {k:'tentHooks',l:'hooks',t:'r',min:0,max:2,step:0.05},
+  {k:'tentRings',l:'muscle rings',t:'r',min:0,max:2,step:0.05}
+ ]},
+ {g:'COLOUR',c:[
+  {k:'palette',l:'palette',t:'s',opt:()=>Object.keys(PALETTES)},
+  {k:'rim',l:'rim light',t:'r',min:0,max:0.6,step:0.02},
+  {k:'shadow',l:'contact shadow',t:'r',min:0,max:0.6,step:0.02},
+  {k:'outline',l:'outline',t:'c'},
+  {k:'shading',l:'edge shading',t:'c'}
+ ]},
+ {g:'SHEET',c:[
+  {k:'idleFrames',l:'idle frames',t:'r',min:2,max:8,step:1},
+  {k:'pullFrames',l:'pull frames',t:'r',min:2,max:8,step:1},
+  {k:'hurtFrames',l:'hurt frames',t:'r',min:1,max:4,step:1},
+  {k:'SS',l:'supersample',t:'r',min:2,max:5,step:1,fmt:v=>v+'×'},
+  {k:'__buttons',t:'buttons'}
+ ]}
+];
+
+const $=id=>document.getElementById(id);
+let MODE='live';
+
+function buildUI(){
+  const rail=$('rail');
+  rail.innerHTML='';
+  CONTROLS.forEach((g,gi)=>{
+    const box=document.createElement('div');
+    box.className='grp'+(gi>1?' closed':'');
+    const h=document.createElement('div');
+    h.className='grp-h';
+    h.innerHTML='<b>'+g.g+'</b><i>'+(gi>1?'+':'−')+'</i>';
+    h.onclick=()=>{box.classList.toggle('closed');
+      h.querySelector('i').textContent=box.classList.contains('closed')?'+':'−';};
+    box.appendChild(h);
+    const body=document.createElement('div');
+    body.className='grp-b';
+    g.c.forEach(c=>body.appendChild(makeControl(c)));
+    box.appendChild(body);
+    rail.appendChild(box);
+  });
+}
+
+function makeControl(c){
+  const row=document.createElement('div');
+  row.className='ctl';
+  if(c.t==='buttons'){
+    const wrap=document.createElement('div');
+    wrap.style.width='100%';
+    const r1=document.createElement('div');r1.className='row';
+    const b1=document.createElement('button');b1.className='primary';b1.textContent='RANDOMIZE';
+    b1.onclick=randomize;
+    const b2=document.createElement('button');b2.textContent='RESEED';
+    b2.onclick=()=>{P.seed=(Math.random()*0xffffffff)>>>0;regen();};
+    r1.appendChild(b1);r1.appendChild(b2);
+    const r2=document.createElement('div');r2.className='row';
+    const b3=document.createElement('button');b3.textContent='PNG';
+    b3.onclick=exportPNG;
+    const b4=document.createElement('button');b4.textContent='JSON';
+    b4.onclick=exportJSON;
+    r2.appendChild(b3);r2.appendChild(b4);
+    wrap.appendChild(r1);wrap.appendChild(r2);
+    row.appendChild(wrap);
+    return row;
+  }
+  const lab=document.createElement('label');
+  lab.textContent=c.l;
+  row.appendChild(lab);
+  if(c.t==='s'){
+    const sel=document.createElement('select');
+    const opts=typeof c.opt==='function'?c.opt():c.opt;
+    for(const o of opts){
+      const op=document.createElement('option');
+      op.value=o;op.textContent=(PALETTES[o]&&PALETTES[o].label)||o;
+      sel.appendChild(op);
+    }
+    sel.value=String(P[c.k]);
+    sel.onchange=()=>{P[c.k]=sel.value;regen();};
+    row.appendChild(sel);
+  } else if(c.t==='c'){
+    const wrap=document.createElement('div');wrap.className='chk';
+    const box=document.createElement('input');box.type='checkbox';box.checked=!!P[c.k];
+    box.onchange=()=>{P[c.k]=box.checked;regen();};
+    wrap.appendChild(box);row.appendChild(wrap);
+  } else {
+    const inp=document.createElement('input');
+    inp.type='range';inp.min=c.min;inp.max=c.max;inp.step=c.step;inp.value=P[c.k];
+    const out=document.createElement('span');out.className='val';
+    const show=v=>out.textContent=c.fmt?c.fmt(v):(c.step<1?(+v).toFixed(2):v);
+    show(P[c.k]);
+    inp.oninput=()=>{P[c.k]=+inp.value;show(P[c.k]);regen();};
+    row.appendChild(inp);row.appendChild(out);
+  }
+  return row;
+}
+
+function randomize(){
+  const R=makeRng((Math.random()*0xffffffff)>>>0);
+  P.seed=(Math.random()*0xffffffff)>>>0;
+  P.size=R.int(22,46);
+  P.lobes=R.int(3,9);
+  P.chaos=R.range(0.25,1.05);
+  P.squat=R.range(0.7,1.35);
+  P.asym=R.range(0.15,1.1);
+  P.metal=R.range(0.05,0.85);
+  P.plates=R.range(0.2,1.6);
+  P.bolts=R.range(0.3,1.6);
+  P.rebar=R.range(0,1.4);
+  P.spikes=R.range(0,1.5);
+  P.veins=R.range(0.3,1.6);
+  P.pustules=R.range(0.2,1.6);
+  P.pores=R.range(0.4,1.6);
+  P.eyes=R.int(0,6);
+  P.mouth=R.chance(0.8);
+  P.teeth=R.range(0.2,1.6);
+  P.slime=R.range(0.3,1.5);
+  P.grit=R.range(0.5,1.5);
+  P.wet=R.range(0.2,1.3);
+  P.palette=R.pick(Object.keys(PALETTES));
+  P.tentacles=R.int(3,8);
+  P.tentVariants=R.int(2,4);
+  P.tentLen=R.int(64,150);
+  P.tentThick=R.int(6,14);
+  P.tentTaper=R.range(0.5,0.9);
+  P.tentHooks=R.range(0.2,1.6);
+  P.tentRings=R.range(0.3,1.5);
+  buildUI();regen();
+}
+
+/* ---------------- views ---------------- */
+let regenTimer=0;
+function regen(){
+  clearTimeout(regenTimer);
+  regenTimer=setTimeout(()=>{
+    try{ buildSheet(); }catch(e){ console.error(e); return; }
+    $('f_cell').textContent=SHEET.CW+'×'+SHEET.CH;
+    $('f_sheet').textContent=SHEET.canvas.width+'×'+SHEET.canvas.height+
+      ' ('+SHEET.cols.length+'×'+SHEET.orients.length+')';
+    $('f_sock').textContent=SHEET.physics.sockets.length;
+    $('f_hull').textContent=SHEET.physics.hull.length+' pts · r'+SHEET.physics.radius;
+    $('f_ms').textContent=SHEET.ms+'ms';
+    drawStatic();
+  },90);
+}
+
+function drawStatic(){
+  if(!SHEET)return;
+  const scale=q=>Math.max(1,Math.min(6,Math.floor(560/Math.max(1,q))));
+  {
+    const s=scale(SHEET.canvas.width);
+    const cv=$('body');cv.width=SHEET.canvas.width*s;cv.height=SHEET.canvas.height*s;
+    const c=cv.getContext('2d');c.imageSmoothingEnabled=false;
+    c.drawImage(SHEET.canvas,0,0,cv.width,cv.height);
+  }
+  {
+    const T=SHEET.tentacles;
+    const s=Math.max(1,Math.min(6,Math.floor(600/T.canvas.width)));
+    const cv=$('tent');cv.width=T.canvas.width*s;cv.height=T.canvas.height*s;
+    const c=cv.getContext('2d');c.imageSmoothingEnabled=false;
+    c.drawImage(T.canvas,0,0,cv.width,cv.height);
+  }
+  drawPhysView();
+}
+
+/* The physics bake, drawn over the sprite it was measured from. */
+function drawPhysView(){
+  if(!SHEET)return;
+  const s=8,PH=SHEET.physics;
+  const cv=$('phys');
+  cv.width=SHEET.CW*s;cv.height=SHEET.CH*s;
+  const c=cv.getContext('2d');
+  c.imageSmoothingEnabled=false;
+  c.fillStyle='#0e1113';c.fillRect(0,0,cv.width,cv.height);
+  c.drawImage(SHEET.canvas,0,0,SHEET.CW,SHEET.CH,0,0,cv.width,cv.height);
+  const A=SHEET.anchor;
+  const X=v=>(A.x+v)*s, Y=v=>(A.y+v)*s;
+  // hull
+  c.strokeStyle='rgba(240,168,48,.85)';c.lineWidth=2;
+  c.beginPath();
+  PH.hull.forEach((h,i)=>{i?c.lineTo(X(h.x),Y(h.y)):c.moveTo(X(h.x),Y(h.y));});
+  c.closePath();c.stroke();
+  // grip radius
+  c.strokeStyle='rgba(240,168,48,.30)';c.setLineDash([4,4]);
+  c.beginPath();c.arc(X(PH.centre.x),Y(PH.centre.y),PH.radius*s,0,TAU);c.stroke();
+  c.setLineDash([]);
+  // sockets + normals
+  for(const so of PH.sockets){
+    c.strokeStyle='#b8465a';c.lineWidth=2;
+    c.beginPath();c.moveTo(X(so.x),Y(so.y));
+    c.lineTo(X(so.x+so.nx*7),Y(so.y+so.ny*7));c.stroke();
+    c.fillStyle='#ff5f7a';
+    c.beginPath();c.arc(X(so.x),Y(so.y),2.5,0,TAU);c.fill();
+  }
+  // contacts
+  c.fillStyle='#4ad07a';
+  for(const k in PH.contacts){
+    const p=PH.contacts[k];
+    c.fillRect(X(p.x)-3,Y(p.y)-3,6,6);
+  }
+  // gibs
+  c.fillStyle='rgba(255,255,255,.55)';
+  for(const g of PH.gibs)c.fillRect(X(g.x)-1,Y(g.y)-1,2,2);
+  // eyes
+  c.strokeStyle='#3ee0ff';c.lineWidth=1.5;
+  for(const e of (PH.eyes||[])){
+    c.beginPath();c.arc(X(e.x),Y(e.y),Math.max(3,e.r*s),0,TAU);c.stroke();
+  }
+}
+
+/* ---------------- live scene ---------------- */
+let liveT=0,lastT=0;
+function drawLive(dt){
+  const cv=$('live'),c=cv.getContext('2d');
+  c.imageSmoothingEnabled=false;
+  c.fillStyle='#101416';c.fillRect(0,0,cv.width,cv.height);
+  if(!SHEET)return;
+  liveT+=dt;
+  const S=3;
+  c.save();c.scale(S,S);
+  const W=cv.width/S,H=cv.height/S;
+
+  /* a scrap of terrain to crawl on */
+  c.fillStyle='#1b2124';
+  c.fillRect(0,H-26,W,26);                 // floor
+  c.fillRect(0,0,W,10);                    // ceiling
+  c.fillRect(W-30,10,30,H-36);             // right wall
+  c.fillStyle='#232a2e';
+  c.fillRect(28,H-64,74,7);                // a deck to swing from
+
+  /* the crawler tours all four orientations so the row bake is
+     visible at a glance */
+  const cycle=(liveT*0.18)%4;
+  const oi=Math.floor(cycle);
+  const orientName=SHEET.orients[oi];
+  let bx,by;
+  const PH=SHEET.physics;
+  if(orientName==='floor'){bx=40+((liveT*9)%(W-90));by=H-26-PH.contacts.floor.reach;}
+  else if(orientName==='ceiling'){bx=W-50-((liveT*8)%(W-90));by=10+PH.contacts.ceiling.reach;}
+  else if(orientName==='wallR'){bx=W-30-PH.contacts.wallR.reach;by=30+((liveT*7)%(H-80));}
+  else {bx=30+PH.contacts.wallL.reach;by=H-40-((liveT*7)%(H-80));}
+
+  const state=(Math.floor(liveT*0.7)%3===2)?'pull':'idle';
+  const frames=SHEET.framesOf(state);
+  const frame=Math.floor(liveT*SHEET.fpsOf(state))%frames;
+  const col=SHEET.colOf(state,frame),row=SHEET.rowOf(orientName);
+
+  /* tentacles first — they belong BEHIND the body */
+  const T=SHEET.tentacles;
+  const nT=PH.sockets.length;
+  for(let i=0;i<nT;i++){
+    const so=PH.sockets[i];
+    const rx=bx+so.x,ry=by+so.y;
+    const ph=liveT*1.5+i*1.9;
+    const reach=26+Math.sin(ph)*16;
+    const ax=rx+so.nx*reach+Math.cos(ph*0.7)*10;
+    const ay=ry+so.ny*reach+Math.sin(ph*0.9)*10;
+    drawTentacle(c,T,i%T.count,rx,ry,ax,ay,Math.sin(ph*0.8)*14,{alpha:0.95});
+  }
+
+  c.drawImage(SHEET.canvas,col*SHEET.CW,row*SHEET.CH,SHEET.CW,SHEET.CH,
+    Math.round(bx-SHEET.anchor.x),Math.round(by-SHEET.anchor.y),SHEET.CW,SHEET.CH);
+
+  c.restore();
+  c.fillStyle='#5d6a72';
+  c.font='11px "Courier New",monospace';
+  c.fillText('orientation row: '+orientName+'   ·   state: '+state+'   ·   '+
+             nT+' tentacles warped from '+T.count+' baked strips',10,cv.height-10);
+}
+
+function loop(now){
+  requestAnimationFrame(loop);
+  const dt=Math.min(0.1,(now-lastT)/1000);lastT=now;
+  if(MODE==='live')drawLive(dt);
+}
+
+/* ---------------- export ---------------- */
+function download(name,url){
+  const a=document.createElement('a');a.href=url;a.download=name;a.click();
+}
+function exportPNG(){
+  if(!SHEET)return;
+  download('crawler_'+SHEET.seed.toString(16)+'_body.png',SHEET.canvas.toDataURL('image/png'));
+  download('crawler_'+SHEET.seed.toString(16)+'_tentacles.png',SHEET.tentacles.canvas.toDataURL('image/png'));
+}
+function exportJSON(){
+  if(!SHEET)return;
+  const data={
+    generator:'CRAWLER FORGE', seed:SHEET.seed, palette:SHEET.palette,
+    cell:{w:SHEET.CW,h:SHEET.CH}, anchor:SHEET.anchor,
+    sheet:{w:SHEET.canvas.width,h:SHEET.canvas.height,
+           cols:SHEET.cols.length,rows:SHEET.orients.length},
+    rowsAreOrientations:SHEET.orients,
+    columns:SHEET.cols.map((c,i)=>({index:i,state:c.state,frame:c.frame})),
+    animations:SHEET.states.map(s=>({id:s.id,frames:s.frames,fps:s.fps,loop:s.loop,
+      firstColumn:SHEET.colOf(s.id,0)})),
+    tentacles:{count:SHEET.tentacles.count,length:SHEET.tentacles.length,
+               thickness:SHEET.tentacles.thickness,strips:SHEET.tentacles.strips},
+    physics:SHEET.physics,
+    params:Object.assign({},P)
+  };
+  download('crawler_'+SHEET.seed.toString(16)+'.json',
+    URL.createObjectURL(new Blob([JSON.stringify(data,null,1)],{type:'application/json'})));
+}
+
+/* ---------------- boot ---------------- */
+function setMode(m){
+  MODE=m;
+  for(const k of ['live','body','tent','phys']){
+    $(k).classList.toggle('hide',k!==m);
+    $('mb-'+k).classList.toggle('on',k===m);
+  }
+  if(m!=='live')drawStatic();
+}
+$('mb-live').onclick=()=>setMode('live');
+$('mb-body').onclick=()=>setMode('body');
+$('mb-tent').onclick=()=>setMode('tent');
+$('mb-phys').onclick=()=>setMode('phys');
+
+buildUI();
+regen();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

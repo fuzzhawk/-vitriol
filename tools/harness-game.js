@@ -39,7 +39,7 @@ global.setTimeout = global.setTimeout;
 
 /* ---------------- load ---------------- */
 const FILES = [
-  'src/gen/greebleworks.js', 'src/gen/mercforge.js',
+  'src/gen/greebleworks.js', 'src/gen/mercforge.js', 'src/gen/crawlerforge.js',
   'src/game/config.js', 'src/game/audio.js', 'src/game/weapons.js',
   'src/game/sprite.js', 'src/game/physics.js', 'src/game/entities.js',
   'src/game/world.js', 'src/game/render.js', 'src/game/screens.js'
@@ -50,6 +50,7 @@ const GW = window.GREEBLEWORKS;
 const LV = GW.LV;
 
 /* ---------------- check plumbing ---------------- */
+const clamp = (v,a,b)=>v<a?a:v>b?b:v;
 let pass = 0, fail = 0;
 const fails = [];
 function ok(cond, label) {
@@ -65,6 +66,10 @@ ok(typeof GW.drawLevelFrame === 'function', 'greebleworks drawLevelFrame exporte
 ok(GW.drawLevelFrame.length === 6, 'drawLevelFrame takes the entityPass hook');
 ok(typeof window.MERCFORGE.forge === 'function', 'mercforge forge exported');
 ok(typeof window.MERCFORGE.randomParams === 'function', 'mercforge randomParams exported');
+ok(typeof window.CRAWLERFORGE.forge === 'function', 'crawlerforge forge exported');
+ok(typeof window.CRAWLERFORGE.drawTentacle === 'function', 'crawlerforge drawTentacle exported');
+ok(Object.keys(window.CRAWLERFORGE.PALETTES).length === 10, '10 crawler palettes');
+ok(window.CRAWLERFORGE.ORIENTS.length === 4, '4 surface orientations');
 ok(Object.keys(GW.STYLES).length === 14, '14 facade styles');
 ok(Object.keys(GW.SKYMOODS).length === 15, '15 sky moods');
 ok(Object.keys(GW.CITY_PRESETS).length === 15, '15 city presets');
@@ -117,6 +122,13 @@ section('merc randomizer');
     ok(window.WEAPONS.table[p.gun] !== undefined, 'weapon ' + p.gun + ' has a behaviour def');
   }
   for (const kind of Object.keys(window.CONFIG.ARCHETYPES)) {
+    if (window.CONFIG.ARCHETYPES[kind].crawler) {
+      // grown by CRAWLER FORGE, covered in its own section
+      let threw = false;
+      try { window.CONFIG.archetypeParams(kind, 1, 'slum'); } catch (e) { threw = true; }
+      ok(threw, kind + ' rejects a MERC FORGE params request');
+      continue;
+    }
     for (let i = 0; i < 8; i++) {
       const p = window.CONFIG.archetypeParams(kind, (i * 104729) >>> 0, 'slum');
       ok(p.height > 14 && p.height < 60, kind + ' height sane');
@@ -124,6 +136,85 @@ section('merc randomizer');
       ok(/^#[0-9a-f]{6}$/i.test(p.colAccent), kind + ' colAccent is a hex colour');
       ok(window.WEAPONS.table[p.gun] !== undefined, kind + ' weapon is defined');
     }
+  }
+}
+
+/* ---------------- crawler forge ---------------- */
+section('crawler forge');
+{
+  const CF = window.CRAWLERFORGE;
+  const before = JSON.stringify(CF.P_DEFAULTS);
+  const S = CF.forge({ seed: 4242 });
+  ok(JSON.stringify(CF.P_DEFAULTS) === before, 'forge() leaves P_DEFAULTS untouched');
+  ok(S.canvas.width === S.CW * S.cols.length, 'body sheet width matches column count');
+  ok(S.canvas.height === S.CH * S.orients.length, 'body sheet height matches orientation count');
+  ok(S.orients.join(',') === 'floor,wallL,wallR,ceiling', 'orientation rows in the expected order');
+  ok(S.pad >= 2, 'cell padding >= 2 so the outline dilate stays inside its cell');
+  ok(S.tentacles.canvas.height === S.tentacles.thickness * S.tentacles.count,
+     'tentacle sheet is one strip per variant');
+  ok(S.tentacles.canvas.width === S.tentacles.length, 'tentacle strip spans the sheet width');
+
+  /* every state and orientation must address a real cell */
+  for (const st of S.states) {
+    for (let f = 0; f < st.frames; f++) {
+      const c = S.colOf(st.id, f);
+      ok(c >= 0 && c < S.cols.length, 'column for ' + st.id + ':' + f + ' is in range');
+    }
+  }
+  for (const o of S.orients) {
+    const r = S.rowOf(o);
+    ok(r >= 0 && r < S.orients.length, 'row for ' + o + ' is in range');
+  }
+
+  /* the physics bake has to describe the pixels that were drawn */
+  const PH = S.physics;
+  ok(PH.hull.length === 24, 'hull is a 24-point polygon');
+  ok(PH.radius > 2 && PH.radius < Math.max(S.CW, S.CH), 'grip radius is inside the cell');
+  ok(PH.radiusMax >= PH.radius, 'max radius is at least the average');
+  ok(PH.sockets.length >= 1, 'sockets baked');
+  ok(PH.gibs.length > 0, 'gib seed points baked');
+  ok(PH.mass > 0 && PH.mass <= 1, 'mass fraction in range');
+  for (const so of PH.sockets) {
+    const n = Math.hypot(so.nx, so.ny);
+    ok(Math.abs(n - 1) < 0.02, 'socket normal is unit length');
+    // the normal must point away from the body, or tentacles grow inward
+    ok(so.nx * so.x + so.ny * so.y > -0.01, 'socket normal points outward');
+    ok(Math.hypot(so.x, so.y) <= PH.radiusMax + 1, 'socket sits on the body');
+  }
+  for (const k of ['floor', 'wallL', 'wallR', 'ceiling']) {
+    ok(PH.contacts[k] && PH.contacts[k].reach > 0, k + ' contact reach measured');
+  }
+  /* every gib seed must be inside the drawn silhouette */
+  {
+    const d = S.canvas.getContext('2d').getImageData(0, 0, S.CW, S.CH).data;
+    let outside = 0;
+    for (const g of PH.gibs) {
+      const x = Math.round(S.anchor.x + g.x), y = Math.round(S.anchor.y + g.y);
+      if (x < 0 || y < 0 || x >= S.CW || y >= S.CH || d[(y * S.CW + x) * 4 + 3] < 8) outside++;
+    }
+    ok(outside === 0, 'every gib seed lands on drawn pixels (' + outside + ' outside)');
+  }
+
+  /* determinism, and real variety across seeds */
+  const a = CF.forge({ seed: 77 }), b = CF.forge({ seed: 77 });
+  ok(a.CW === b.CW && a.CH === b.CH, 'forge is deterministic for one seed');
+  const sizes = new Set(), pals = new Set();
+  for (let i = 0; i < 22; i++) {
+    const p = CF.randomParams((i * 2654435761) >>> 0);
+    ok(CF.PALETTES[p.palette] !== undefined, 'random palette ' + p.palette + ' is real');
+    ok(p.size >= 20 && p.size <= 56, 'random size in range');
+    ok(p.tentacles >= 1 && p.tentacles <= 10, 'random tentacle count in range');
+    sizes.add(p.size); pals.add(p.palette);
+  }
+  ok(sizes.size > 6, 'randomizer varies body size (' + sizes.size + ' distinct)');
+  ok(pals.size > 4, 'randomizer varies palette (' + pals.size + ' distinct)');
+
+  /* crawlerParams must stay inside what the game was tuned for */
+  for (let i = 0; i < 30; i++) {
+    const p = window.CONFIG.crawlerParams((i * 104729) >>> 0, { style: 'reactor' });
+    ok(p.size >= 24 && p.size <= 40, 'game crawler size clamped');
+    ok(p.tentLen >= p.size * 1.7 && p.tentLen <= p.size * 2.7, 'tentacle reach scales with body');
+    ok(CF.PALETTES[p.palette] !== undefined, 'game crawler palette is real');
   }
 }
 
@@ -189,6 +280,35 @@ section('physics');
   for (let i = 0; i < 10; i++) W2.move(o, 12, 27, false);
   ok(o.x < 400, 'stops against a taller ground run (x=' + o.x.toFixed(1) + ')');
 
+  /* ---- surface queries: what a crawler can grip ---- */
+  {
+    const faces = W.surfacesNear(150, 130, 60);
+    ok(faces.length > 0, 'found grippable faces near a deck');
+    const kinds = new Set(faces.map(f => f.orient));
+    ok(kinds.has('floor'), 'deck top is grippable as floor');
+    ok(kinds.has('ceiling'), 'deck underside is grippable as ceiling');
+    ok(kinds.has('wallL') || kinds.has('wallR'), 'deck sides are grippable as walls');
+    for (const f of faces) {
+      ok(Math.abs(Math.hypot(f.nx, f.ny) - 1) < 1e-6, 'face normal is unit');
+      ok(f.dist <= 60 + 1e-6, 'face is within the search radius');
+    }
+    // ground mass has no underside inside the frame to hang from
+    const groundFaces = W.surfacesNear(50, 205, 40).filter(f => f.plat.ground);
+    ok(groundFaces.every(f => f.orient !== 'ceiling'),
+       'ground mass exposes no ceiling face');
+
+    const pick = W.pickAnchor(150, 130, 5, 90, 1, 0, () => 0.5);
+    ok(!!pick, 'pickAnchor returns a grip');
+    ok(pick.dist >= 5, 'pickAnchor respects the minimum stride');
+    // it should prefer a grip in the direction asked for
+    let rightWins = 0;
+    for (let i = 0; i < 24; i++) {
+      const r = W.pickAnchor(150, 150, 4, 120, 1, 0, Math.random);
+      if (r && r.x >= 150) rightWins++;
+    }
+    ok(rightWins > 14, 'pickAnchor leans the way it is told (' + rightWins + '/24)');
+  }
+
   ok(W.canSee(10, 190, 60, 190) === true, 'clear line of sight along a deck');
   // A tall block between two low runs must break sight across it.
   const W3 = new window.PHYSICS.World([
@@ -233,14 +353,25 @@ ok(M.exit.x <= M.L.LW, 'extraction is inside the level');
 
 /* Every enemy must start on solid footing (or be a flyer). */
 {
-  let grounded = 0, flying = 0, bad = 0;
+  let grounded = 0, flying = 0, clinging = 0, bad = 0;
   for (const e of M.enemies) {
+    if (e.kind === 'crawler') {
+      // seated against a surface at the reach the generator measured
+      const faces = M.world.surfacesNear(e.x, e.y, e.rig.radiusMax || 90);
+      let seated = false;
+      for (const f of faces) {
+        if (!f.orient) continue;
+        if (Math.abs(f.dist - e.rig.reach(f.orient)) < 3) { seated = true; break; }
+      }
+      if (seated) clinging++; else bad++;
+      continue;
+    }
     if (e.flying) { flying++; continue; }
     const g = M.world.groundUnder(e.x, e.y - 1, true);
     if (g && Math.abs(g.y - e.y) < 2) grounded++; else bad++;
   }
-  ok(bad === 0, 'every walking hostile spawned on a deck (' + bad + ' floating)');
-  console.log('  ' + grounded + ' grounded, ' + flying + ' airborne');
+  ok(bad === 0, 'every hostile spawned attached to something (' + bad + ' floating)');
+  console.log('  ' + grounded + ' grounded, ' + flying + ' airborne, ' + clinging + ' clinging');
 }
 
 /* Nothing spawns on top of the player. */
@@ -304,7 +435,7 @@ section('damage path');
     let rr; while (!(rr = g.next()).done);
     return rr.value;
   })();
-  const target = M2.enemies.find(e => !e.flying);
+  const target = M2.enemies.find(e => !e.flying && e.kind !== 'crawler');
   ok(!!target, 'found a walking hostile to shoot');
   if (target) {
     const hpBefore = target.hp;
@@ -315,6 +446,51 @@ section('damage path');
     }
     for (let i = 0; i < 40; i++) M2.stepBullets(1 / 60);
     ok(target.hp < hpBefore || target.dead, 'point-blank fire damaged the hostile');
+
+    /* A crawler is a disc around its centre, and shooting one must
+       throw chunks off it. Pick a LIVE one: the shots above can pass
+       through a crawler on their way to the merc, and a corpse takes
+       no further damage — which is correct, and quietly satisfied an
+       earlier version of this check through its `|| dead` clause. */
+    const cr = M2.enemies.find(e => e.kind === 'crawler' && !e.dead);
+    ok(!!cr, 'a live crawler is in the level');
+    if (cr) {
+      /* Shoot along the surface normal it is clinging to. A crawler on
+         a wall has solid mass on one side of it, and firing from that
+         side just puts a hole in the wall — which is correct, and was
+         what made the first version of this check fail. */
+      const APPROACH = { floor: [0, -1], ceiling: [0, 1], wallL: [1, 0], wallR: [-1, 0] };
+      const ap = APPROACH[cr.orient] || [0, -1];
+      const shootAt = (target, offN, aimOff) => {
+        const d = 34;
+        const bx = target.x + ap[0] * d + (aimOff ? -ap[1] * offN : 0);
+        const by = target.y + ap[1] * d + (aimOff ? ap[0] * offN : 0) +
+                   (aimOff && ap[1] === 0 ? offN : 0) + (!aimOff ? 0 : 0);
+        const a = Math.atan2(-ap[1], -ap[0]);
+        M2.bullets.push(new window.ENTITIES.Bullet(bx, by, a, W, true, '#fff'));
+      };
+      const chpBefore = cr.hp, gibsBefore = M2.gibs.length;
+      for (let i = 0; i < 10; i++) shootAt(cr, 0, false);
+      for (let i = 0; i < 60; i++) M2.stepBullets(1 / 60);
+      ok(cr.hp < chpBefore, 'point-blank fire damaged the crawler');
+      ok(M2.gibs.length > gibsBefore, 'chunks flew off the crawler');
+      ok(cr.alerted, 'being shot alerts the crawler');
+
+      /* a shot that clears the disc must not register */
+      const cr2 = M2.enemies.find(e => e.kind === 'crawler' && !e.dead && e !== cr) || cr;
+      if (!cr2.dead) {
+        const ap2 = APPROACH[cr2.orient] || [0, -1];
+        const miss = cr2.hp;
+        const perpX = -ap2[1], perpY = ap2[0];
+        const off = cr2.rig.r + 12;
+        M2.bullets.push(new window.ENTITIES.Bullet(
+          cr2.x + ap2[0] * 34 + perpX * off,
+          cr2.y + ap2[1] * 34 + perpY * off,
+          Math.atan2(-ap2[1], -ap2[0]), W, true, '#fff'));
+        for (let i = 0; i < 40; i++) M2.stepBullets(1 / 60);
+        ok(cr2.hp === miss, 'a shot clear of the blob is not a hit');
+      }
+    }
     // and the reverse: an enemy bullet must be able to hurt the player
     const php = M2.player.hp;
     M2.player.invuln = 0;
@@ -374,8 +550,15 @@ function dump(name, cv) {
   const pr = new window.SPRITE.Rig(merc);
   pr.draw(cx, 'run', 2, -0.2, cell * 0.5, cell - 14, false);
   kinds.forEach((k, i) => {
-    const rig = new window.SPRITE.Rig(window.CONFIG.archetypeParams(k, 1234 + i * 77, cfg.style));
-    rig.draw(cx, 'idle', 0, 0, cell * (i + 1.5), cell - 14, false);
+    if (window.CONFIG.ARCHETYPES[k].crawler) {
+      const rig = new window.SPRITE.CrawlerRig(
+        window.CONFIG.crawlerParams(1234 + i * 77, cfg));
+      rig.draw(cx, 'idle', 0, 'floor',
+        cell * (i + 1.5), cell - 14 - rig.reach('floor'), false);
+    } else {
+      const rig = new window.SPRITE.Rig(window.CONFIG.archetypeParams(k, 1234 + i * 77, cfg.style));
+      rig.draw(cx, 'idle', 0, 0, cell * (i + 1.5), cell - 14, false);
+    }
   });
   dump('out_cast.png', cv);
 }
@@ -395,6 +578,113 @@ function dump(name, cv) {
     rig.draw(cx, 'idle', 0, local, cw * (i + 0.5), ch - 4, false);
   }
   dump('out_aim.png', cv);
+}
+
+/* crawlers: locomotion over time, on whatever surface they grabbed */
+{
+  const cfgC = window.CONFIG.randomLevelCfg(0x5EA51DE);
+  cfgC.levelLen = 4;
+  const gc = window.WORLD.buildMission(cfgC, merc,
+    { difficulty: 'regular', enemyDens: 2.2, lives: 3 });
+  let rr; while (!(rr = gc.next()).done);
+  const MC = rr.value;
+  const crawlers = MC.enemies.filter(e => e.kind === 'crawler');
+  ok(crawlers.length > 0, 'crawler contact sheet has crawlers (' + crawlers.length + ')');
+
+  /* run them so limbs cast, grip and haul */
+  const inp = { left: false, right: false, up: false, down: false, fire: false,
+                jumpPressed: false, reloadPressed: false, cursorX: 224, cursorY: 126,
+                aimX: 0, aimY: 0 };
+  const seen = { gripped: 0, reaching: 0, moved: 0, orients: new Set() };
+  const start = crawlers.map(c => ({ x: c.x, y: c.y }));
+  /* Off-screen hostiles are culled from the sim, so park the player
+     next to each crawler in turn rather than watching from spawn and
+     concluding that nothing moves. */
+  crawlers.forEach((c, ci) => {
+    MC.player.x = c.x + 90;
+    const gg = MC.world.groundUnder(MC.player.x, 0, true);
+    MC.player.y = gg ? gg.y : c.y;
+    MC.scroll = clamp(c.x - LV.W / 2, 0, Math.max(0, MC.L.LW - LV.W));
+    for (let i = 0; i < 60 * 5; i++) {
+      MC.cursorX = inp.cursorX; MC.cursorY = inp.cursorY;
+      MC.update(1 / 60, inp);
+      if (c.dead) break;
+      seen.orients.add(c.orient);
+      for (const l of c.limbs) {
+        if (l.state === 'gripped') seen.gripped++;
+        if (l.state === 'reaching') seen.reaching++;
+      }
+    }
+    if (Math.hypot(c.x - start[ci].x, c.y - start[ci].y) > 8) seen.moved++;
+  });
+  ok(seen.gripped > 0, 'crawler limbs gripped terrain (' + seen.gripped + ' limb-frames)');
+  ok(seen.reaching > 0, 'crawler limbs cast for new grips (' + seen.reaching + ' limb-frames)');
+  ok(seen.moved > 0, 'crawlers hauled themselves somewhere (' + seen.moved + '/' + crawlers.length + ')');
+  ok(MC.slime.length > 0, 'crawlers laid a slime trail (' + MC.slime.length + ' marks)');
+  for (const c of crawlers) {
+    ok(Number.isFinite(c.x) && Number.isFinite(c.y), 'crawler position stayed finite');
+    ok(c.y < MC.world.floor + 200, 'crawler did not fall out of the world');
+  }
+  console.log('  orientations used: ' + Array.from(seen.orients).join(', '));
+
+  /* a frame with a crawler centred, plus its own tentacles */
+  const live = crawlers.filter(c => !c.dead);
+  if (live.length) {
+    const cv = createCanvas(LV.W, LV.H * Math.min(3, live.length));
+    const cx2 = cv.getContext('2d');
+    const one = createCanvas(LV.W, LV.H);
+    const ox2 = one.getContext('2d');
+    MC.state = 'play'; MC.endT = 0;
+    MC.player.dead = false; MC.player.hp = 80;
+    for (let i = 0; i < Math.min(3, live.length); i++) {
+      const c = live[i];
+      MC.scroll = clamp(c.x - LV.W / 2, 0, Math.max(0, MC.L.LW - LV.W));
+      MC.time = 3 + i * 2;
+      MC.player.x = MC.scroll + 70;
+      const gg = MC.world.groundUnder(MC.player.x, 0, true);
+      if (gg) MC.player.y = gg.y;
+      MC.player.anim = 'idle'; MC.player.frame = 0; MC.player.local = 0; MC.player.face = 1;
+      // gib and slime so the shot shows what a fight with one looks like
+      MC.gib(c, 10);
+      window.RENDER.frame(MC, ox2, one);
+      cx2.drawImage(one, 0, i * LV.H);
+    }
+    dump('out_crawler.png', cv);
+  }
+
+  /* the same crawler on all four surfaces, with limbs out */
+  {
+    const rig = crawlers[0].rig;
+    const T = rig.tent, PH = rig.phys;
+    const pad = 96;
+    const cell = Math.round(rig.tent.length * 0.9) + pad;
+    const cv = createCanvas(cell * 4, cell);
+    const c2 = cv.getContext('2d');
+    c2.imageSmoothingEnabled = false;
+    c2.fillStyle = '#14181a'; c2.fillRect(0, 0, cv.width, cv.height);
+    ['floor', 'wallL', 'wallR', 'ceiling'].forEach((o, i) => {
+      const ox3 = i * cell + cell / 2, oy3 = cell / 2;
+      // the surface it is stuck to
+      const n = { floor: [0, -1], ceiling: [0, 1], wallL: [1, 0], wallR: [-1, 0] }[o];
+      const reach = rig.reach(o);
+      c2.fillStyle = '#232a2e';
+      if (n[0] === 0) c2.fillRect(i * cell + 8, oy3 - n[1] * reach - (n[1] < 0 ? 0 : 8), cell - 16, 8);
+      else c2.fillRect(ox3 - n[0] * reach - (n[0] < 0 ? 0 : 8), 8, 8, cell - 16);
+      // limbs reaching out along their sockets
+      for (let k = 0; k < PH.sockets.length; k++) {
+        const so = rig.socket(k, ox3, oy3, false, o);
+        const a = Math.atan2(so.ny, so.nx);
+        const len = 34 + (k % 3) * 16;
+        window.CRAWLERFORGE.drawTentacle(c2, T, k % T.count, so.x, so.y,
+          so.x + Math.cos(a) * len, so.y + Math.sin(a) * len,
+          (k % 2 ? 1 : -1) * 12, {});
+      }
+      rig.draw(c2, 'idle', 0, o, ox3, oy3, false);
+      c2.fillStyle = '#8d9aa2'; c2.font = '11px monospace';
+      c2.fillText(o, i * cell + 8, cell - 8);
+    });
+    dump('out_crawler_surfaces.png', cv);
+  }
 }
 
 /* the level's collision data drawn over the play layer */

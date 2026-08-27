@@ -183,6 +183,11 @@ window.CONFIG = (function () {
         runFrames: 6, aimRows: 5
       })
     },
+    crawler: {
+      label: 'CRAWLER', hp: 11, speed: 0, aggro: 1.15, burst: 1, cooldown: 1.5,
+      score: 400, lash: 11, crawler: true
+      // no build(): crawlers come from CRAWLER FORGE, not MERC FORGE
+    },
     drone: {
       label: 'DRONE', hp: 4, speed: 0.55, aggro: 1.4, burst: 3, cooldown: 1.3, score: 300,
       flying: true,
@@ -200,6 +205,12 @@ window.CONFIG = (function () {
      in a firefight is never ambiguous. */
   function archetypeParams(kind, seed, style) {
     const A = ARCHETYPES[kind];
+    // Crawlers are grown by CRAWLER FORGE and have no MERC FORGE build;
+    // asking for merc params for one is a wiring mistake, not a shrug.
+    if (!A || !A.build) {
+      throw new Error('archetypeParams: "' + kind + '" has no MERC FORGE build' +
+        (A && A.crawler ? ' — use crawlerParams()' : ''));
+    }
     const R = GW.makeRng((seed ^ 0x1f2e) >>> 0);
     const base = A.build(R);
     const h = R.range(0, 360);
@@ -211,6 +222,50 @@ window.CONFIG = (function () {
       colGun:    window.MERCFORGE.hsl(h + 180, 5 + R.range(0, 10), 32 + R.range(0, 12)),
       colSkin:   window.MERCFORGE.hsl(22 + R.range(0, 14), 30 + R.range(0, 20), 46 + R.range(0, 22))
     });
+  }
+
+  /* ---------------- crawlers ----------------
+     A different generator entirely, so it gets its own params path.
+     The palette is picked to belong in the level it infests: a thing
+     that grew in a reactor should not look like it grew in a sewer. */
+  const CRAWLER_PALETTES = {
+    slum:       ['raw', 'rust', 'necrotic'],
+    kowloon:    ['raw', 'toxic', 'necrotic'],
+    market:     ['raw', 'fungal', 'rust'],
+    undercity:  ['necrotic', 'toxic', 'void'],
+    industrial: ['rust', 'ember', 'raw'],
+    refinery:   ['ember', 'bile', 'rust'],
+    reactor:    ['toxic', 'ember', 'bile'],
+    ruin:       ['necrotic', 'fungal', 'rust'],
+    brutalist:  ['chrome', 'necrotic', 'void'],
+    hab:        ['raw', 'chrome', 'fungal'],
+    megacorp:   ['chrome', 'void', 'deepsea'],
+    arcology:   ['deepsea', 'chrome', 'void'],
+    spaceport:  ['deepsea', 'chrome', 'necrotic'],
+    server:     ['void', 'deepsea', 'toxic']
+  };
+
+  function crawlerParams(seed, levelCfg, variant) {
+    const CF = window.CRAWLERFORGE;
+    const p = CF.randomParams(seed);
+    const R = GW.makeRng((seed ^ 0x9a5b) >>> 0);
+    const pool = CRAWLER_PALETTES[levelCfg && levelCfg.style] || Object.keys(CF.PALETTES);
+    // Rotate by variant index so the two silhouettes a level forges are
+    // never the same colour by coincidence.
+    p.palette = pool[(R.int(0, pool.length - 1) + (variant || 0)) % pool.length];
+    // Keep it inside the size band the level's collision and the
+    // player's weapons were tuned against.
+    p.size = Math.max(24, Math.min(40, p.size));
+    // Reach scales with the body, or a small crawler flails on threads
+    // and a big one moves in tiny hops.
+    // Reach of roughly two body-widths. Longer than this and the blob
+    // reads as a spider: all legs, no animal.
+    p.tentLen = Math.round(p.size * R.range(1.8, 2.6));
+    p.tentThick = Math.max(6, Math.round(p.size * R.range(0.24, 0.34)));
+    p.tentacles = R.int(4, 7);
+    p.tentVariants = R.int(2, 3);
+    p.eyes = R.int(2, 5);
+    return p;
   }
 
   /* The default player merc: the tool's own 'nick' preset, which is
@@ -234,6 +289,7 @@ window.CONFIG = (function () {
     LEVEL_DEFAULTS, RUN_DEFAULTS, DIFFICULTY,
     STYLE_AFFINITY, STYLE_KEYS, HARSH_PALETTES,
     ARCHETYPES, archetypeParams, defaultMerc, randomMerc,
+    CRAWLER_PALETTES, crawlerParams,
     randomLevelCfg, applyCityPreset
   };
 })();

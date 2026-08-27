@@ -117,6 +117,19 @@ window.AUDIO = (function () {
       tone(t, 'sawtooth', 440, 700, 0.22, 0.1);
       tone(t + 0.24, 'sawtooth', 440, 700, 0.22, 0.1);
     },
+    /* wet, low, and short — a chunk of something coming apart */
+    splat(_, dist) {
+      const t = ctx.currentTime;
+      noise(t, 0.20, place(0.24, dist), 420, 0.5);
+      noise(t + 0.03, 0.14, place(0.14, dist), 1100, 0.8);
+      tone(t, 'sine', 150, 48, 0.22, place(0.15, dist));
+    },
+    /* the whip-crack of a tentacle being thrown out */
+    lash(_, dist) {
+      const t = ctx.currentTime;
+      noise(t, 0.13, place(0.15, dist), 2100, 1.6);
+      tone(t, 'sawtooth', 200, 620, 0.09, place(0.08, dist));
+    },
     extract() {
       const t = ctx.currentTime;
       [330, 440, 550, 740].forEach((f, i) =>

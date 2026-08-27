@@ -321,8 +321,273 @@ window.ENTITIES = (function () {
     }
   };
 
+  /* ============================================================
+     ELDRITCH CRAWLER
+
+     It does not walk. Each tentacle independently releases, casts for
+     a new grip on whatever terrain face is in the direction it wants
+     to go, and hauls. The body is a mass on the end of those grips:
+     it springs toward the seat position the gripped limbs imply, sags
+     under gravity, and free-falls the moment nothing is holding on.
+     Swinging from an overhead deck comes out of that for free rather
+     than being a special case.
+
+     Position is the body CENTRE, not the feet — it spends as much
+     time under a catwalk as on top of one.
+     ============================================================ */
+  const LIMB = {
+    reachTime: 0.20,      // seconds to extend a cast
+    holdMin: 0.35,        // shortest time a grip is kept
+    haul: 0.115,          // spring constant toward the implied seat
+    damp: 0.86,
+    sag: 0.30,            // fraction of gravity felt while gripping
+    strikeTime: 0.16
+  };
+
+  function Crawler(rig, x, y, arche, diff, seed) {
+    this.rig = rig;
+    this.kind = 'crawler';
+    this.x = x; this.y = y;
+    this.vx = 0; this.vy = 0;
+    this.A = arche;
+    this.diff = diff;
+    this.maxHp = Math.round(arche.hp * diff.enemyHp);
+    this.hp = this.maxHp;
+    this.w = rig.w; this.h = rig.h;
+    this.face = 1;
+    this.orient = 'floor';
+    this.anim = 'idle'; this.frame = 0; this.t = 0;
+    this.flash = 0; this.dead = false; this.deathT = 0;
+    this.alerted = false; this.state = 'patrol';
+    this.ground = true;          // "attached to something"
+    this.slimeT = 0;
+    this.strikeCool = 0.8 + (seed % 60) / 60;
+    this.dir = (seed & 1) ? 1 : -1;
+    this.think = 0;
+    this.home = { x, y };
+    this.pulse = (seed % 628) / 100;
+
+    const n = rig.socketCount();
+    this.limbs = [];
+    for (let i = 0; i < n; i++) {
+      this.limbs.push({
+        i, state: 'idle', anchor: null, cast: null, t: 0,
+        variant: i % rig.tent.count,
+        bend: ((i % 2) ? 1 : -1) * (8 + (i * 5) % 14),
+        phase: (seed * (i + 3) % 628) / 100,
+        hold: 0
+      });
+    }
+    /* Stance. This has to be measured against the SILHOUETTE, not the
+       centre: a limb is drawn from its socket — already most of a body
+       radius out — to its anchor, so a grip planted at 1.5 radii is a
+       stub entirely inside the blob. Anchors go out past two radii, and
+       the visible span is what is left after the socket offset. */
+    this.maxReach = rig.tent.length * 0.95;
+    this.minReach = Math.max(rig.radiusMax * 2.0, rig.tent.length * 0.50);
+  }
+
+  Crawler.prototype.gripped = function () {
+    let n = 0;
+    for (const l of this.limbs) if (l.state === 'gripped') n++;
+    return n;
+  };
+
+  /* Where the body wants to sit, given what is currently holding on. */
+  Crawler.prototype.seat = function () {
+    let sx = 0, sy = 0, n = 0, best = null, bd = 1e9;
+    for (const l of this.limbs) {
+      if (l.state !== 'gripped' || !l.anchor) continue;
+      const a = l.anchor;
+      const reach = this.rig.reach(a.orient || 'floor');
+      sx += a.x + a.nx * reach;
+      sy += a.y + a.ny * reach;
+      n++;
+      if (a.dist < bd) { bd = a.dist; best = a; }
+    }
+    if (!n) return null;
+    return { x: sx / n, y: sy / n, lead: best };
+  };
+
+  Crawler.prototype.step = function (world, player, dt, out) {
+    if (this.dead) { this.deathT += dt; return; }
+    this.t += dt;
+    this.pulse += dt * 2.4;
+    if (this.flash > 0) this.flash -= dt;
+    this.strikeCool -= dt;
+
+    const dxp = player.x - this.x;
+    const dyp = (player.y - player.h * 0.5) - this.y;
+    const dist = Math.hypot(dxp, dyp);
+    const range = this.diff.aggro * this.A.aggro;
+    const sees = dist < range && !player.dead &&
+      world.canSee(this.x, this.y, player.x, player.y - player.h * 0.5);
+    if (sees) { this.alerted = true; this.state = 'engage'; }
+    else if (this.alerted && dist > range * 1.7) this.state = 'patrol';
+
+    /* where it wants to drag itself */
+    let wantX, wantY;
+    if (this.state === 'engage') { wantX = dxp; wantY = dyp; }
+    else {
+      this.think -= dt;
+      if (this.think <= 0) { this.think = 2 + Math.random() * 3; if (Math.random() < 0.35) this.dir *= -1; }
+      wantX = this.dir; wantY = 0;
+      if (Math.abs(this.x - this.home.x) > 150) this.dir = this.x > this.home.x ? -1 : 1;
+    }
+
+    this.stepLimbs(world, player, dt, wantX, wantY, dist, sees, out);
+
+    /* body: hauled by whatever is gripping, or falling */
+    const seat = this.seat();
+    if (seat) {
+      this.vx += (seat.x - this.x) * LIMB.haul;
+      this.vy += (seat.y - this.y) * LIMB.haul;
+      this.vy += MOVE.gravity * LIMB.sag;      // it always hangs a little
+      this.vx *= LIMB.damp; this.vy *= LIMB.damp;
+      this.ground = true;
+      if (seat.lead && seat.lead.orient) this.orient = seat.lead.orient;
+    } else {
+      this.vy += MOVE.gravity;
+      this.vy = Math.min(this.vy, MOVE.terminal);
+      this.vx *= 0.99;
+      this.ground = false;
+      this.orient = 'floor';
+    }
+    this.vx = clamp(this.vx, -3.4, 3.4);
+    this.vy = clamp(this.vy, -3.4, MOVE.terminal);
+    this.x += this.vx; this.y += this.vy;
+
+    /* never let it end up inside solid mass */
+    const solid = world.solidAt(this.x, this.y, false);
+    if (solid) {
+      const push = world.surfacesNear(this.x, this.y, this.rig.r * 3);
+      if (push.length) {
+        let b = push[0];
+        for (const c of push) if (c.dist < b.dist) b = c;
+        this.x = b.x + b.nx * this.rig.reach(b.orient || 'floor');
+        this.y = b.y + b.ny * this.rig.reach(b.orient || 'floor');
+        this.vx *= 0.3; this.vy *= 0.3;
+      }
+    }
+
+    if (Math.abs(this.vx) > 0.05) this.face = this.vx > 0 ? 1 : -1;
+    else if (this.state === 'engage') this.face = dxp > 0 ? 1 : -1;
+
+    /* animation: it tenses while any limb is hauling */
+    let hauling = false;
+    for (const l of this.limbs) if (l.state === 'reaching' || l.state === 'strike') hauling = true;
+    const want = this.flash > 0 ? 'hurt' : (hauling ? 'pull' : 'idle');
+    if (want !== this.anim) { this.anim = want; this.t = 0; }
+    this.frame = this.rig.frameOf(this.anim, this.t);
+
+    /* slime: laid down wherever it is actually touching */
+    this.slimeT -= dt;
+    if (this.slimeT <= 0 && seat && seat.lead) {
+      this.slimeT = 0.14 + Math.random() * 0.12;
+      out.addSlime(seat.lead.x, seat.lead.y, seat.lead.nx, seat.lead.ny,
+        this.rig.sheet.tentacles ? this.slimeColour() : '#8f6', this.rig.r);
+    }
+
+    if (this.y > world.floor + 80) this.kill(out, true);
+  };
+
+  Crawler.prototype.slimeColour = function () {
+    const pal = window.CRAWLERFORGE.PALETTES[this.rig.params.palette] ||
+                window.CRAWLERFORGE.PALETTES.raw;
+    return pal.slime;
+  };
+
+  Crawler.prototype.stepLimbs = function (world, player, dt, wantX, wantY, dist, sees, out) {
+    const rnd = Math.random;
+    for (const l of this.limbs) {
+      l.t += dt;
+
+      if (l.state === 'strike') {
+        const k = clamp(l.t / LIMB.strikeTime, 0, 1);
+        l.cast = { x: l.from.x + (l.to.x - l.from.x) * k,
+                   y: l.from.y + (l.to.y - l.from.y) * k };
+        if (k >= 1) {
+          // the lash lands where the player WAS when it started
+          const pd = Math.hypot(player.x - l.to.x, (player.y - player.h * 0.5) - l.to.y);
+          if (pd < 16 && !player.dead) {
+            if (player.hurt(this.A.lash || 10)) out.onCrawlerHit(this, player);
+          }
+          l.state = 'retract'; l.t = 0;
+        }
+        continue;
+      }
+      if (l.state === 'retract') {
+        if (l.t > 0.14) { l.state = 'idle'; l.cast = null; l.t = 0; }
+        continue;
+      }
+      if (l.state === 'reaching') {
+        const k = clamp(l.t / LIMB.reachTime, 0, 1);
+        l.cast = { x: l.from.x + (l.to.x - l.from.x) * k,
+                   y: l.from.y + (l.to.y - l.from.y) * k };
+        if (k >= 1) { l.state = 'gripped'; l.anchor = l.target; l.hold = 0; l.cast = null; }
+        continue;
+      }
+      if (l.state === 'gripped') {
+        l.hold += dt;
+        const a = l.anchor;
+        const d = Math.hypot(a.x - this.x, a.y - this.y);
+        // let go once it is trailing behind, overextended, or just stale
+        const behind = ((a.x - this.x) * wantX + (a.y - this.y) * wantY) < -2;
+        if (l.hold > LIMB.holdMin && (behind || d > this.maxReach * 1.05 || l.hold > 1.6)) {
+          l.state = 'idle'; l.anchor = null; l.t = 0;
+        }
+        continue;
+      }
+
+      /* idle: strike if the player is in reach, otherwise cast for a grip */
+      const socket = this.rig.socket(l.i, this.x, this.y, this.face < 0, this.orient);
+      if (sees && this.strikeCool <= 0 && dist < this.maxReach * 0.9) {
+        this.strikeCool = (this.A.cooldown || 1.4) / this.diff.fireRate;
+        l.state = 'strike'; l.t = 0;
+        l.from = { x: socket.x, y: socket.y };
+        l.to = { x: player.x, y: player.y - player.h * 0.5 };
+        out.onCrawlerLash(this, l.to.x, l.to.y);
+        continue;
+      }
+      // stagger the casts so they do not all release at once
+      if (l.t < 0.06 + (l.i % 3) * 0.05) continue;
+      let target = world.pickAnchor(this.x, this.y, this.minReach, this.maxReach,
+                                    wantX, wantY, rnd);
+      // In a tight corner there may be nothing at a full stride. Take a
+      // short grip rather than freezing with every limb idle.
+      if (!target) {
+        target = world.pickAnchor(this.x, this.y, this.rig.r * 0.9, this.maxReach,
+                                  wantX, wantY, rnd);
+      }
+      if (!target) { l.t = 0; continue; }
+      l.state = 'reaching'; l.t = 0;
+      l.target = target;
+      l.from = { x: socket.x, y: socket.y };
+      l.to = { x: target.x, y: target.y };
+    }
+  };
+
+  Crawler.prototype.hurtBy = function (n, out) {
+    if (this.dead) return;
+    this.hp -= n;
+    this.flash = 0.14;
+    this.alerted = true; this.state = 'engage';
+    // chunks come off wherever it was hit
+    out.gib(this, Math.min(6, 1 + Math.round(n)));
+    if (this.hp <= 0) this.kill(out, false);
+  };
+
+  Crawler.prototype.kill = function (out, silent) {
+    this.dead = true; this.deathT = 0;
+    for (const l of this.limbs) { l.state = 'idle'; l.anchor = null; l.cast = null; }
+    if (!silent) {
+      out.gib(this, 16);
+      out.burst(this);
+    }
+  };
+
   return {
-    Actor, Player, Enemy, Bullet, Particle, Pickup,
-    PICKUP_KINDS, MOVE, foldAim, clamp
+    Actor, Player, Enemy, Crawler, Bullet, Particle, Pickup,
+    PICKUP_KINDS, MOVE, LIMB, foldAim, clamp
   };
 })();

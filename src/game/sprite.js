@@ -83,5 +83,95 @@ window.SPRITE = (function () {
     ctx.restore();
   };
 
-  return { Rig: Rig };
+  /* ============================================================
+     CRAWLER FORGE rig.
+
+     Different sheet contract from MERC FORGE: rows are surface
+     ORIENTATIONS rather than aim angles, and it ships a second sheet
+     of tentacle strips plus a physics bake that the simulation reads
+     its geometry out of.
+
+     Mirroring only applies to the floor and ceiling rows. On a wall
+     the creature's facing is up or down, which the sheet has no row
+     for, so flipping there would just mirror the drips onto the wrong
+     side of the body.
+     ============================================================ */
+  function CrawlerRig(params) {
+    this.params = params;
+    this.sheet = window.CRAWLERFORGE.forge(params);
+    this.phys = this.sheet.physics;
+    this.tent = this.sheet.tentacles;
+    this.kind = 'crawler';
+    // The body is addressed by its centre, not its feet: it spends as
+    // much time on ceilings as on floors.
+    this.r = this.phys.radius;
+    this.radiusMax = this.phys.radiusMax;
+    this.w = this.phys.radiusMax * 1.5;
+    this.h = this.phys.radiusMax * 1.5;
+  }
+
+  CrawlerRig.prototype.flippable = function (orient) {
+    return orient === 'floor' || orient === 'ceiling';
+  };
+
+  CrawlerRig.prototype.framesOf = function (state) { return this.sheet.framesOf(state); };
+  CrawlerRig.prototype.fpsOf = function (state) { return this.sheet.fpsOf(state); };
+
+  CrawlerRig.prototype.frameOf = function (state, t) {
+    const f = this.framesOf(state);
+    return Math.floor(t * this.fpsOf(state)) % f;
+  };
+
+  /* Seat offset along a surface normal, straight out of the bake, so
+     the blob sits flush against the deck it is gripping. */
+  CrawlerRig.prototype.reach = function (orient) {
+    const c = this.phys.contacts[orient];
+    return c ? c.reach : this.r;
+  };
+
+  CrawlerRig.prototype.draw = function (ctx, state, frame, orient, px, py, flip) {
+    const s = this.sheet;
+    const col = s.colOf(state, frame);
+    const row = s.rowOf(orient);
+    const doFlip = flip && this.flippable(orient);
+    const x = Math.round(px - s.anchor.x);
+    const y = Math.round(py - s.anchor.y);
+    const sx = col * s.CW, sy = row * s.CH;
+    if (doFlip) {
+      ctx.save();
+      ctx.translate(x + s.CW, y);
+      ctx.scale(-1, 1);
+      ctx.drawImage(s.canvas, sx, sy, s.CW, s.CH, 0, 0, s.CW, s.CH);
+      ctx.restore();
+    } else {
+      ctx.drawImage(s.canvas, sx, sy, s.CW, s.CH, x, y, s.CW, s.CH);
+    }
+  };
+
+  /* Where tentacle i leaves the body, in world space, with the outward
+     normal it should leave along. */
+  CrawlerRig.prototype.socket = function (i, px, py, flip, orient) {
+    const list = this.phys.sockets;
+    const so = list[((i % list.length) + list.length) % list.length];
+    const m = (flip && this.flippable(orient)) ? -1 : 1;
+    return { x: px + so.x * m, y: py + so.y, nx: so.nx * m, ny: so.ny };
+  };
+
+  CrawlerRig.prototype.socketCount = function () { return this.phys.sockets.length; };
+
+  CrawlerRig.prototype.eyes = function (px, py, flip, orient) {
+    const m = (flip && this.flippable(orient)) ? -1 : 1;
+    return this.phys.eyes.map(e => ({ x: px + e.x * m, y: py + e.y, r: e.r }));
+  };
+
+  /* A random interior point, for a chunk to fly off from. */
+  CrawlerRig.prototype.gib = function (px, py, flip, orient) {
+    const g = this.phys.gibs;
+    if (!g.length) return { x: px, y: py };
+    const p = g[(Math.random() * g.length) | 0];
+    const m = (flip && this.flippable(orient)) ? -1 : 1;
+    return { x: px + p.x * m, y: py + p.y };
+  };
+
+  return { Rig: Rig, CrawlerRig: CrawlerRig };
 })();

@@ -11,6 +11,7 @@ consumed by the game as libraries:
 |---|---|
 | **GREEBLEWORKS** | procedural texture foundry + side-scroller level generator |
 | **MERC FORGE** | procedural spritesheet generator for the run-and-gun rig |
+| **CRAWLER FORGE** | procedural eldritch crawlers — meat, metal and tentacles |
 
 ## Play
 
@@ -59,6 +60,7 @@ index.html              the game shell — screens, styling, script order
 src/gen/                GENERATED generator cores (see below)
   greebleworks.js
   mercforge.js
+  crawlerforge.js
 src/game/
   config.js             level + merc configs, coherent randomizer, archetypes
   audio.js              procedural WebAudio SFX and ambience — no samples
@@ -71,8 +73,9 @@ src/game/
   screens.js            control-schema UI builder for both generator panels
   main.js               app state machine, input, fixed-step loop
 tools/
-  greebleworks.html     the authoring tools, unchanged and still standalone
+  greebleworks.html     the authoring tools, standalone and single-file
   mercforge.html
+  crawlerforge.html
   extract.js            slices the generator cores out of the tools
   harness.js            the original MERC FORGE validator
   harness-game.js       validates the game layer + dumps contact sheets
@@ -118,6 +121,8 @@ path in both directions, and writes contact sheets to `out/`:
 | `out_collision.png` | `plats` collision data drawn over the baked play layer |
 | `out_cast.png` | the player rig beside all four hostile archetypes |
 | `out_aim.png` | every aim row of the player sheet, -90° to +90° |
+| `out_crawler.png` | crawlers in a level, mid-fight, with slime and chunks |
+| `out_crawler_surfaces.png` | one crawler seated on floor, both walls and ceiling |
 
 Per the MERC FORGE handoff: keep dumping contact sheets. `out_collision.png` in
 particular is the one that catches layout bugs — misaligned collision is
@@ -146,3 +151,60 @@ progress from the generator's own yielded stage strings rather than a fake bar.
 value as a merc's suit. Actors get a contact shadow to anchor them, and any
 hostile that has spotted you carries a faint halo — which doubles as the aggro
 tell.
+
+## CRAWLER FORGE
+
+The third generator, and the one that is least like a spritesheet tool.
+
+A crawler is a blob of meat and metal that does not walk. It drags itself
+around by throwing tentacles at the terrain and hauling, which means it goes
+places a biped cannot: up the vertical face of a ground run, along the
+underside of a catwalk, or hanging and swinging from a deck overhead.
+
+**Silhouette.** A metaball sum over scattered lobes, sampled through a domain
+warp — the lookup position itself is displaced by fBm — so the contour comes out
+chewed and irregular. The first version pushed the *threshold* around instead
+and every crawler came out a circle; displacing the domain is what makes them
+read as lumps of something rather than blobs of geometry.
+
+**Two sheets, because one cannot be both in front of and behind itself.**
+
+- **Body** — columns are animation frames (`idle`, `pull`, `hurt`), rows are the
+  four surface orientations. Orientation is baked rather than rotated at runtime
+  because a rotated pixel sprite shears its own dither, and because which way is
+  down changes where the drips hang and which side the mass sags toward.
+- **Tentacle** — one tapered strip per variant, root at the left, tip at the
+  right. At runtime `drawTentacle()` slices it into thin columns and rotates
+  each to the local tangent of a quadratic, so a single baked strip covers every
+  reach, curl and direction the simulation asks for. It draws *behind* the body.
+
+**The physics bake.** The third output is not pixels. Once the sheet is
+rasterised, the silhouette is ray-marched from its own centroid to measure:
+
+| | |
+|---|---|
+| `hull` | 24-point silhouette polygon |
+| `sockets` | where tentacles leave the body, with outward normals from the hull tangent |
+| `contacts` | the extreme point in each surface direction, so the blob seats flush |
+| `gibs` | interior seed points for the chunks that fly off |
+| `eyes` | glow positions the game animates on top of the baked iris |
+| `radius`, `mass` | collision and anchor-search geometry |
+
+The simulation therefore reads the shape that was actually drawn. Add a spike,
+change the lobe count, swap the palette — the hull, the sockets and the seating
+distance all follow, with nothing to keep in sync by hand. The tool's PHYSICS
+BAKE view draws all of it over the sprite it was measured from.
+
+**Locomotion.** Each limb independently releases, casts for a grip on whatever
+terrain face lies in the direction it wants to travel, and hauls. The body is a
+mass hanging off those grips: it springs toward the seat position they imply,
+sags under gravity, and free-falls the moment nothing is holding on. Swinging
+from an overhead deck falls out of that rather than being a special case.
+
+Two things about this were only obvious once rendered. `surfacesNear()` has to
+sample *along* each face rather than returning its nearest point, or a crawler
+on a long deck finds nothing beyond its own minimum stride and freezes. And
+anchors have to be planted past two body radii, measured against the silhouette
+rather than the centre — a limb is drawn from a socket already most of a radius
+out, so a closer grip is a stub entirely hidden inside the blob, and the
+creature appears to hover with no visible means of holding on.
