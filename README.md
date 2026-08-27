@@ -1,2 +1,148 @@
-# -vitriol
-vibe coded 2d patform shooter
+# VITRIOL
+
+A procedural industrial side-scrolling shooter. Every wall, deck, skyline, sign,
+cloud and merc in the game is generated at runtime from a build seed — no art is
+shipped with it.
+
+It is built on two existing generators, kept intact as authoring tools and
+consumed by the game as libraries:
+
+| | |
+|---|---|
+| **GREEBLEWORKS** | procedural texture foundry + side-scroller level generator |
+| **MERC FORGE** | procedural spritesheet generator for the run-and-gun rig |
+
+## Play
+
+Open `index.html` in a browser. No build step, no dependencies, no server.
+
+```
+A / D          move
+W / SPACE      jump
+S              crouch — hold and jump to drop through a catwalk
+MOUSE          aim (full 360°)
+LEFT CLICK     fire
+R              reload
+ESC            pause
+M              mute
+```
+
+Fight east to the extraction pad. A heavy is always posted on it.
+
+## The two build paths
+
+The launch screen leads to **BUILD**, which offers exactly two ways in:
+
+**RANDOMIZE** — one seed rolls the whole run: architecture, palette, sky mood,
+skyline, weather, level length, and the operative you play as. The roll is
+*coherent* rather than uniform: `STYLE_AFFINITY` in `src/game/config.js` pairs
+each of the 14 architectures with the sky moods, skylines and palettes it belongs
+under, so a random level looks deliberate instead of like a slot machine.
+
+**CUSTOM BUILD** — both generators opened up.
+
+- **LEVEL · GREEBLEWORKS** — ~60 controls across World, Surface, Sky, Skyline,
+  Decals and Terrain, including all 15 city presets.
+- **OPERATIVE · MERC FORGE** — frame, gear, weapon, palette, motion and sheet
+  controls with a live animated preview. This panel is generated directly from
+  MERC FORGE's own `CONTROLS` table, so the tool and the game cannot drift apart.
+
+Your operative's weapon is not cosmetic: the gun MERC FORGE draws in their hands
+is the gun you fire, with its own fire rate, damage, spread, magazine and sound.
+
+Every build is reproducible from its seed, shown on the debrief screen.
+
+## Repo shape
+
+```
+index.html              the game shell — screens, styling, script order
+src/gen/                GENERATED generator cores (see below)
+  greebleworks.js
+  mercforge.js
+src/game/
+  config.js             level + merc configs, coherent randomizer, archetypes
+  audio.js              procedural WebAudio SFX and ambience — no samples
+  weapons.js            one definition per weapon: sprite AND behaviour
+  sprite.js             MERC FORGE sheet consumer (blit / aim row / muzzle)
+  physics.js            swept AABB against the generator's `plats` data
+  entities.js           player, enemy AI, projectiles, pickups
+  world.js              mission build generator + simulation
+  render.js             entity pass, HUD, overlays
+  screens.js            control-schema UI builder for both generator panels
+  main.js               app state machine, input, fixed-step loop
+tools/
+  greebleworks.html     the authoring tools, unchanged and still standalone
+  mercforge.html
+  extract.js            slices the generator cores out of the tools
+  harness.js            the original MERC FORGE validator
+  harness-game.js       validates the game layer + dumps contact sheets
+docs/                   the original handoff documents
+```
+
+### src/gen is generated
+
+The tools stay single-file — that is right for a tool and wrong for a game. The
+game needs the generators without their UI, and needs both loaded side by side,
+which they cannot be as-is: both declare `clamp` at top level. `tools/extract.js`
+slices each generator core out of its tool and wraps it in an IIFE published
+under one global.
+
+```bash
+node tools/extract.js     # re-run after editing either tool
+```
+
+The extractor also adds the one thing the game needs from the compositor: an
+optional `entityPass` hook in `drawLevelFrame`, called between the play layer
+and the foreground so entities are lit by the level's lamps and occluded by its
+cabling.
+
+Do not hand-edit `src/gen/*.js` — edit the tool and re-extract.
+
+## Testing
+
+```bash
+npm install @napi-rs/canvas
+node tools/harness-game.js     # or: npm test — ~14,900 checks + contact sheets in out/
+node tools/harness.js          # the original MERC FORGE validator
+```
+
+`harness-game.js` runs the real game code headlessly against a canvas
+implementation: it builds an actual mission, asserts collision behaviour
+(one-way decks, drop-through, terminal-velocity tunnelling, line of sight),
+simulates 30 seconds of play checking invariants every step, verifies the damage
+path in both directions, and writes contact sheets to `out/`:
+
+| file | what it proves |
+|---|---|
+| `out_game.png` | three composited gameplay frames across the level |
+| `out_collision.png` | `plats` collision data drawn over the baked play layer |
+| `out_cast.png` | the player rig beside all four hostile archetypes |
+| `out_aim.png` | every aim row of the player sheet, -90° to +90° |
+
+Per the MERC FORGE handoff: keep dumping contact sheets. `out_collision.png` in
+particular is the one that catches layout bugs — misaligned collision is
+invisible in code review and obvious in a PNG.
+
+## Design notes
+
+**Collision comes free.** `buildLevel()` already returns `plats` as usable
+collision data. `ground:true` runs are solid mass to the bottom of the frame and
+collide on every face; the gaps between them are lethal pits. `ground:false`
+decks are one-way, landable from above, jumpable through from below, and
+droppable through with down+jump. `physics.js` does a real swept test per axis
+rather than the tool demo's grid sampling, which the handoff flags as prone to
+tunnelling.
+
+**Fixed timestep.** Movement constants are per 1/60 step, not per second, matching
+MERC FORGE's demo so the sprite's stride still covers the ground it crosses. Only
+animation timers use `dt`.
+
+**One rig per archetype variant.** Forging a sheet costs real time, so hostiles
+share rigs: two silhouettes each for grunts and troopers, one for heavies and
+drones. All of it happens during the loading screen, which reports genuine
+progress from the generator's own yielded stage strings rather than a fake bar.
+
+**Readability over fidelity.** These levels bake walls that are often the same
+value as a merc's suit. Actors get a contact shadow to anchor them, and any
+hostile that has spotted you carries a faint halo — which doubles as the aggro
+tell.

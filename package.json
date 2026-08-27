@@ -1,0 +1,13 @@
+{
+  "name": "vitriol",
+  "version": "1.0.0",
+  "description": "Procedural industrial side-scrolling shooter built on the GREEBLEWORKS and MERC FORGE generators",
+  "private": true,
+  "scripts": {
+    "extract": "node tools/extract.js",
+    "test": "node tools/harness-game.js"
+  },
+  "devDependencies": {
+    "@napi-rs/canvas": "^1.0.8"
+  }
+}
