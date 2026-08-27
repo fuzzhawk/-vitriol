@@ -55,6 +55,13 @@ under, so a random level looks deliberate instead of like a slot machine.
 - **DEBRIS · SCRAP FORGE** — size, palette and surface for the crates, drums and
   rubble scattered through the level, with all six kinds previewed and their
   wrecked states ghosted behind them.
+- **OVERLORD · BOSS FORGE** — the boss is CRAWLER FORGE at boss scale, so it
+  gets the same control table, with a live preview of it hovering and coiling
+  at true size.
+- **PROTOTYPE · WEAPON FORGE** — all ten rolled parameters as sliders, over a
+  live firing range that shoots the gun you are editing at a target plate.
+  Trails, ricochets, arc and seeking are all visible in the range, which is a
+  far better way to understand a roll than a table of numbers.
 
 The last two panels are generated directly from their tool's own `CONTROLS`
 table, so the tools and the game cannot drift apart. The harness asserts every
@@ -215,6 +222,21 @@ animation timers use `dt`.
 share rigs: two silhouettes each for grunts and troopers, one for heavies and
 drones. All of it happens during the loading screen, which reports genuine
 progress from the generator's own yielded stage strings rather than a fake bar.
+
+**The gait.** Two things made the legs read as gliding, and both were in the
+pose solver. The hip sat at 95% of leg length, which leaves a two-bone IK almost
+nothing to bend and pushes any real stride past the leg's reach, where the
+solver clamps and the foot stops going where the cycle put it — so the legs
+locked out straight at both extremes. And the run cycle moved *both* feet on a
+cosine, which means the planted foot slid forward and back under the body
+instead of tracking the ground.
+
+The hip now stands at 86%, the stride is capped to what the leg can actually
+reach, and the cycle is a real gait: stance travels backwards at a constant rate
+matching the ground going past, swing arcs forward with the knee up. The run
+phase is driven by distance travelled rather than a constant — the old term
+advanced about 0.04 frames per step at full speed, a three-second stride cycle
+while covering 150 pixels a second, which is the definition of skating.
 
 **Sprite work over cel shading.** MERC FORGE draws at 1:1 rather than
 supersampling like the other two generators, and that is deliberate: crushing a

@@ -12,7 +12,12 @@ window.SPRITE = (function () {
   const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 
   function Rig(params) {
-    this.params = params;
+    /* Store the EFFECTIVE params, not just the overrides the caller
+       passed. forge() merges against P_DEFAULTS internally, so a rig
+       built from a partial spec would otherwise report `undefined` for
+       everything left unspecified — and anything reading, say, stride
+       off it would silently get NaN. */
+    this.params = Object.assign({}, window.MERCFORGE.P_DEFAULTS, params);
     this.sheet = window.MERCFORGE.forge(params);
     this.gun = params.gun || 'rifle';
     // Hitbox tracks the sprite, exactly as the tool's demo derives it.
@@ -29,6 +34,18 @@ window.SPRITE = (function () {
 
   Rig.prototype.colFor = function (state, frame) {
     return this.sheet.colOf(state, frame);
+  };
+
+  /* Ground distance one full run cycle covers.
+
+     Each foot's stance runs half the cycle and carries the body two
+     strides, so a cycle is four strides of travel. Driving the run
+     phase off this rather than off a constant is what stops the feet
+     skating: the animation and the ground now advance together. */
+  Rig.prototype.cycleDistance = function () {
+    const p = this.params;
+    const d = 4 * (p.height || 30) * (p.stride || 0.42);
+    return Number.isFinite(d) && d > 4 ? d : 40;
   };
 
   Rig.prototype.framesOf = function (state) { return this.sheet.framesOf(state); };
@@ -97,7 +114,7 @@ window.SPRITE = (function () {
      side of the body.
      ============================================================ */
   function CrawlerRig(params) {
-    this.params = params;
+    this.params = Object.assign({}, window.CRAWLERFORGE.P_DEFAULTS, params);
     this.sheet = window.CRAWLERFORGE.forge(params);
     this.phys = this.sheet.physics;
     this.tent = this.sheet.tentacles;
@@ -114,6 +131,7 @@ window.SPRITE = (function () {
     return orient === 'floor' || orient === 'ceiling';
   };
 
+  CrawlerRig.prototype.cycleDistance = function () { return 24; };   // it has no legs
   CrawlerRig.prototype.framesOf = function (state) { return this.sheet.framesOf(state); };
   CrawlerRig.prototype.fpsOf = function (state) { return this.sheet.fpsOf(state); };
 

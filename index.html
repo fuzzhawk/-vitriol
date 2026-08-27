@@ -99,8 +99,9 @@ button{font:inherit;cursor:pointer}
 
 #customWrap{flex:1;display:flex;flex-direction:column;min-height:0}
 .tabs{display:flex;border-bottom:1px solid var(--line);background:#101314;flex:0 0 auto}
+.tabs{flex-wrap:wrap}
 .tabs button{background:transparent;border:none;border-right:1px solid var(--line);
-  color:var(--dim);padding:9px 18px;letter-spacing:3px;font-size:10.5px}
+  color:var(--dim);padding:8px 11px;letter-spacing:1.5px;font-size:9.5px;white-space:nowrap}
 .tabs button.on{background:#191e20;color:var(--amber);box-shadow:inset 0 -2px 0 var(--amber)}
 .panels{flex:1;overflow-y:auto;padding:12px 14px}
 
@@ -131,12 +132,15 @@ button{font:inherit;cursor:pointer}
 .ctl .chk input{accent-color:var(--amber)}
 .ctl-wide label{flex:0 0 60px}
 
-#previewWrap,#crawlerPreviewWrap,#scrapPreviewWrap{border:1px solid var(--line);background:#0e1113}
-#previewWrap .cap,#crawlerPreviewWrap .cap,#scrapPreviewWrap .cap{padding:6px 9px;border-bottom:1px solid var(--line);
+#previewWrap,#crawlerPreviewWrap,#scrapPreviewWrap,#bossPreviewWrap,#protoPreviewWrap{border:1px solid var(--line);background:#0e1113}
+#previewWrap .cap,#crawlerPreviewWrap .cap,#scrapPreviewWrap .cap,
+#bossPreviewWrap .cap,#protoPreviewWrap .cap{padding:6px 9px;border-bottom:1px solid var(--line);
   background:#171b1d;color:var(--amber);letter-spacing:3px;font-size:9.5px}
 #crawlerPreviewWrap .cap{color:#d4536a}
 #scrapPreviewWrap .cap{color:#8aa0b4}
-#mercPreview,#crawlerPreview,#scrapPreview{display:block;width:100%;image-rendering:pixelated}
+#bossPreviewWrap .cap{color:#c8323a}
+#protoPreviewWrap .cap{color:#ffd06b}
+#mercPreview,#crawlerPreview,#scrapPreview,#bossPreview,#protoPreview{display:block;width:100%;image-rendering:pixelated}
 .pinrow{display:flex;align-items:center;gap:7px;padding:6px 2px 2px;cursor:pointer}
 .pinrow input{accent-color:var(--amber)}
 .pinrow span{color:var(--dim);letter-spacing:2px;font-size:9.5px}
@@ -257,12 +261,16 @@ button{font:inherit;cursor:pointer}
           <button id="tab-merc">OPERATIVE · MERC FORGE</button>
           <button id="tab-crawler">CRAWLERS · CRAWLER FORGE</button>
           <button id="tab-scrap">DEBRIS · SCRAP FORGE</button>
+          <button id="tab-boss">OVERLORD · BOSS FORGE</button>
+          <button id="tab-proto">PROTOTYPE · WEAPON FORGE</button>
         </div>
         <div class="panels">
           <div id="panel-level"></div>
           <div id="panel-merc" style="display:none"></div>
           <div id="panel-crawler" style="display:none"></div>
           <div id="panel-scrap" style="display:none"></div>
+          <div id="panel-boss" style="display:none"></div>
+          <div id="panel-proto" style="display:none"></div>
         </div>
       </div>
     </div>
@@ -290,6 +298,27 @@ button{font:inherit;cursor:pointer}
         <div class="cap">DEBRIS PREVIEW</div>
         <canvas id="scrapPreview" width="268" height="150"></canvas>
       </div>
+      <div id="bossPreviewWrap" style="display:none">
+        <div class="cap">OVERLORD PREVIEW</div>
+        <canvas id="bossPreview" width="268" height="250"></canvas>
+      </div>
+      <div id="rollBossWrap" style="display:none">
+        <button id="btn-rollBoss" class="mini" style="width:100%">⟳ REROLL OVERLORD</button>
+        <p class="pinnote">The boss is a crawler grown past needing the floor.
+        Bigger bodies cost more to bake — the loading screen pays for it.</p>
+      </div>
+
+      <div id="protoPreviewWrap" style="display:none">
+        <div class="cap">PROTOTYPE PREVIEW</div>
+        <canvas id="protoPreview" width="268" height="250"></canvas>
+      </div>
+      <div id="rollProtoWrap" style="display:none">
+        <button id="btn-rollProto" class="mini" style="width:100%;margin-bottom:6px">⟳ REROLL WEAPON</button>
+        <button id="btn-renameProto" class="mini" style="width:100%">NEW DESIGNATION</button>
+        <p class="pinnote">Ten parameters. A rolled gun spends a fixed budget
+        across them; hand-editing does not, so you can build something absurd.</p>
+      </div>
+
       <div id="rollScrapWrap" style="display:none">
         <button id="btn-rollScrap" class="mini" style="width:100%">⟳ REROLL DEBRIS</button>
         <p class="pinnote">Crates, drums, slabs, girders, bales and torn plate.

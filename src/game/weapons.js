@@ -126,6 +126,54 @@ window.WEAPONS = (function () {
     return def;
   }
 
+  /* Control schema for the build screen's weapon forge. It lives here
+     with the weapon rather than in the UI so the panel and the thing
+     it edits cannot drift, the same way the generator panels are built
+     from their tool's own table. */
+  const PROTO_CONTROLS = [
+    { g: 'OUTPUT', c: [
+      { k: 'rate',   l: 'fire rate',  t: 'r', min: 0.045, max: 0.55, step: 0.005,
+        fmt: v => (1 / v).toFixed(1) + '/s' },
+      { k: 'dmg',    l: 'damage',     t: 'r', min: 1, max: 16, step: 0.25 },
+      { k: 'count',  l: 'projectiles',t: 'r', min: 1, max: 6, step: 1 },
+      { k: 'mag',    l: 'magazine',   t: 'r', min: 4, max: 140, step: 1 },
+      { k: 'reload', l: 'reload',     t: 'r', min: 0.5, max: 2.6, step: 0.05,
+        fmt: v => (+v).toFixed(2) + 's' }
+    ]},
+    { g: 'PROJECTILE', c: [
+      { k: 'speed',  l: 'speed',      t: 'r', min: 3, max: 14, step: 0.1 },
+      { k: 'spread', l: 'spread',     t: 'r', min: 0, max: 0.3, step: 0.004 },
+      { k: 'life',   l: 'range',      t: 'r', min: 0.5, max: 2.2, step: 0.05 },
+      { k: 'size',   l: 'calibre',    t: 'r', min: 1, max: 5, step: 1 }
+    ]},
+    { g: 'EXOTIC', c: [
+      { k: 'pierce', l: 'pierce',     t: 'r', min: 0, max: 3, step: 1 },
+      { k: 'splash', l: 'blast',      t: 'r', min: 0, max: 34, step: 1 },
+      { k: 'homing', l: 'seeking',    t: 'r', min: 0, max: 0.14, step: 0.005 },
+      { k: 'bounce', l: 'ricochet',   t: 'r', min: 0, max: 4, step: 1 },
+      { k: 'drop',   l: 'arc',        t: 'r', min: 0, max: 0.16, step: 0.005 }
+    ]},
+    { g: 'IDENTITY', c: [
+      { k: 'base',   l: 'held shape', t: 's', opt: () => ORDER },
+      { k: 'tint',   l: 'tint',       t: 'color' },
+      { k: 'kick',   l: 'recoil',     t: 'r', min: 0, max: 2.5, step: 0.05 },
+      { k: 'shake',  l: 'screen kick',t: 'r', min: 0, max: 3, step: 0.05 }
+    ]}
+  ];
+
+  /* Rebuild the derived bits after a hand edit — the sound follows the
+     gun, so a weapon tuned in the panel still sounds like what it is. */
+  function retune(def) {
+    def.tone = {
+      f: Math.round(clamp(180 + def.speed * 46, 120, 1400)),
+      drop: clamp(0.38 + (1 / Math.max(0.05, def.rate)) * 0.012, 0.3, 0.8),
+      len: clamp(def.rate * 0.9, 0.05, 0.3),
+      noise: clamp(0.3 + def.dmg * 0.07, 0.25, 1),
+      type: def.splash ? 'sawtooth' : def.count > 2 ? 'square' : 'sine'
+    };
+    return def;
+  }
+
   const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 
   /* A weapon instance carries live ammo state; the table above is
@@ -135,5 +183,6 @@ window.WEAPONS = (function () {
     return { kind, def, ammo: def.mag, reloading: 0, cool: 0 };
   }
 
-  return { table: W, ORDER, make, rollProto, PROTO_PARAMS, PROTO_PREFIX, PROTO_SUFFIX };
+  return { table: W, ORDER, make, rollProto, retune, PROTO_CONTROLS,
+           PROTO_PARAMS, PROTO_PREFIX, PROTO_SUFFIX, PROTO_MARK };
 })();

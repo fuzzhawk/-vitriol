@@ -86,7 +86,8 @@ window.WORLD = (function () {
        picking it up swaps the sprite instead of stalling the frame on a
        300ms re-forge mid-fight. */
     yield { phase: 'rigs', weight: 0.05, msg: 'recovering prototype schematics' };
-    const proto = window.WEAPONS.rollProto(GW.makeRng((cfg.seed ^ 0x9ea9) >>> 0));
+    // the build screen's weapon forge wins over the seeded roll
+    const proto = opts.proto || window.WEAPONS.rollProto(GW.makeRng((cfg.seed ^ 0x9ea9) >>> 0));
     const protoRig = new window.SPRITE.Rig(
       Object.assign({}, mercParams, { gun: proto.base, gunSize: 1.25,
                                       colGun: proto.tint, twoHanded: true }));
@@ -94,7 +95,7 @@ window.WORLD = (function () {
     /* ---- 6. the boss ---- */
     yield { phase: 'rigs', weight: 0.10, msg: 'something large is already here' };
     const overlordRig = new window.SPRITE.CrawlerRig(
-      window.CONFIG.overlordParams((cfg.seed ^ 0x0b055) >>> 0, cfg));
+      opts.boss || window.CONFIG.overlordParams((cfg.seed ^ 0x0b055) >>> 0, cfg));
 
     yield { phase: 'deploy', msg: 'deploying hostiles', weight: 0.02 };
     const M = new Mission(L, cfg, playerRig, rigs, mix, diff, opts, rng, scrap,
@@ -648,8 +649,11 @@ window.WORLD = (function () {
            there in the first place. */
         const body = this.rigid.hitTest(b.x, b.y, b.size);
         if (body) {
-          const push = b.dmg * 0.55 + b.size * 0.5;
-          body.applyImpulse(b.vx * push * 0.16, b.vy * push * 0.16, b.x, b.y);
+          /* Hit hard enough to be worth doing. Debris that twitches
+             when shot reads as scenery; debris that skids across the
+             deck is a thing you can use. */
+          const push = b.dmg * 1.5 + b.size * 1.6;
+          body.applyImpulse(b.vx * push * 0.30, b.vy * push * 0.30 - 0.9, b.x, b.y);
           if (body.hurt(b.dmg)) {
             this.chipBody(body, 5);
             window.AUDIO.play('splat', null, this.distTo(body.x));

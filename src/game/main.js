@@ -26,7 +26,7 @@
     state: 'title',
     canvas: null, ctx: null,
     scale: 2, offX: 0, offY: 0,
-    cfg: null, merc: null, crawler: null, scrap: null,
+    cfg: null, merc: null, crawler: null, scrap: null, boss: null, proto: null,
     opts: Object.assign({}, C.RUN_DEFAULTS),
     mission: null,
     job: null, jobProgress: 0, jobMsg: '', jobPhase: '',
@@ -34,10 +34,12 @@
     mercPreview: null, previewRig: null, previewT: 0, previewTimer: 0,
     crawlerPreview: null, crawlerRig: null, crawlerT: 0, crawlerTimer: 0, crawlerLimbs: [],
     scrapPreview: null, scrapSet: null, scrapTimer: 0,
+    bossPreview: null, bossRig: null, bossT: 0, bossTimer: 0, bossLimbs: [],
+    protoPreview: null, protoT: 0, protoShots: [],
     mode: 'random',
     tab: 'level',
     lastStats: null,
-    panels: { level: null, merc: null, crawler: null, scrap: null }
+    panels: { level: null, merc: null, crawler: null, scrap: null, boss: null, proto: null }
   };
 
   const input = {
@@ -206,6 +208,8 @@
        so a free roll here would always win and the level match would
        never take effect — which is exactly what happened. */
     App.scrap = C.scrapParamsFor(seed, App.cfg);
+    App.boss = C.overlordParams((seed ^ 0x0b055) >>> 0, App.cfg);
+    App.proto = window.WEAPONS.rollProto(GW.makeRng((seed ^ 0x9ea9) >>> 0));
     App.cfg.seed = seed >>> 0;
     App.merc.seed = seed >>> 0;
   }
@@ -233,6 +237,10 @@
     $('rollCrawlerWrap').style.display = custom && App.tab === 'crawler' ? '' : 'none';
     $('scrapPreviewWrap').style.display = custom && App.tab === 'scrap' ? '' : 'none';
     $('rollScrapWrap').style.display = custom && App.tab === 'scrap' ? '' : 'none';
+    $('bossPreviewWrap').style.display = custom && App.tab === 'boss' ? '' : 'none';
+    $('rollBossWrap').style.display = custom && App.tab === 'boss' ? '' : 'none';
+    $('protoPreviewWrap').style.display = custom && App.tab === 'proto' ? '' : 'none';
+    $('rollProtoWrap').style.display = custom && App.tab === 'proto' ? '' : 'none';
 
     const w = window.WEAPONS.table[App.merc.gun];
     $('rollSummary').innerHTML =
@@ -270,6 +278,22 @@
     scHost.appendChild(sp.frag);
     App.panels.scrap = sp.groups;
 
+    const bsHost = $('panel-boss');
+    bsHost.innerHTML = '';
+    const bp = S.bossPanel(App.boss, () => { markDirty(); scheduleBossPreview(); });
+    bsHost.appendChild(bp.frag);
+    App.panels.boss = bp.groups;
+
+    const prHost = $('panel-proto');
+    prHost.innerHTML = '';
+    const pp = S.protoPanel(App.proto, () => {
+      markDirty();
+      window.WEAPONS.retune(App.proto);
+      App.protoShots.length = 0;
+    });
+    prHost.appendChild(pp.frag);
+    App.panels.proto = pp.groups;
+
     const crHost = $('panel-crawler');
     crHost.innerHTML = '';
     const cp = S.crawlerPanel(App.crawler, () => {
@@ -292,6 +316,8 @@
     if (App.panels.merc) S.syncGroups(App.panels.merc, App.merc);
     if (App.panels.crawler) S.syncGroups(App.panels.crawler, App.crawler);
     if (App.panels.scrap) S.syncGroups(App.panels.scrap, App.scrap);
+    if (App.panels.boss) S.syncGroups(App.panels.boss, App.boss);
+    if (App.panels.proto) S.syncGroups(App.panels.proto, App.proto);
   }
 
   /* live operative preview */
@@ -483,6 +509,192 @@
     ctx.fillText(App.scrap.palette, cv.width - 6, 13);
   }
 
+  /* live boss preview: hovering, limbs coiling, at true scale */
+  function scheduleBossPreview(immediate) {
+    clearTimeout(App.bossTimer);
+    const go = () => {
+      try {
+        App.bossRig = new window.SPRITE.CrawlerRig(Object.assign({}, App.boss));
+        App.bossLimbs = [];
+        for (let i = 0; i < App.bossRig.socketCount(); i++) {
+          App.bossLimbs.push({ i, phase: i * 1.4, variant: i % App.bossRig.tent.count });
+        }
+      } catch (e) { App.bossRig = null; }
+    };
+    // a boss bake is the heaviest in the game; let a drag settle first
+    if (immediate) go(); else App.bossTimer = setTimeout(go, 260);
+  }
+
+  function drawBossPreview(dt) {
+    const cv = App.bossPreview;
+    if (!cv) return;
+    const ctx = cv.getContext('2d');
+    ctx.imageSmoothingEnabled = false;
+    ctx.fillStyle = '#0e1113';
+    ctx.fillRect(0, 0, cv.width, cv.height);
+    ctx.fillStyle = '#141819';
+    for (let g = 0; g < cv.width; g += 16) ctx.fillRect(g, 0, 1, cv.height);
+    for (let g = 0; g < cv.height; g += 16) ctx.fillRect(0, g, cv.width, 1);
+
+    const R = App.bossRig;
+    if (!R) return;
+    App.bossT += dt;
+    const t = App.bossT;
+    const sc = Math.max(1, Math.min(3, Math.floor(Math.min(
+      (cv.width - 20) / (R.sheet.CW + R.tent.length * 1.1),
+      (cv.height - 54) / (R.sheet.CH + R.tent.length * 0.7)))));
+    ctx.save();
+    ctx.scale(sc, sc);
+    const W = cv.width / sc, H = cv.height / sc;
+    const bx = W / 2, by = H / 2 - 4 + Math.sin(t * 1.1) * 3;
+
+    for (const l of App.bossLimbs) {
+      const so = R.socket(l.i, bx, by, false, 'floor');
+      const swirl = t * 0.7 + l.phase;
+      const reach = R.tent.length * (0.42 + 0.16 * Math.sin(swirl));
+      const a = Math.atan2(so.ny, so.nx) + Math.sin(swirl * 0.6) * 0.5;
+      window.CRAWLERFORGE.drawTentacle(ctx, R.tent, l.variant, so.x, so.y,
+        so.x + Math.cos(a) * reach, so.y + Math.sin(a) * reach,
+        Math.sin(swirl * 0.8) * 12, { thickness: 1.35 });
+    }
+    const state = (Math.floor(t / 3) % 2) ? 'pull' : 'idle';
+    R.draw(ctx, state, R.frameOf(state, t), 'floor', bx, by, false);
+    ctx.restore();
+
+    ctx.font = 'bold 9px "Courier New", monospace';
+    ctx.fillStyle = '#5d6a72';
+    ctx.textAlign = 'left';
+    ctx.fillText(App.boss.size + 'px · ' + R.socketCount() + ' limbs · r' +
+                 R.phys.radius.toFixed(0), 6, 13);
+    ctx.fillText('cell ' + R.sheet.CW + '×' + R.sheet.CH, 6, 25);
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#c8323a';
+    ctx.fillText(App.boss.palette, cv.width - 6, 13);
+  }
+
+  /* live weapon preview: a firing range, so the roll is legible as
+     behaviour rather than as a table of numbers */
+  function drawProtoPreview(dt) {
+    const cv = App.protoPreview;
+    if (!cv) return;
+    const ctx = cv.getContext('2d');
+    const D = App.proto;
+    ctx.imageSmoothingEnabled = false;
+    ctx.fillStyle = '#0e1113';
+    ctx.fillRect(0, 0, cv.width, cv.height);
+    if (!D) return;
+    App.protoT += dt;
+
+    const W = cv.width, H = cv.height;
+    const rangeTop = 72;
+    const muzzleX = 18, muzzleY = rangeTop + (H - rangeTop) * 0.52;
+
+    // range furniture
+    ctx.fillStyle = '#141819';
+    ctx.fillRect(0, rangeTop, W, H - rangeTop);
+    const floorY = H - 14;
+    ctx.fillStyle = '#1b2124';
+    ctx.fillRect(0, floorY, W, 6);                       // floor
+    ctx.fillRect(W - 26, rangeTop + 8, 6, floorY - rangeTop - 8);          // target plate
+    ctx.fillStyle = '#2a3338';
+    ctx.fillRect(W - 26, muzzleY - 6, 6, 12);
+
+    ctx.fillStyle = '#2a3338';
+    ctx.fillRect(muzzleX - 10, muzzleY - 3, 10, 6);      // the muzzle it leaves from
+
+    // fire on the weapon's own cadence
+    App.protoFire = (App.protoFire || 0) - dt;
+    if (App.protoFire <= 0) {
+      App.protoFire = Math.max(0.06, D.rate);
+      const n = Math.max(1, D.count | 0);
+      for (let k = 0; k < n; k++) {
+        const off = n === 1 ? (Math.random() - 0.5) * 2
+                            : ((k / (n - 1)) - 0.5) * 2 + (Math.random() - 0.5) * 0.4;
+        App.protoShots.push({
+          x: muzzleX, y: muzzleY,
+          vx: Math.cos(D.spread * off) * D.speed,
+          vy: Math.sin(D.spread * off) * D.speed,
+          life: D.life, max: D.life, bounce: D.bounce | 0, trail: []
+        });
+      }
+      if (App.protoShots.length > 260) App.protoShots.splice(0, 60);
+    }
+
+    for (let i = App.protoShots.length - 1; i >= 0; i--) {
+      const b = App.protoShots[i];
+      b.life -= dt;
+      if (b.life <= 0) { App.protoShots.splice(i, 1); continue; }
+      if (D.drop) b.vy += D.drop;
+      if (D.homing) {          // curve toward the target plate
+        const want = Math.atan2((muzzleY) - b.y, (W - 23) - b.x);
+        const cur = Math.atan2(b.vy, b.vx);
+        let d2 = want - cur;
+        while (d2 > Math.PI) d2 -= TAU;
+        while (d2 < -Math.PI) d2 += TAU;
+        const na = cur + clamp(d2, -D.homing * 6, D.homing * 6);
+        const sp = Math.hypot(b.vx, b.vy);
+        b.vx = Math.cos(na) * sp; b.vy = Math.sin(na) * sp;
+      }
+      b.x += b.vx; b.y += b.vy;
+      b.trail.push(b.x, b.y);
+      if (b.trail.length > 12) b.trail.splice(0, 2);
+      // floor and ceiling ricochet
+      if ((b.y > floorY || b.y < rangeTop + 4) && b.bounce > 0) {
+        b.bounce--; b.vy = -b.vy * 0.86;
+        b.y = clamp(b.y, rangeTop + 4, floorY);
+      }
+      if (b.x > W - 23 || b.y > floorY + 4 || b.y < rangeTop) { App.protoShots.splice(i, 1); continue; }
+
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      if (b.trail.length >= 4) {
+        ctx.strokeStyle = hexA(D.tint, 0.30);
+        ctx.lineWidth = Math.max(1, (D.size | 0) - 1);
+        ctx.beginPath();
+        for (let k = 0; k < b.trail.length; k += 2)
+          k ? ctx.lineTo(b.trail[k], b.trail[k + 1]) : ctx.moveTo(b.trail[k], b.trail[k + 1]);
+        ctx.stroke();
+      }
+      ctx.fillStyle = D.tint;
+      ctx.fillRect(Math.round(b.x) - 1, Math.round(b.y) - 1, D.size | 0, D.size | 0);
+      ctx.restore();
+    }
+
+    // the readout
+    ctx.font = 'bold 10px "Courier New", monospace';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = D.tint;
+    ctx.fillText(D.label, 6, 15);
+    ctx.font = 'bold 9px "Courier New", monospace';
+    ctx.fillStyle = '#8d9aa2';
+    const dps = (D.dmg * (D.count || 1) / D.rate).toFixed(0);
+    const rows = [
+      ['DPS', dps],
+      ['SHOT', (D.dmg).toFixed(1) + ' × ' + (D.count | 0) + '  @' + (1 / D.rate).toFixed(1) + '/s'],
+      ['MAG', (D.mag | 0) + '  ' + D.reload.toFixed(2) + 's'],
+      ['SHAPE', D.base]
+    ];
+    rows.forEach((r, i) => {
+      ctx.fillStyle = '#5d6a72'; ctx.fillText(r[0], 6, 30 + i * 11);
+      ctx.fillStyle = '#c8d2d6'; ctx.fillText(r[1], 52, 30 + i * 11);
+    });
+    const tags = [];
+    if (D.pierce) tags.push('PRC' + D.pierce);
+    if (D.splash) tags.push('BLST' + D.splash);
+    if (D.homing) tags.push('SEEK');
+    if (D.bounce) tags.push('RIC' + D.bounce);
+    if (D.drop) tags.push('ARC');
+    ctx.textAlign = 'right';
+    ctx.fillStyle = hexA(D.tint, 0.9);
+    ctx.fillText(tags.join(' ') || '—', W - 6, 15);
+  }
+
+  const hexA = (hex, a) => {
+    const c = GW.hex2rgb(hex || '#ffffff');
+    return 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + a + ')';
+  };
+  const TAU = Math.PI * 2;
+
   /* ---------------- loading ---------------- */
   function deploy() {
     window.AUDIO.init();
@@ -495,7 +707,8 @@
     $('l-tip').textContent = S.TIPS[(Math.random() * S.TIPS.length) | 0];
     App.job = {
       gen: window.WORLD.buildMission(App.cfg, App.merc,
-              Object.assign({}, App.opts, { scrap: App.scrap })),
+              Object.assign({}, App.opts, { scrap: App.scrap,
+                                            boss: App.boss, proto: App.proto })),
       done: 0, seen: 0, t0: performance.now()
     };
   }
@@ -604,7 +817,9 @@
       drawTitle(ctx, dt);
       if (App.state === 'setup') {
         if (App.tab === 'crawler') drawCrawlerPreview(dt);
-        else drawPreview(dt);
+        else if (App.tab === 'boss') drawBossPreview(dt);
+        else if (App.tab === 'proto') drawProtoPreview(dt);
+        else if (App.tab !== 'scrap') drawPreview(dt);
       }
       return;
     }
@@ -659,6 +874,8 @@
     App.mercPreview = $('mercPreview');
     App.crawlerPreview = $('crawlerPreview');
     App.scrapPreview = $('scrapPreview');
+    App.bossPreview = $('bossPreview');
+    App.protoPreview = $('protoPreview');
     resize();
     bindInput();
     bootTitle();
@@ -687,6 +904,8 @@
       schedulePreview(true);
       scheduleCrawlerPreview(true);
       scheduleScrapPreview(true);
+      scheduleBossPreview(true);
+      App.protoShots.length = 0;
     };
     $('seedField').onchange = () => {
       const v = parseInt($('seedField').value.replace(/[^0-9a-fA-F]/g, ''), 16);
@@ -697,6 +916,8 @@
       schedulePreview(true);
       scheduleCrawlerPreview(true);
       scheduleScrapPreview(true);
+      scheduleBossPreview(true);
+      App.protoShots.length = 0;
     };
 
     $('btn-rollLevel').onclick = () => {
@@ -723,6 +944,27 @@
       buildPanels();
       scheduleCrawlerPreview(true);
       if (App.opts.crawler) App.opts.crawler = App.crawler;
+    };
+    $('btn-rollBoss').onclick = () => {
+      App.boss = C.overlordParams(rollSeed(), App.cfg);
+      markDirty();
+      window.AUDIO.play('ui');
+      buildPanels();
+      scheduleBossPreview(true);
+    };
+    $('btn-rollProto').onclick = () => {
+      App.proto = window.WEAPONS.rollProto(GW.makeRng(rollSeed()));
+      markDirty();
+      window.AUDIO.play('ui');
+      buildPanels();
+      App.protoShots.length = 0;
+    };
+    $('btn-renameProto').onclick = () => {
+      const W2 = window.WEAPONS, R = GW.makeRng(rollSeed());
+      App.proto.label = R.pick(W2.PROTO_PREFIX) + ' ' + R.pick(W2.PROTO_SUFFIX) +
+                        ' ' + R.pick(W2.PROTO_MARK);
+      markDirty();
+      window.AUDIO.play('ui');
     };
     $('btn-rollScrap').onclick = () => {
       // rerolling still stays inside what suits the architecture
@@ -768,6 +1010,8 @@
     $('tab-merc').onclick = () => setTab('merc');
     $('tab-crawler').onclick = () => setTab('crawler');
     $('tab-scrap').onclick = () => setTab('scrap');
+    $('tab-boss').onclick = () => setTab('boss');
+    $('tab-proto').onclick = () => setTab('proto');
 
     $('btn-deploy').onclick = deploy;
     $('btn-back').onclick = () => { window.AUDIO.play('ui'); show('title'); };
@@ -814,8 +1058,18 @@
     $('tab-scrap').classList.toggle('on', t === 'scrap');
     $('scrapPreviewWrap').style.display = custom && t === 'scrap' ? '' : 'none';
     $('rollScrapWrap').style.display = custom && t === 'scrap' ? '' : 'none';
+    $('panel-boss').style.display = t === 'boss' ? '' : 'none';
+    $('tab-boss').classList.toggle('on', t === 'boss');
+    $('panel-proto').style.display = t === 'proto' ? '' : 'none';
+    $('tab-proto').classList.toggle('on', t === 'proto');
+    $('bossPreviewWrap').style.display = custom && t === 'boss' ? '' : 'none';
+    $('rollBossWrap').style.display = custom && t === 'boss' ? '' : 'none';
+    $('protoPreviewWrap').style.display = custom && t === 'proto' ? '' : 'none';
+    $('rollProtoWrap').style.display = custom && t === 'proto' ? '' : 'none';
     if (t === 'crawler') scheduleCrawlerPreview(true);
     if (t === 'scrap') scheduleScrapPreview(true);
+    if (t === 'boss') scheduleBossPreview(true);
+    if (t === 'proto') App.protoShots.length = 0;
   }
 
   window.addEventListener('DOMContentLoaded', boot);

@@ -288,6 +288,40 @@ window.SCREENS = (function () {
     return { frag, groups };
   }
 
+  /* ---------------- boss panel ----------------
+     Same CRAWLER FORGE table as the crawler panel: the Overlord is the
+     same generator pushed to boss scale, so it gets the same controls
+     rather than a parallel set that could drift from them. */
+  function bossPanel(params, onChange) {
+    const frag = document.createDocumentFragment();
+    const groups = [];
+    let first = true;
+    for (const grp of window.CRAWLERFORGE.CONTROLS) {
+      if (grp.g === 'SHEET') continue;
+      const specs = grp.c.filter(c => c.t !== 'buttons');
+      if (!specs.length) continue;
+      const g = group(grp.g, specs, params, onChange, !first);
+      groups.push(g);
+      frag.appendChild(g);
+      first = false;
+    }
+    return { frag, groups };
+  }
+
+  /* ---------------- weapon panel ---------------- */
+  function protoPanel(def, onChange) {
+    const frag = document.createDocumentFragment();
+    const groups = [];
+    let first = true;
+    for (const grp of window.WEAPONS.PROTO_CONTROLS) {
+      const g = group(grp.g, grp.c, def, onChange, !first);
+      groups.push(g);
+      frag.appendChild(g);
+      first = false;
+    }
+    return { frag, groups };
+  }
+
   function levelPanel(cfg, onChange) {
     const frag = document.createDocumentFragment();
     const groups = [];
@@ -315,6 +349,6 @@ window.SCREENS = (function () {
   ];
 
   return {
-    LEVEL_PANEL, control, group, syncGroups, mercPanel, crawlerPanel, scrapPanel, levelPanel, TIPS, el, $
+    LEVEL_PANEL, control, group, syncGroups, mercPanel, crawlerPanel, scrapPanel, bossPanel, protoPanel, levelPanel, TIPS, el, $
   };
 })();

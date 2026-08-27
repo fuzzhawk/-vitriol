@@ -124,8 +124,27 @@ section('merc forge');
   const gritty = MF.forge({ seed: 909, grit: 1.0, taper: 0, armour: 0 });
   const tapered = MF.forge({ seed: 909, grit: 0, taper: 1, armour: 0 });
   const armoured = MF.forge({ seed: 909, grit: 0, taper: 0, armour: 1.4 });
-  ok(px(gritty).tones > px(base).tones, 'grit adds tonal variety (' +
-     px(base).tones + ' -> ' + px(gritty).tones + ' colours)');
+  /* Grit is texture, not palette entries: it dithers pixels between
+     ramp steps they already use, so counting distinct colours at one
+     seed is a coin flip. What it must do is break up flat fills —
+     measure how often a pixel differs from the one above it. */
+  const roughness = S => {
+    const d = S.canvas.getContext('2d').getImageData(0, 0, S.CW, S.CH).data;
+    let n = 0;
+    for (let y = 1; y < S.CH; y++) for (let x = 0; x < S.CW; x++) {
+      const i = (y * S.CW + x) * 4, j = ((y - 1) * S.CW + x) * 4;
+      if (d[i + 3] < 8 || d[j + 3] < 8) continue;
+      if (d[i] !== d[j] || d[i + 1] !== d[j + 1]) n++;
+    }
+    return n;
+  };
+  let rougher = 0;
+  for (let sd = 0; sd < 5; sd++) {
+    const b0 = MF.forge({ seed: 500 + sd, grit: 0 });
+    const g0 = MF.forge({ seed: 500 + sd, grit: 1.1 });
+    if (roughness(g0) > roughness(b0)) rougher++;
+  }
+  ok(rougher >= 4, 'grit breaks up flat fills (' + rougher + '/5 seeds rougher)');
   ok(tapered.CW !== base.CW || tapered.CH !== base.CH || px(tapered).n < px(base).n,
      'taper takes mass out of the limbs (' + px(base).n + ' -> ' + px(tapered).n + ' px)');
   /* Panelling draws straps and seams in colours already in the ramp,
@@ -146,6 +165,67 @@ section('merc forge');
      the three tones per family the old two-step shading produced. */
   ok(px(MF.forge({ seed: 909 })).tones >= 10,
      'shading produces a real ramp, not two tones per material');
+
+  /* ---- gait ----
+     The two things that made the legs read as gliding: the hip sat so
+     high the knee could not bend, and the "planted" foot slid on a
+     cosine instead of tracking the ground. Both are checked from the
+     pixels and the pose data the sheet is built from. */
+  {
+    /* A rig must report its effective params, or anything reading an
+       unspecified field gets undefined — which is how a NaN run phase
+       reached the muzzle table. */
+    const partial = new window.SPRITE.Rig({ seed: 5, height: 30 });
+    ok(typeof partial.params.stride === 'number', 'a rig reports effective params');
+    ok(partial.cycleDistance() > 4, 'cycle distance is a real number (' +
+       partial.cycleDistance().toFixed(1) + ')');
+
+    /* Frames of the run cycle must genuinely differ from one another:
+       a cycle whose frames are near-identical is a glide however fast
+       it plays. */
+    const S2 = MF.forge(Object.assign({}, MF.PRESETS.nick, { aimRows: 5 }));
+    const row = (S2.angles.length - 1) / 2 | 0;
+    const cell = f => S2.canvas.getContext('2d')
+      .getImageData(S2.colOf('run', f) * S2.CW, row * S2.CH, S2.CW, S2.CH).data;
+    const n = S2.framesOf('run');
+    let minDiff = 1e9;
+    for (let f = 0; f < n; f++) {
+      const a = cell(f), b = cell((f + 1) % n);
+      let diff = 0;
+      for (let i = 0; i < a.length; i += 4) if (a[i + 3] !== b[i + 3]) diff++;
+      minDiff = Math.min(minDiff, diff);
+    }
+    ok(minDiff > 6, 'consecutive run frames differ in silhouette (min ' + minDiff + 'px)');
+
+    /* The lower half of the sprite has to be where that movement is —
+       if the legs were static and only the torso bobbed, the check
+       above could pass on the arms alone. */
+    let legDiff = 0;
+    for (let f = 0; f < n; f++) {
+      const a = cell(f), b = cell((f + 1) % n);
+      for (let y = (S2.CH * 0.55) | 0; y < S2.CH; y++)
+        for (let x = 0; x < S2.CW; x++) {
+          const i = (y * S2.CW + x) * 4;
+          if (a[i + 3] !== b[i + 3]) legDiff++;
+        }
+    }
+    ok(legDiff > 40, 'the legs are what is moving (' + legDiff + 'px over the cycle)');
+
+    /* Run phase must be driven by distance. Two players moving at
+       different speeds have to reach different frames. */
+    const rigA = new window.SPRITE.Rig(Object.assign({}, MF.PRESETS.nick));
+    const diff2 = window.CONFIG.DIFFICULTY.regular;
+    const mk = vx => {
+      const P3 = new window.ENTITIES.Player(rigA, 50, 200, diff2);
+      P3.vx = vx; P3.ground = true; P3.phase = 0;
+      for (let i = 0; i < 30; i++) { P3.vx = vx; P3.animate(1 / 60, false); }
+      return P3.phase;
+    };
+    const slow = mk(0.6), fast = mk(2.6);
+    ok(fast > slow * 2, 'a faster run cycles faster (' + slow.toFixed(2) +
+       ' vs ' + fast.toFixed(2) + ' frames)');
+    ok(fast > 1, 'a full-speed run actually advances frames');
+  }
 
   /* Proportions: the refit is meant to be leaner, so guard the band. */
   for (let i = 0; i < 40; i++) {
@@ -381,6 +461,12 @@ section('scrap forge');
   }
   // heavier things really are heavier
   ok(set.girder.body.mass > set.panel.body.mass, 'a girder outweighs a torn panel');
+  /* A crate should burst in a couple of hits, not soak a magazine. */
+  const rifleDmg = window.WEAPONS.table.rifle.dmg;
+  ok(set.crate.body.hp <= rifleDmg * 4,
+     'a crate dies in a few rifle rounds (' + set.crate.body.hp + ' hp vs ' + rifleDmg + '/shot)');
+  ok(set.panel.body.hp <= rifleDmg * 3, 'torn plate goes even faster');
+  ok(set.girder.body.hp > set.crate.body.hp, 'a girder still takes real work');
   ok(set.slab.body.bounce < set.drum.body.bounce, 'concrete bounces less than a drum');
   for (let i = 0; i < 14; i++) {
     const p = SF.randomParams((i * 2654435761) >>> 0);
@@ -485,6 +571,36 @@ section('prototype weapon');
   ok(W.make('proto', a1).ammo === a1.mag, 'make() accepts a rolled definition');
 }
 
+/* the build screen's weapon forge is generated from this table */
+{
+  const W2 = window.WEAPONS;
+  const sample = W2.rollProto(window.GREEBLEWORKS.makeRng(3));
+  let n = 0;
+  for (const grp of W2.PROTO_CONTROLS) {
+    ok(typeof grp.g === 'string' && grp.g.length > 0, 'weapon control group has a name');
+    for (const c of grp.c) {
+      n++;
+      ok(c.k in sample, 'weapon control "' + c.k + '" maps to a real field');
+      ok(typeof c.l === 'string' && c.l.length > 0, 'weapon control "' + c.k + '" has a label');
+      if (c.t === 'r') {
+        ok(c.min < c.max, 'weapon control "' + c.k + '" has a sane range');
+        const v = sample[c.k];
+        ok(v >= c.min - 1e-6 && v <= c.max + 1e-6,
+           'a rolled "' + c.k + '" (' + v + ') sits inside the panel range');
+      }
+      if (c.t === 's') {
+        const opts2 = typeof c.opt === 'function' ? c.opt() : c.opt;
+        ok(opts2.indexOf(String(sample[c.k])) >= 0, 'rolled "' + c.k + '" is one of its options');
+      }
+    }
+  }
+  ok(n >= 15, 'the weapon forge exposes a real amount of the gun (' + n + ')');
+  // retune must keep it playable after a hand edit
+  const edited = Object.assign({}, sample, { speed: 13, dmg: 15, count: 5, splash: 30 });
+  W2.retune(edited);
+  ok(!!edited.tone && edited.tone.f > 0, 'retune rebuilds the sound after an edit');
+}
+
 /* ---------------- rigid bodies ---------------- */
 section('rigid bodies');
 {
@@ -529,6 +645,21 @@ section('rigid bodies');
   ok(sim.hitTest(d.x, d.y - 400, 2) === null, 'hitTest misses empty air');
   ok(sim.nearest(d.x + 8, d.y, 60) !== null, 'nearest finds a grabbable body');
   ok(sim.nearest(d.x, d.y, 2, () => false) === null, 'nearest respects its filter');
+
+  /* Shooting a body must send it somewhere. A crate that twitches is
+     scenery; a crate that skids is a thing you can use. */
+  {
+    const shove = sim.add(new window.RIGID.Body(sheet, 250, 180, 0));
+    for (let i = 0; i < 60 * 3; i++) sim.step(1 / 60);
+    const x0 = shove.x;
+    const rifle = window.WEAPONS.table.rifle;
+    const push = rifle.dmg * 1.5 + rifle.size * 1.6;
+    shove.applyImpulse(rifle.speed * push * 0.30, -0.9, shove.x - 3, shove.y + 2);
+    for (let i = 0; i < 60 * 2; i++) sim.step(1 / 60);
+    const moved = shove.x - x0;
+    ok(moved > 12, 'one rifle round shoves a crate a real distance (' + moved.toFixed(1) + 'px)');
+    ok(Math.abs(shove.spin) > 0 || shove.rot !== 0, 'and sets it tumbling');
+  }
 
   // terminal-velocity drop must not tunnel the deck
   const fast = sim.add(new window.RIGID.Body(sheet, 200, 10, 0));
@@ -1217,6 +1348,28 @@ section('overlord + corruption');
     ok(resting === 0 || bedded === resting,
        'resting debris beds into the deck rather than floating on it (' +
        bedded + '/' + resting + ')');
+  }
+
+  /* the boss forge and weapon forge reach the mission */
+  {
+    const cfgX = window.CONFIG.randomLevelCfg(0xF0E);
+    cfgX.levelLen = 3;
+    const customBoss = Object.assign(window.CONFIG.overlordParams(7, cfgX),
+      { palette: 'void', size: 54, tentacles: 9 });
+    const customGun = Object.assign(
+      window.WEAPONS.rollProto(window.GREEBLEWORKS.makeRng(11)),
+      { label: 'HAND BUILT TEST I', count: 4, splash: 20, tint: '#3ee0ff' });
+    const gx = window.WORLD.buildMission(cfgX, merc,
+      { difficulty: 'regular', enemyDens: 0.5, lives: 3,
+        boss: customBoss, proto: customGun });
+    let rx; while (!(rx = gx.next()).done);
+    const MX = rx.value;
+    ok(MX.overlord.rig.params.palette === 'void', 'the boss forge choice reaches the level');
+    ok(MX.overlord.rig.params.size === 54, 'the boss forge size reaches the level');
+    ok(MX.proto.label === 'HAND BUILT TEST I', 'the weapon forge choice reaches the level');
+    ok(MX.proto.count === 4, 'the weapon forge parameters reach the level');
+    const pkx = MX.pickups.find(p => p.shrine);
+    ok(pkx && pkx.proto.label === 'HAND BUILT TEST I', 'the pedestal holds the built gun');
   }
 
   /* corruption */

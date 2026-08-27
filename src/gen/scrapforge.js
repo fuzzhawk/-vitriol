@@ -575,14 +575,17 @@ function bakeBody(ctx,cx,cy,CW,CH,kind){
   const fill=n/Math.max(1,(x1-x0+1)*(y1-y0+1));
 
   /* Material feel per kind, scaled by how much of the box is solid. */
+  /* Hit points are deliberately low. Debris that soaks a magazine
+     stops being scenery you interact with and becomes cover you have
+     to grind through; a couple of hits should burst a crate. */
   const MAT={
-    crate:  {density:0.75,bounce:0.16,fric:0.72,hp:16},
-    drum:   {density:0.90,bounce:0.30,fric:0.42,hp:14},
-    slab:   {density:1.55,bounce:0.06,fric:0.88,hp:34},
-    girder: {density:1.70,bounce:0.10,fric:0.66,hp:44},
-    bale:   {density:1.05,bounce:0.08,fric:0.90,hp:22},
-    panel:  {density:0.55,bounce:0.22,fric:0.50,hp:10}
-  }[kind]||{density:1,bounce:0.2,fric:0.7,hp:20};
+    crate:  {density:0.75,bounce:0.16,fric:0.72,hp:6},
+    drum:   {density:0.90,bounce:0.30,fric:0.42,hp:5},
+    slab:   {density:1.55,bounce:0.06,fric:0.88,hp:13},
+    girder: {density:1.70,bounce:0.10,fric:0.66,hp:16},
+    bale:   {density:1.05,bounce:0.08,fric:0.90,hp:8},
+    panel:  {density:0.55,bounce:0.22,fric:0.50,hp:4}
+  }[kind]||{density:1,bounce:0.2,fric:0.7,hp:7};
 
   const rng=makeRng((P.seed^0x5c4a)>>>0);
   const gibs=[];

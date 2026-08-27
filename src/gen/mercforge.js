@@ -40,7 +40,7 @@ const P={
   colSkin:'#d9a173', colVisor:'#f0a830', colGun:'#7d8794', colOutline:'#0d0b09',
   rim:0.26, shadow:0.34,
   // motion
-  runFrames:8, stride:0.30, lift:0.15, bounce:0.028, lean:4, runLean:7,
+  runFrames:8, stride:0.42, lift:0.20, bounce:0.030, lean:4, runLean:7,
   idleBob:0.014, tuck:0.42, recoil:0.35,
   // render
   outline:true, shading:true, aimRows:9, previewFps:12
@@ -90,8 +90,8 @@ const CONTROLS=[
  ]},
  {g:'MOTION',c:[
   {k:'runFrames',l:'run frames',t:'s',opt:['6','8','10','12'],num:true},
-  {k:'stride',l:'stride',t:'r',min:0.10,max:0.55,step:0.01},
-  {k:'lift',l:'foot lift',t:'r',min:0.02,max:0.30,step:0.01},
+  {k:'stride',l:'stride',t:'r',min:0.14,max:0.70,step:0.01},
+  {k:'lift',l:'foot lift',t:'r',min:0.04,max:0.36,step:0.01},
   {k:'bounce',l:'hip bounce',t:'r',min:0,max:0.09,step:0.002},
   {k:'runLean',l:'run lean',t:'r',min:-10,max:26,step:1,fmt:v=>v+'°'},
   {k:'lean',l:'base lean',t:'r',min:-8,max:18,step:1,fmt:v=>v+'°'},
@@ -147,8 +147,8 @@ function randomParams(seed){
     colVisor:hsl((comp+40)%360,70+R()*25,56+R()*14),
     colGun:hsl(h+180,6+R()*10,36+R()*13),
     colRot:hsl(348+R()*24,62+R()*28,30+R()*16),
-    stride:0.18+R()*0.26,
-    lift:0.06+R()*0.14,
+    stride:0.32+R()*0.26,
+    lift:0.13+R()*0.15,
     bounce:R()*0.05,
     runLean:2+R()*16,
     tuck:0.2+R()*0.45
@@ -245,35 +245,65 @@ function pose(state,f,nf,aim){
   const leg=H*P.legLen, torso=H*P.torsoLen, arm=H*P.armLen;
   const hipW=H*P.hipW, shW=H*P.shoulderW, headR=H*0.115*P.headSize;
   const ph=nf>1?f/nf:0;
-  let hipX=0,hipY=-leg*0.95,lean=P.lean*Math.PI/180;
+  /* Hip height, as a fraction of leg length. This used to be 0.95,
+     which is most of the reason the legs read as straight: with the
+     hip that high the two-bone IK has almost nothing left to bend,
+     and any stride at all pushes the foot past the leg's reach, where
+     the solver clamps and the foot stops going where it was asked.
+     Standing at 0.86 leaves a visible knee at rest and headroom for a
+     stride that actually reaches. */
+  const HIP=0.86;
+  let hipX=0,hipY=-leg*HIP,lean=P.lean*Math.PI/180;
   let fF={x:hipW*0.4,y:0},fB={x:-hipW*0.4,y:0};
 
   if(state==='idle'){
     hipY+=Math.sin(ph*TAU)*H*P.idleBob;
     fF={x:hipW*0.55,y:0};fB={x:-hipW*0.6,y:0};
   }else if(state==='run'){
-    const th=ph*TAU,stride=H*P.stride,lift=H*P.lift;
-    const foot=t=>{const s=Math.sin(t);return {x:Math.cos(t)*stride,y:s>0?-s*lift:0};};
+    const th=ph*TAU;
+    /* Cap the stride so the far foot still sits inside the leg's
+       reach. Past that the IK clamps, the foot detaches from where the
+       cycle put it, and both legs lock out straight at the extremes. */
+    const maxReach=leg*0.955;
+    const stride=Math.min(H*P.stride, Math.sqrt(Math.max(0,maxReach*maxReach-(leg*HIP)*(leg*HIP))));
+    const lift=H*P.lift;
+
+    /* A proper gait, not a circle. The old cycle moved BOTH feet on a
+       cosine, so the planted foot slid forward and back under the
+       body — which is precisely what reads as gliding. A foot on the
+       ground has to travel backwards at a constant rate, matching the
+       ground going past; only the swinging foot arcs. */
+    const foot=t=>{
+      const u=((t/TAU)%1+1)%1;
+      if(u<0.5){                       // stance: planted, tracking the ground
+        const k=u/0.5;
+        return {x:stride*(1-2*k), y:0};
+      }
+      const k=(u-0.5)/0.5;             // swing: whips forward, knee up
+      const e=k*k*(3-2*k);             // ease so it snaps through mid-swing
+      return {x:stride*(-1+2*e), y:-Math.sin(k*Math.PI)*lift};
+    };
     fF=foot(th);fB=foot(th+Math.PI);
-    hipY+=Math.cos(2*th)*H*P.bounce;
+    // two hip drops per cycle, one per footfall
+    hipY+=Math.abs(Math.cos(th))*H*P.bounce - H*P.bounce*0.5;
     hipX+=H*0.02*Math.sin(th);
     lean+=P.runLean*Math.PI/180;
   }else if(state==='jump'){
     const k=f===0?1:0.72;
-    hipY=-leg*0.88;
+    hipY=-leg*0.80;
     fF={x:hipW*0.5+H*0.04,y:-leg*P.tuck*k};
     fB={x:-hipW*0.55-H*0.05,y:-leg*P.tuck*0.5*k};
     lean+=7*Math.PI/180;
   }else if(state==='fall'){
     const k=f===0?1:0.78;
-    hipY=-leg*0.92;
+    hipY=-leg*0.84;
     fF={x:hipW*0.8+H*0.05,y:-leg*0.28*k};
     fB={x:-hipW*0.85-H*0.06,y:-leg*0.10*k};
     lean-=4*Math.PI/180;
   }else if(state==='land'){
-    hipY=-leg*0.62;fF={x:hipW*1.0,y:0};fB={x:-hipW*1.05,y:0};lean+=11*Math.PI/180;
+    hipY=-leg*0.58;fF={x:hipW*1.0,y:0};fB={x:-hipW*1.05,y:0};lean+=11*Math.PI/180;
   }else if(state==='crouch'){
-    hipY=-leg*0.52+(f===1?H*0.012:0);
+    hipY=-leg*0.48+(f===1?H*0.012:0);
     fF={x:hipW*1.05,y:0};fB={x:-hipW*1.05,y:0};lean+=15*Math.PI/180;
   }
   lean+=aim*0.12;                        // counterweight: lean back to aim up

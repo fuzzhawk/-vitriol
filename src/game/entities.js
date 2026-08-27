@@ -96,7 +96,14 @@ window.ENTITIES = (function () {
     if (this.landT > 0) { this.landT -= dt; st = 'land'; }
     if (st !== this.anim) { this.anim = st; this.t = 0; }
     this.t += dt;
-    if (st === 'run') this.phase += Math.abs(this.vx) * dt * 0.9;
+    if (st === 'run') {
+      /* Advance the cycle by distance travelled, not by a constant.
+         The old term was ~0.04 frames per step at full speed — a
+         three-second stride cycle while covering 150px a second,
+         which is the definition of skating. */
+      const perCycle = this.rig.cycleDistance ? this.rig.cycleDistance() : 40;
+      this.phase += Math.abs(this.vx) * this.rig.framesOf('run') / perCycle;
+    }
     this.frame = this.rig.frameOf(this.anim, this.t, this.phase);
     if (this.flash > 0) this.flash -= dt;
   };
