@@ -68,7 +68,8 @@ function greebleworks() {
     'LV', 'PALETTES', 'PAL_RGB', 'STYLES', 'SKYMOODS', 'CITY_PRESETS',
     'DECAL_KINDS', 'DECAL_CATS', 'WIRE_STYLE',
     'buildLevel', 'drawLevelFrame', 'bakeFacade', 'bakePlatform', 'bakeRoof',
-    'bakeDecal', 'bakeSky', 'makeRng', 'clamp', 'hex2rgb', 'rgbStr', 'mkCanvas'
+    'bakeDecal', 'bakeSky', 'makeRng', 'clamp', 'hex2rgb', 'rgbStr', 'mkCanvas',
+    'snapLayer'
   ]);
 }
 

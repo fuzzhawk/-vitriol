@@ -1089,6 +1089,19 @@ function bakePhysics(sheetCtx,cellX,cellY,CW,CH,anchor,rngSeed,tentCount,spec,cx
   if(!n){sx=anchor.x;sy=anchor.y;n=1;}
   const gx=sx/n,gy=sy/n;
 
+  /* The centroid of a strongly concave blob can itself land in a void
+     between lobes. Find the solid pixel nearest to it once, and use
+     that as the origin every socket walk starts from. */
+  let ix=gx,iy=gy;
+  if(!solid(gx,gy)){
+    let bd=1e9;
+    for(let y=0;y<CH;y++)for(let x=0;x<CW;x++){
+      if(!solid(x,y))continue;
+      const d=(x-gx)*(x-gx)+(y-gy)*(y-gy);
+      if(d<bd){bd=d;ix=x;iy=y;}
+    }
+  }
+
   const RAYS=24;
   const hull=[];
   let rMax=0,rSum=0;
@@ -1124,10 +1137,51 @@ function bakePhysics(sheetCtx,cellX,cellY,CW,CH,anchor,rngSeed,tentCount,spec,cx
     const hcur=hull[hi];
     if(nx*hcur.x+ny*hcur.y<0){nx=-nx;ny=-ny;}
     const il=1/(Math.hypot(nx,ny)||1);
-    // seat the socket just inside the skin
-    const seat=0.82;
+
+    /* Seat the socket in solid ink, by walking in from the hull point
+       until several samples in a row are opaque.
+
+       A flat fraction of the hull distance is not good enough. The
+       hull is a radial maximum, so on a lumpy concave body a ray can
+       cross a gap between two lobes — and a socket parked in that gap
+       is a tentacle root hanging in mid-air next to the creature,
+       which is exactly what it looked like. */
+    const ux=hcur.x/(hcur.d||1), uy=hcur.y/(hcur.d||1);
+    /* Walk OUTWARD from the centroid and stop at the first gap. That
+       gives the far edge of the contiguous mass the centre belongs to,
+       which is solid by construction — searching inward from the hull
+       instead can stall in a void between two lobes and leave the root
+       hanging in mid-air beside the creature. */
+    let seatD=0;
+    for(let d=0;d<=hcur.d;d+=0.5){
+      if(!solid(ix+ux*d,iy+uy*d))break;
+      seatD=d;
+    }
+    // sink it in so the root is buried rather than tangent to the skin
+    seatD*=0.86;
+    let sxp=ix+ux*seatD, syp=iy+uy*seatD;
+    /* Last resort. The walk covers the ordinary cases; a silhouette
+       thin enough that its own axis is not opaque still has to end up
+       with a root on ink, so spiral out for the nearest solid pixel
+       rather than shipping a tentacle growing out of thin air. */
+    if(!solid(sxp,syp)){
+      let bd=1e9,bx=ix,by=iy;
+      for(let rr=1;rr<=10&&bd>1e8;rr++){
+        for(let a2=0;a2<24;a2++){
+          const th=(a2/24)*TAU;
+          const qx=sxp+Math.cos(th)*rr, qy=syp+Math.sin(th)*rr;
+          if(solid(qx,qy)){const dd=rr;if(dd<bd){bd=dd;bx=qx;by=qy;}}
+        }
+      }
+      sxp=bx;syp=by;
+    }
+    /* Snap to the pixel solid() actually tested. It indexes by floor,
+       so storing the raw float lets a consumer that rounds land on a
+       neighbouring pixel that is empty — the same mismatch that put
+       gib seeds off their sprites. */
+    sxp=Math.floor(sxp)+0.5; syp=Math.floor(syp)+0.5;
     sockets.push({
-      x:+(hcur.x*seat).toFixed(2), y:+(hcur.y*seat).toFixed(2),
+      x:+(sxp-0.5-anchor.x).toFixed(2), y:+(syp-0.5-anchor.y).toFixed(2),
       nx:+(nx*il).toFixed(3), ny:+(ny*il).toFixed(3),
       a:+Math.atan2(hcur.y,hcur.x).toFixed(4)
     });

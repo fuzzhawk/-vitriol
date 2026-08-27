@@ -19,7 +19,12 @@ window.ENTITIES = (function () {
      still matches the ground it covers. */
   const MOVE = {
     accel: 0.55, maxVX: 2.6, fricGround: 0.80, fricAir: 0.90,
-    gravity: 0.36, terminal: 9, jump: -6.1, coyote: 8, crouchMul: 0.55
+    gravity: 0.36, terminal: 9, jump: -6.1, coyote: 8, crouchMul: 0.55,
+    /* Second jump is deliberately weaker than the first, and cancels
+       whatever downward speed you had — so it reads as a kick off
+       nothing rather than a second full leap, and still saves you when
+       you have already started falling. */
+    doubleJump: -5.2, airJumps: 1
   };
 
   function foldAim(aim, face) {
@@ -41,6 +46,14 @@ window.ENTITIES = (function () {
     this.tint = tint || '#ffd8a0';
     this.dead = false;
     this.hitList = null;
+    /* Prototype behaviours. Zero on every stock weapon, so the extra
+       work in the bullet step costs nothing until a rolled gun asks
+       for it. */
+    this.homing = weapon.homing || 0;
+    this.bounce = weapon.bounce || 0;
+    this.drop = weapon.drop || 0;
+    this.proto = !!weapon.proto;
+    this.trail = this.proto ? [] : null;
   }
 
   function Particle(x, y, vx, vy, life, col, grav) {
@@ -98,13 +111,15 @@ window.ENTITIES = (function () {
     this.maxHp = 100; this.hp = 100;
     this.diff = diff;
     this.weapon = window.WEAPONS.make(rig.gun);
-    this.spare = { pistol: Infinity, smg: 0, rifle: 0, cannon: 0, beam: 0 };
+    this.spare = { pistol: Infinity, smg: 0, rifle: 0, cannon: 0, beam: 0, proto: 0 };
     this.spare[rig.gun] = Infinity;   // your own sidearm never runs dry
     this.kick = 0; this.invuln = 0;
     this.checkpoint = { x, y };
     this.kills = 0; this.score = 0;
     this.crouching = false;
     this.dropTimer = 0;
+    this.airJumps = MOVE.airJumps;
+    this.jumpPuff = null;
   }
   Player.prototype = Object.create(Actor.prototype);
   Player.prototype.constructor = Player;
@@ -128,9 +143,15 @@ window.ENTITIES = (function () {
     if (input.jumpPressed && input.down && this.ground &&
         this.standingOn && !this.standingOn.ground) {
       this.dropTimer = 8; this.y += 2; this.vy = 1; this.ground = false;
+      this.airJumps = MOVE.airJumps;      // dropping through is not a jump
       window.AUDIO.play('land');
     } else if (input.jumpPressed && this.coyote > 0) {
       this.vy = MOVE.jump; this.coyote = 0;
+      window.AUDIO.play('jump');
+    } else if (input.jumpPressed && this.airJumps > 0) {
+      this.airJumps--;
+      this.vy = MOVE.doubleJump;          // sets, not adds: cancels the fall
+      this.jumpPuff = { x: this.x, y: this.y, t: 0 };
       window.AUDIO.play('jump');
     }
     if (this.dropTimer > 0) this.dropTimer--;
@@ -138,6 +159,11 @@ window.ENTITIES = (function () {
     const wasAir = !this.ground;
     const h = crouch ? this.h * 0.62 : this.h;
     world.move(this, this.w, h, this.dropTimer > 0);
+
+    // Recharge after the move, not before it: doing it at the top of
+    // the step costs a frame between touching down and being able to
+    // jump again, which is exactly the frame a player uses.
+    if (this.ground) this.airJumps = MOVE.airJumps;
 
     if (this.ground && wasAir) {
       if (Math.abs(this.vy) < 1) this.landT = 0.16;
@@ -155,6 +181,10 @@ window.ENTITIES = (function () {
     this.local = foldAim(this.aim, this.face);
 
     this.animate(dt, crouch);
+    if (this.jumpPuff) {
+      this.jumpPuff.t += dt;
+      if (this.jumpPuff.t > 0.28) this.jumpPuff = null;
+    }
     this.kick *= 0.86;
     if (this.invuln > 0) this.invuln -= dt;
   };

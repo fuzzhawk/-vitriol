@@ -268,6 +268,57 @@ window.CONFIG = (function () {
     server:     ['void', 'deepsea', 'toxic']
   };
 
+  /* ---------------- debris ----------------
+     Scrap that arrived from somewhere else reads as pasted on. Two
+     things fix that: pick a base palette that belongs to the
+     architecture, then re-quantise the finished sprites through the
+     level's own palette so they are literally made of the same
+     colours as the wall behind them. */
+  const SCRAP_PALETTES = {
+    slum:       ['rust', 'crate', 'bone'],
+    kowloon:    ['rust', 'crate', 'hazard'],
+    market:     ['crate', 'rust', 'hazard'],
+    undercity:  ['rust', 'toxic', 'bone'],
+    industrial: ['steel', 'rust', 'hazard'],
+    refinery:   ['hazard', 'toxic', 'rust'],
+    reactor:    ['toxic', 'hazard', 'steel'],
+    ruin:       ['concrete', 'bone', 'rust'],
+    brutalist:  ['concrete', 'steel', 'bone'],
+    hab:        ['crate', 'concrete', 'steel'],
+    megacorp:   ['steel', 'concrete', 'hazard'],
+    arcology:   ['steel', 'bone', 'concrete'],
+    spaceport:  ['steel', 'hazard', 'crate'],
+    server:     ['steel', 'concrete', 'toxic']
+  };
+
+  function scrapParamsFor(seed, levelCfg, override) {
+    const SF = window.SCRAPFORGE;
+    const p = SF.randomParams(seed);
+    const R = GW.makeRng((seed ^ 0x5caa) >>> 0);
+    const pool = SCRAP_PALETTES[levelCfg && levelCfg.style] || Object.keys(SF.PALETTES);
+    p.palette = R.pick(pool);
+    p.size = 13 + R.int(0, 8);
+    // borrow the level's own lighting so the debris is lit the same way
+    if (levelCfg && levelCfg.lightdir !== undefined) p.lightdir = levelCfg.lightdir;
+    if (levelCfg) {
+      p.grime = GW.clamp(levelCfg.grime * R.range(0.9, 1.4), 0.2, 1.5);
+      p.wear = GW.clamp(levelCfg.wear * R.range(0.9, 1.4), 0.2, 1.5);
+    }
+    return Object.assign(p, override || {}, { dmgFrames: 3 });
+  }
+
+  /* Re-quantise every damage state through the level's palette. A
+     no-op when the level is running unpaletted, which is correct: with
+     no palette to belong to there is nothing to match. */
+  function tintScrapToLevel(set, levelCfg) {
+    if (!levelCfg || levelCfg.palette === 'none') return set;
+    for (const k in set) {
+      try { GW.snapLayer(set[k].canvas, levelCfg, levelCfg.dither * 0.5); }
+      catch (e) { /* a tint is never worth failing a bake over */ }
+    }
+    return set;
+  }
+
   function crawlerParams(seed, levelCfg, variant, pinned) {
     const CF = window.CRAWLERFORGE;
     /* A pinned build means the player designed this thing in the build
@@ -307,10 +358,13 @@ window.CONFIG = (function () {
     p.size = 52 + R.int(0, 10);
     p.lobes = R.int(6, 10);
     p.chaos = R.range(0.6, 1.05);
-    p.tentacles = R.int(7, 9);
+    p.tentacles = R.int(8, 11);
     p.tentVariants = 3;
-    p.tentLen = Math.round(p.size * R.range(1.6, 2.1));
-    p.tentThick = Math.max(8, Math.round(p.size * 0.20));
+    p.tentLen = Math.round(p.size * R.range(1.9, 2.5));
+    p.tentThick = Math.max(12, Math.round(p.size * 0.30));
+    p.tentTaper = R.range(0.42, 0.62);     // stays thick most of its length
+    p.tentHooks = R.range(0.9, 1.6);
+    p.tentRings = R.range(0.8, 1.4);
     p.eyes = R.int(4, 7);
     p.spikes = R.range(0.6, 1.5);
     p.metal = R.range(0.35, 0.75);
@@ -349,6 +403,7 @@ window.CONFIG = (function () {
     STYLE_AFFINITY, STYLE_KEYS, HARSH_PALETTES,
     ARCHETYPES, archetypeParams, CORRUPT_RATE, defaultMerc, randomMerc,
     CRAWLER_PALETTES, crawlerParams, overlordParams, defaultCrawler,
+    SCRAP_PALETTES, scrapParamsFor, tintScrapToLevel,
     randomLevelCfg, applyCityPreset
   };
 })();

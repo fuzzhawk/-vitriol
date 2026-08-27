@@ -3847,5 +3847,5 @@ function drawLevelFrame(L,cfg,ctx,scroll,time,entityPass){
 }
 function rng2(v){ const x=Math.sin(v*127.1)*43758.5453; return x-Math.floor(x); }
 
-return { LV, PALETTES, PAL_RGB, STYLES, SKYMOODS, CITY_PRESETS, DECAL_KINDS, DECAL_CATS, WIRE_STYLE, buildLevel, drawLevelFrame, bakeFacade, bakePlatform, bakeRoof, bakeDecal, bakeSky, makeRng, clamp, hex2rgb, rgbStr, mkCanvas };
+return { LV, PALETTES, PAL_RGB, STYLES, SKYMOODS, CITY_PRESETS, DECAL_KINDS, DECAL_CATS, WIRE_STYLE, buildLevel, drawLevelFrame, bakeFacade, bakePlatform, bakeRoof, bakeDecal, bakeSky, makeRng, clamp, hex2rgb, rgbStr, mkCanvas, snapLayer };
 })();

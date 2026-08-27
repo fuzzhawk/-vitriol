@@ -76,25 +76,35 @@ window.WORLD = (function () {
     /* ---- 4. scrap: the physics debris scattered through the level ---- */
     yield { phase: 'rigs', weight: 0.04, msg: 'stamping scrap — crates and rubble' };
     const scrapSeed = (cfg.seed ^ 0x5c2a) >>> 0;
-    const scrapParams = Object.assign(
-      window.SCRAPFORGE.randomParams(scrapSeed),
-      { size: 15 + (cfg.seed % 6) },
-      opts.scrap || {},          // the build screen's debris panel, if used
-      { dmgFrames: 3 });
-    const scrap = window.SCRAPFORGE.forgeSet(scrapSeed, { params: scrapParams });
+    // the build screen's debris panel overrides the level-matched roll
+    const scrapParams = window.CONFIG.scrapParamsFor(scrapSeed, cfg, opts.scrap);
+    const scrap = window.CONFIG.tintScrapToLevel(
+      window.SCRAPFORGE.forgeSet(scrapSeed, { params: scrapParams }), cfg);
 
-    /* ---- 5. the boss ---- */
+    /* ---- 5. the prototype ----
+       One rolled weapon per run, and a second player rig holding it, so
+       picking it up swaps the sprite instead of stalling the frame on a
+       300ms re-forge mid-fight. */
+    yield { phase: 'rigs', weight: 0.05, msg: 'recovering prototype schematics' };
+    const proto = window.WEAPONS.rollProto(GW.makeRng((cfg.seed ^ 0x9ea9) >>> 0));
+    const protoRig = new window.SPRITE.Rig(
+      Object.assign({}, mercParams, { gun: proto.base, gunSize: 1.25,
+                                      colGun: proto.tint, twoHanded: true }));
+
+    /* ---- 6. the boss ---- */
     yield { phase: 'rigs', weight: 0.10, msg: 'something large is already here' };
     const overlordRig = new window.SPRITE.CrawlerRig(
       window.CONFIG.overlordParams((cfg.seed ^ 0x0b055) >>> 0, cfg));
 
     yield { phase: 'deploy', msg: 'deploying hostiles', weight: 0.02 };
-    const M = new Mission(L, cfg, playerRig, rigs, mix, diff, opts, rng, scrap, overlordRig);
+    const M = new Mission(L, cfg, playerRig, rigs, mix, diff, opts, rng, scrap,
+                          overlordRig, proto, protoRig);
     return M;
   }
 
   /* ---------------- mission ---------------- */
-  function Mission(L, cfg, playerRig, rigs, mix, diff, opts, rng, scrap, overlordRig) {
+  function Mission(L, cfg, playerRig, rigs, mix, diff, opts, rng, scrap,
+                   overlordRig, proto, protoRig) {
     this.L = L; this.cfg = cfg; this.diff = diff; this.opts = opts;
     this.world = new window.PHYSICS.World(L.plats);
     this.rigs = rigs;
@@ -124,9 +134,12 @@ window.WORLD = (function () {
     this.rigid.levelWidth = L.LW;
     if (scrap) this.scatterScrap(rng);
     this.overlordRig = overlordRig || null;
+    this.proto = proto || null;
+    this.protoRig = protoRig || null;
     this.overlord = null;
     this.bossBanner = 0;
     if (overlordRig) this.placeOverlord();
+    if (proto) this.placeProto();
     this.spawnEnemies(mix, rng);
 
     this.scroll = 0;
@@ -227,7 +240,11 @@ window.WORLD = (function () {
       const sheet = this.scrap[kind];
       if (!sheet) continue;
       const x = rng.range(Math.max(run.x + 14, safeX), run.x + run.w - 14);
-      const b = new window.RIGID.Body(sheet, x, run.y - sheet.body.halfH - 1, 0);
+      // Seat it exactly on the collision box. The box is already inset
+      // inside the silhouette, so this beds the piece into the deck;
+      // the extra pixel of clearance that used to be here is what made
+      // scattered debris look pasted on top of the ground.
+      const b = new window.RIGID.Body(sheet, x, run.y - sheet.body.halfH, 0);
       // stack a second piece on some of them
       b.asleep = true; b.rest = 99;
       this.rigid.add(b);
@@ -236,7 +253,7 @@ window.WORLD = (function () {
         const s2 = this.scrap[k2];
         if (s2) {
           const t = new window.RIGID.Body(s2, x + rng.range(-4, 4),
-            run.y - sheet.body.halfH * 2 - s2.body.halfH - 1, 0);
+            run.y - sheet.body.halfH * 2 - s2.body.halfH, 0);
           t.asleep = true; t.rest = 99;
           this.rigid.add(t);
         }
@@ -326,6 +343,28 @@ window.WORLD = (function () {
         break;
       }
     }
+  };
+
+  /* The prototype sits on the last stretch of ground before the boss —
+     far enough in that you have earned it, close enough that you get to
+     use it on what it was clearly left there for. */
+  Mission.prototype.placeProto = function () {
+    const O = this.overlord;
+    const wantX = O ? O.x - 190 : this.exit.x - 300;
+    let best = null, bd = 1e9;
+    for (const run of this.ground) {
+      if (run.x + run.w < this.player.x + 260) continue;
+      const cx = clamp(wantX, run.x + 14, run.x + run.w - 14);
+      const d = Math.abs(cx - wantX);
+      if (d < bd) { bd = d; best = { x: cx, y: run.y }; }
+    }
+    if (!best) return;
+    const p = new E.Pickup(best.x, best.y - 2, 'weapon', 'proto');
+    p.proto = this.proto;
+    p.ground = true;
+    p.shrine = true;              // drawn with a pedestal and a beam
+    this.pickups.push(p);
+    this.protoPickup = p;
   };
 
   /* ---------------- demonic vapour ---------------- */
@@ -536,7 +575,8 @@ window.WORLD = (function () {
         W.reloading = W.def.reload; window.AUDIO.play('reload');
       } else {
         W.cool = 0.3; window.AUDIO.play('dry');
-        if (W.kind !== 'pistol') P.giveWeapon('pistol');
+        // the prototype is the run's prize; it never falls back
+        if (W.kind !== 'pistol' && W.kind !== 'proto') P.giveWeapon('pistol');
       }
       return;
     }
@@ -547,10 +587,16 @@ window.WORLD = (function () {
     this.shake = Math.min(4.5, this.shake + W.def.shake);
 
     const m = P.muzzle();
-    const spread = W.def.spread * (Math.random() - 0.5) * 2;
-    const a = P.aim + spread;
-    const tint = P.rig.params.colVisor;
-    this.bullets.push(new E.Bullet(m.x, m.y, a, W.def, true, tint));
+    const tint = W.def.tint || P.rig.params.colVisor;
+    const n = W.def.count || 1;
+    for (let k = 0; k < n; k++) {
+      // a single round gets a jittered spread; a burst gets a fan
+      const off = n === 1 ? (Math.random() - 0.5) * 2
+                          : ((k / (n - 1)) - 0.5) * 2 + (Math.random() - 0.5) * 0.4;
+      this.bullets.push(new E.Bullet(m.x, m.y, P.aim + W.def.spread * off,
+                                     W.def, true, tint));
+    }
+    const a = P.aim;
     this.flashes.push({ x: m.x, y: m.y, life: 0.06, r: W.def.size > 2 ? 16 : 9, c: tint });
     for (let i = 0; i < 4; i++) {
       this.parts.push(new E.Particle(m.x, m.y,
@@ -567,6 +613,28 @@ window.WORLD = (function () {
       const b = this.bullets[i];
       b.life -= dt;
       let removed = false;
+
+      /* Prototype steering, applied once per frame rather than per
+         substep so the turn rate does not depend on substep count. */
+      if (b.drop) b.vy += b.drop;
+      if (b.homing && b.friendly) {
+        const t = this.homingTarget(b);
+        if (t) {
+          const ty = t.kind === 'crawler' || t.kind === 'overlord' ? t.y : t.y - t.h * 0.5;
+          const want = Math.atan2(ty - b.y, t.x - b.x);
+          const cur = Math.atan2(b.vy, b.vx);
+          let d = want - cur;
+          while (d > Math.PI) d -= TAU;
+          while (d < -Math.PI) d += TAU;
+          const na = cur + clamp(d, -b.homing * 6, b.homing * 6);
+          const sp = Math.hypot(b.vx, b.vy);
+          b.vx = Math.cos(na) * sp; b.vy = Math.sin(na) * sp;
+        }
+      }
+      if (b.trail) {
+        b.trail.push(b.x, b.y);
+        if (b.trail.length > 10) b.trail.splice(0, 2);
+      }
 
       // Two substeps per frame for tile hits, as the demo does.
       for (let s = 0; s < 2 && !removed; s++) {
@@ -594,6 +662,19 @@ window.WORLD = (function () {
           this.bullets.splice(i, 1); removed = true; break;
         }
         if (this.world.solidAt(b.x, b.y, true)) {
+          if (b.bounce > 0) {
+            /* Ricochet. Back the bullet out, then reflect off whichever
+               axis was actually blocked — testing each separately is
+               what makes it skid along a floor instead of reversing. */
+            b.bounce--;
+            b.x -= b.vx / 2; b.y -= b.vy / 2;
+            if (this.world.solidAt(b.x + b.vx, b.y, true)) b.vx = -b.vx;
+            if (this.world.solidAt(b.x, b.y + b.vy, true)) b.vy = -b.vy;
+            b.vx *= 0.86; b.vy *= 0.86;
+            this.impact(b, -b.vx, -b.vy);
+            window.AUDIO.play('hit', null, this.distTo(b.x));
+            continue;
+          }
           this.impact(b, -b.vx, -b.vy);
           window.AUDIO.play('hit', null, this.distTo(b.x));
           this.bullets.splice(i, 1); removed = true; break;
@@ -637,6 +718,26 @@ window.WORLD = (function () {
     }
   };
 
+  /* Nearest live hostile ahead of a homing round. Deliberately narrow:
+     a bullet that turns toward anything on screen feels like it is
+     playing the game for you. */
+  Mission.prototype.homingTarget = function (b) {
+    let best = null, bd = 130 * 130;
+    const ang = Math.atan2(b.vy, b.vx);
+    for (const e of this.enemies) {
+      if (e.dead) continue;
+      const dx = e.x - b.x, dy = e.y - b.y;
+      const d = dx * dx + dy * dy;
+      if (d > bd) continue;
+      let off = Math.atan2(dy, dx) - ang;
+      while (off > Math.PI) off -= TAU;
+      while (off < -Math.PI) off += TAU;
+      if (Math.abs(off) > 1.0) continue;      // only what is roughly ahead
+      bd = d; best = e;
+    }
+    return best;
+  };
+
   Mission.prototype.maybeDrop = function (e) {
     const r = Math.random();
     if (r < 0.16) this.pickups.push(new E.Pickup(e.x, e.y - 4, 'health', 30));
@@ -673,6 +774,15 @@ window.WORLD = (function () {
       if (P.spare[k] !== Infinity) P.spare[k] += P.weapon.def.mag;
       P.weapon.ammo = P.weapon.def.mag;
       this.say('AMMO RESUPPLY');
+    } else if (p.payload === 'proto' && p.proto) {
+      P.weapon = window.WEAPONS.make('proto', p.proto);
+      P.spare.proto = Infinity;
+      if (this.protoRig) P.rig = this.protoRig;   // it looks like what it is now
+      this.say(p.proto.label + ' RECOVERED');
+      this.bannerT = 3.2;
+      this.shake = Math.min(5, this.shake + 2);
+      window.AUDIO.play('extract');
+      this.protoTaken = true;
     } else {
       P.giveWeapon(p.payload);
       this.say(window.WEAPONS.table[p.payload].label + ' ACQUIRED');

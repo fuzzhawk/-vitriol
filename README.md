@@ -20,7 +20,7 @@ Open `index.html` in a browser. No build step, no dependencies, no server.
 
 ```
 A / D          move
-W / SPACE      jump
+W / SPACE      jump — press again in the air for a second, weaker kick
 S              crouch — hold and jump to drop through a catwalk
 MOUSE          aim (full 360°)
 LEFT CLICK     fire
@@ -146,6 +146,16 @@ invisible in code review and obvious in a PNG.
 
 ## The Overlord, the debris, and the rot
 
+**The prototype.** One weapon is rolled per run from the build seed and left on
+a lit pedestal on the last ground before the boss. Ten parameters — rate,
+damage, speed, projectile count, spread, pierce, splash, homing, ricochet and
+arc — plus a generated name, a tint, and which of the five base shapes the merc
+holds. The ten are not independent knobs: the roll spends a fixed budget across
+them, so taking more of one thing gives way somewhere else. That is what makes
+a prototype interesting rather than simply better. A second player rig is forged
+during loading holding it, so picking it up swaps the sprite instead of stalling
+the frame on a re-forge mid-fight.
+
 **SCRAP FORGE** bakes the physics props: crates, drums, concrete slabs, girder
 offcuts, scrap bales and torn plate, in seven industrial palettes. Two things
 make it different from a sprite tool. Its columns are DAMAGE STATES rather than
@@ -154,6 +164,14 @@ the seams and takes mass out of the piece — and like CRAWLER FORGE it emits a
 physics bake measured off the pixels: hull, half extents, mass, restitution,
 friction, hit points and gib seeds. A crate that has been shot twice really does
 become a smaller obstacle, because its baked body shrank with its silhouette.
+
+Debris belongs to the level it is in twice over: its base palette is chosen from
+the architecture, and the finished sprites are then re-quantised through the
+level's own palette with GREEBLEWORKS' `snapLayer`, so they are literally made
+of the same colours as the wall behind them. The collision box is also
+deliberately inset inside the silhouette — a box that matches the outline
+exactly leaves a crate perched with a hairline of daylight under it, and real
+debris beds into the ground it lands on.
 
 `rigid.js` is the solver. Not a general engine: boxes with linear velocity,
 impulse response, pairwise separation, sleeping, and the material numbers the

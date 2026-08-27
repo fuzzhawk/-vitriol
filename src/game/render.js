@@ -65,6 +65,20 @@ window.RENDER = (function () {
     for (const g of M.gibs) drawGib(ctx, g, S);
 
     const P = M.player;
+    /* The kick-off ring for a second jump. Without a mark at the point
+       it happened, an air jump just looks like the physics glitched. */
+    if (P.jumpPuff) {
+      const k = clamp(P.jumpPuff.t / 0.28, 0, 1);
+      const r = 3 + k * 11;
+      ctx.save();
+      ctx.globalAlpha = (1 - k) * 0.55;
+      ctx.strokeStyle = hexA(P.rig.params.colVisor || '#f0a830', 1);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.ellipse(P.jumpPuff.x - S, P.jumpPuff.y, r, r * 0.42, 0, 0, TAU);
+      ctx.stroke();
+      ctx.restore();
+    }
     if (!P.dead) {
       const blink = P.invuln > 0 && Math.floor(P.invuln * 18) % 2 === 0;
       if (!blink) drawActor(ctx, P, P.x - S, P.y, P.flash > 0);
@@ -178,8 +192,10 @@ window.RENDER = (function () {
       const slack = l.state === 'gripped' ? 0.55 : l.state === 'coil' ? 1.5 : 1.0;
       const bend = l.bend * slack + Math.sin(time * 2.2 + l.phase) * 3;
       const alpha = l.state === 'strike' ? 1 : (l.state === 'retract' ? 0.7 : 0.95);
+      // the boss's limbs are drawn heavier than they are baked
+      const thick = cr.boss ? 1.35 : 1;
       window.CRAWLERFORGE.drawTentacle(ctx, rig.tent, l.variant,
-        rx, ry, tx, ty, bend, { alpha });
+        rx, ry, tx, ty, bend, { alpha, thickness: thick });
       // a wet highlight where it grips
       if (l.state === 'gripped') {
         ctx.save();
@@ -354,6 +370,18 @@ window.RENDER = (function () {
     if (sx < -20 || sx > LV.W + 20) return;
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
+    /* A rolled round leaves a trail, which is how a homing or
+       ricocheting shot shows you what it did. */
+    if (b.trail && b.trail.length >= 4) {
+      ctx.strokeStyle = hexA(b.tint, 0.35);
+      ctx.lineWidth = Math.max(1, b.size - 1);
+      ctx.beginPath();
+      for (let i = 0; i < b.trail.length; i += 2) {
+        const tx = b.trail[i] - S, ty = b.trail[i + 1];
+        i ? ctx.lineTo(tx, ty) : ctx.moveTo(tx, ty);
+      }
+      ctx.stroke();
+    }
     const len = b.size > 2 ? 5 : 4;
     const nx = b.vx / (Math.hypot(b.vx, b.vy) || 1), ny = b.vy / (Math.hypot(b.vx, b.vy) || 1);
     ctx.strokeStyle = hexA(b.tint, 0.9);
@@ -381,6 +409,7 @@ window.RENDER = (function () {
   function drawPickup(ctx, p, S) {
     const sx = p.x - S;
     if (sx < -20 || sx > LV.W + 20) return;
+    if (p.shrine && p.proto) { drawShrine(ctx, p, sx); return; }
     const bob = Math.sin(p.t * 3) * 2;
     const y = Math.round(p.y - 10 + bob);
     const col = window.ENTITIES.PICKUP_KINDS[p.kind].col;
@@ -408,6 +437,58 @@ window.RENDER = (function () {
       ctx.fillRect(Math.round(sx) - 3, y + 4, 7, 2);
       ctx.fillRect(Math.round(sx) + 1, y + 2, 2, 2);
     }
+  }
+
+  /* The prototype, on a pedestal under a beam. It is the one thing in
+     a level worth walking past a fight for, so it is lit like it. */
+  function drawShrine(ctx, p, sx) {
+    const col = p.proto.tint || '#ffd06b';
+    const bob = Math.sin(p.t * 2.2) * 1.6;
+    const y = Math.round(p.y - 16 + bob);
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const beam = ctx.createLinearGradient(0, p.y - 96, 0, p.y);
+    beam.addColorStop(0, hexA(col, 0));
+    beam.addColorStop(1, hexA(col, 0.16));
+    ctx.fillStyle = beam;
+    ctx.fillRect(sx - 9, p.y - 96, 18, 96);
+    const r = 22;
+    const g = ctx.createRadialGradient(sx, y + 4, 0, sx, y + 4, r);
+    g.addColorStop(0, hexA(col, 0.55));
+    g.addColorStop(1, hexA(col, 0));
+    ctx.fillStyle = g;
+    ctx.fillRect(sx - r, y + 4 - r, r * 2, r * 2);
+    ctx.restore();
+
+    // pedestal
+    ctx.fillStyle = 'rgba(12,14,15,.92)';
+    ctx.fillRect(Math.round(sx) - 7, Math.round(p.y) - 5, 14, 5);
+    ctx.fillStyle = hexA(col, 0.7);
+    ctx.fillRect(Math.round(sx) - 7, Math.round(p.y) - 6, 14, 1);
+
+    // the weapon itself: a slab with a barrel, spun slowly
+    ctx.save();
+    ctx.translate(Math.round(sx), y + 4);
+    ctx.rotate(Math.sin(p.t * 0.9) * 0.22 - 0.25);
+    ctx.fillStyle = 'rgba(10,11,12,.95)';
+    ctx.fillRect(-9, -3, 18, 6);
+    ctx.fillStyle = col;
+    ctx.fillRect(-8, -2, 16, 4);
+    ctx.fillStyle = 'rgba(10,11,12,.95)';
+    ctx.fillRect(2, -1, 8, 2);
+    ctx.restore();
+
+    // orbiting motes, one per rolled parameter
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = hexA(col, 0.8);
+    for (let i = 0; i < 10; i++) {
+      const a = p.t * 0.8 + (i / 10) * TAU;
+      ctx.fillRect(Math.round(sx + Math.cos(a) * 15),
+                   Math.round(y + 4 + Math.sin(a) * 7), 1, 1);
+    }
+    ctx.restore();
   }
 
   /* The extraction pad: a lit deck plate with rising chevrons. */
@@ -487,7 +568,19 @@ window.RENDER = (function () {
     const W = P.weapon;
     ctx.fillStyle = 'rgba(8,10,11,.74)';
     ctx.fillRect(LV.W - 118, 4, 114, 26);
-    text(ctx, W.def.label, LV.W - 8, 7, vis, 'right');
+    text(ctx, W.def.label, LV.W - 8, 7, W.def.proto ? (W.def.tint || vis) : vis, 'right');
+    if (W.def.proto) {
+      // a rolled gun earns a line of what it rolled
+      const r = W.def;
+      const bits = [];
+      if (r.count > 1) bits.push('x' + r.count);
+      if (r.pierce) bits.push('PRC' + r.pierce);
+      if (r.splash) bits.push('BLST');
+      if (r.homing) bits.push('SEEK');
+      if (r.bounce) bits.push('RIC' + r.bounce);
+      if (r.drop) bits.push('ARC');
+      if (bits.length) text(ctx, bits.join(' '), LV.W - 8, 31, hexA(r.tint, 0.9), 'right');
+    }
     if (W.reloading > 0) {
       bar(ctx, LV.W - 114, 16, 106, 4, 1 - W.reloading / W.def.reload, vis);
       text(ctx, 'RELOADING', LV.W - 8, 23, '#8d9aa2', 'right');

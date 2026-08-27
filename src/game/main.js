@@ -201,7 +201,11 @@
     App.cfg = C.randomLevelCfg(seed);
     App.merc = C.randomMerc(seed);
     App.crawler = C.crawlerParams(seed, App.cfg, 0);
-    App.scrap = Object.assign(window.SCRAPFORGE.randomParams(seed), { size: 15 + (seed % 6) });
+    /* Seed the debris panel with the LEVEL-MATCHED roll, not a free
+       one. The panel's values are passed to the mission as overrides,
+       so a free roll here would always win and the level match would
+       never take effect — which is exactly what happened. */
+    App.scrap = C.scrapParamsFor(seed, App.cfg);
     App.cfg.seed = seed >>> 0;
     App.merc.seed = seed >>> 0;
   }
@@ -721,8 +725,8 @@
       if (App.opts.crawler) App.opts.crawler = App.crawler;
     };
     $('btn-rollScrap').onclick = () => {
-      App.scrap = Object.assign(window.SCRAPFORGE.randomParams(rollSeed()),
-                                { size: 13 + ((Math.random() * 8) | 0) });
+      // rerolling still stays inside what suits the architecture
+      App.scrap = C.scrapParamsFor(rollSeed(), App.cfg);
       markDirty();
       window.AUDIO.play('ui');
       buildPanels();

@@ -242,6 +242,19 @@ section('crawler forge');
   ok(PH.sockets.length >= 1, 'sockets baked');
   ok(PH.gibs.length > 0, 'gib seed points baked');
   ok(PH.mass > 0 && PH.mass <= 1, 'mass fraction in range');
+  /* Sockets have to sit on drawn pixels. A root parked in the gap
+     between two lobes is a tentacle growing out of thin air beside the
+     creature, which is exactly how it looked before they were seated
+     by walking out from solid ink. */
+  {
+    const d = S.canvas.getContext('2d').getImageData(0, 0, S.CW, S.CH).data;
+    let off = 0;
+    for (const so of PH.sockets) {
+      const x = Math.round(S.anchor.x + so.x), y = Math.round(S.anchor.y + so.y);
+      if (x < 0 || y < 0 || x >= S.CW || y >= S.CH || d[(y * S.CW + x) * 4 + 3] < 8) off++;
+    }
+    ok(off === 0, 'every tentacle root sits on drawn pixels (' + off + ' floating)');
+  }
   for (const so of PH.sockets) {
     const n = Math.hypot(so.nx, so.ny);
     ok(Math.abs(n - 1) < 0.02, 'socket normal is unit length');
@@ -415,6 +428,63 @@ section('scrap forge');
   ok(MS.scrap.crate.size === 19, 'the debris size choice reaches the level');
 }
 
+/* ---------------- the prototype weapon ---------------- */
+section('prototype weapon');
+{
+  const W = window.WEAPONS;
+  ok(W.PROTO_PARAMS.length === 10, 'ten rolled parameters');
+  const seen = {};
+  W.PROTO_PARAMS.forEach(k => { seen[k] = new Set(); });
+  const names = new Set(), bases = new Set();
+  let anyCount = 0, anySplash = 0, anyHoming = 0, anyBounce = 0, anyDrop = 0, anyPierce = 0;
+  for (let i = 0; i < 80; i++) {
+    const d = W.rollProto(window.GREEBLEWORKS.makeRng((i * 2654435761) >>> 0));
+    ok(typeof d.label === 'string' && d.label.length > 4, 'prototype has a generated name');
+    ok(d.proto === true, 'prototype is flagged');
+    ok(d.rate > 0.02 && d.rate < 1, 'rate in range (' + d.rate.toFixed(3) + ')');
+    ok(d.dmg > 0 && d.dmg < 20, 'damage in range');
+    ok(d.speed > 2 && d.speed <= 14, 'speed in range');
+    ok(d.count >= 1 && d.count <= 6, 'projectile count in range');
+    ok(d.spread >= 0 && d.spread < 0.4, 'spread in range');
+    ok(d.pierce >= 0 && d.pierce <= 4, 'pierce in range');
+    ok(d.splash >= 0 && d.splash < 40, 'splash in range');
+    ok(d.homing >= 0 && d.homing <= 0.2, 'homing in range');
+    ok(d.bounce >= 0 && d.bounce <= 4, 'bounce in range');
+    ok(d.drop >= 0 && d.drop <= 0.2, 'drop in range');
+    ok(d.mag >= 8, 'magazine is usable (' + d.mag + ')');
+    ok(d.reload > 0 && d.reload < 3, 'reload in range');
+    ok(W.table[d.base] !== undefined, 'base sprite "' + d.base + '" is a real weapon');
+    ok(/^#[0-9a-f]{6}$/i.test(d.tint), 'prototype has a tint');
+    ok(d.rolled.length === 10, 'prototype reports its ten rolls');
+    ok(!!d.tone, 'prototype has a sound spec');
+    names.add(d.label); bases.add(d.base);
+    W.PROTO_PARAMS.forEach(k => seen[k].add(Math.round(d[k] * 1000)));
+    if (d.count > 1) anyCount++;
+    if (d.count === 1) anyCount += 0;
+    if (d.splash) anySplash++;
+    if (d.homing) anyHoming++;
+    if (d.bounce) anyBounce++;
+    if (d.drop) anyDrop++;
+    if (d.pierce) anyPierce++;
+  }
+  console.log('  ' + names.size + ' distinct names, ' + bases.size + ' base shapes | ' +
+    'multishot ' + anyCount + ' · blast ' + anySplash + ' · seek ' + anyHoming +
+    ' · ricochet ' + anyBounce + ' · arc ' + anyDrop + ' · pierce ' + anyPierce + ' / 80');
+  ok(names.size > 60, 'names vary run to run (' + names.size + '/80)');
+  ok(bases.size >= 3, 'it takes several different shapes');
+  /* Every axis has to actually vary, or a "rolled" parameter is a
+     constant wearing a costume. */
+  for (const k of W.PROTO_PARAMS) {
+    ok(seen[k].size > 3, 'parameter "' + k + '" genuinely varies (' + seen[k].size + ' values)');
+  }
+  ok(anySplash > 2 && anyHoming > 2 && anyBounce > 2, 'the exotic behaviours do come up');
+  /* determinism */
+  const a1 = W.rollProto(window.GREEBLEWORKS.makeRng(99));
+  const a2 = W.rollProto(window.GREEBLEWORKS.makeRng(99));
+  ok(a1.label === a2.label && a1.rate === a2.rate, 'a seed always rolls the same gun');
+  ok(W.make('proto', a1).ammo === a1.mag, 'make() accepts a rolled definition');
+}
+
 /* ---------------- rigid bodies ---------------- */
 section('rigid bodies');
 {
@@ -556,6 +626,43 @@ section('physics');
       if (r && r.x >= 150) rightWins++;
     }
     ok(rightWins > 14, 'pickAnchor leans the way it is told (' + rightWins + '/24)');
+  }
+
+  /* ---- double jump ---- */
+  {
+    const rig = { w: 10, h: 27, gun: 'rifle', params: { colVisor: '#fff' },
+                  frameOf: () => 0, framesOf: () => 1, fpsOf: () => 1,
+                  muzzle: () => ({ x: 0, y: 0 }) };
+    const diff = window.CONFIG.DIFFICULTY.regular;
+    const P2 = new window.ENTITIES.Player(rig, 50, 200, diff);
+    const inp = { left: false, right: false, up: false, down: false, fire: false,
+                  jumpPressed: false, reloadPressed: false, aimX: 100, aimY: 180 };
+    const stepN = (n, jump) => {
+      for (let i = 0; i < n; i++) {
+        inp.jumpPressed = jump && i === 0;
+        P2.step(W, inp, 1 / 60);
+      }
+    };
+    stepN(6, false);
+    ok(P2.ground, 'test player is on the deck');
+    ok(P2.airJumps === window.ENTITIES.MOVE.airJumps, 'air jumps are charged on the ground');
+    stepN(1, true);
+    ok(P2.vy < -4, 'first jump leaves the ground');
+    const apex = P2.y;
+    stepN(24, false);
+    ok(P2.vy > 0, 'it is falling by now');
+    const beforeY = P2.y, spent = P2.airJumps;
+    stepN(1, true);
+    ok(P2.airJumps === spent - 1, 'the air jump is spent');
+    ok(P2.vy < 0, 'the second jump reverses the fall (vy=' + P2.vy.toFixed(2) + ')');
+    ok(!!P2.jumpPuff, 'the air jump leaves a mark');
+    stepN(1, true);
+    ok(P2.airJumps === 0, 'there is no third jump');
+    // and it recharges on landing
+    for (let i = 0; i < 200 && !P2.ground; i++) { inp.jumpPressed = false; P2.step(W, inp, 1 / 60); }
+    ok(P2.ground, 'it lands again');
+    ok(P2.airJumps === window.ENTITIES.MOVE.airJumps, 'landing recharges the air jump');
+    ok(P2.y < 260 && beforeY < 260, 'the double jump did not push it through the floor');
   }
 
   ok(W.canSee(10, 190, 60, 190) === true, 'clear line of sight along a deck');
@@ -1050,6 +1157,67 @@ section('overlord + corruption');
   ok(O.dead, 'boss can be killed');
   ok(MB.pickups.length > pickBefore, 'boss drops pickups on death');
   ok(MB.gibs.length > 0, 'boss comes apart');
+
+  /* the prototype is placed, and taking it changes the loadout */
+  {
+    const pk = MB.pickups.find(p => p.shrine);
+    ok(!!pk, 'the prototype was placed');
+    if (pk) {
+      ok(!!pk.proto, 'the pickup carries its rolled definition');
+      // the player has been moved to the boss by now; measure from spawn
+      ok(pk.x > MB.ground[0].x + 200, 'prototype is downrange of the spawn');
+      ok(pk.x < O.x + 40, 'prototype is reached before the boss');
+      const gp = MB.world.groundUnder(pk.x, 0, true);
+      ok(gp && Math.abs(gp.y - (pk.y + 2)) < 3, 'prototype sits on real ground');
+      const beforeRig = MB.player.rig;
+      MB.take(pk);
+      ok(MB.player.weapon.kind === 'proto', 'taking it equips the prototype');
+      ok(MB.player.weapon.def.proto === true, 'the equipped weapon is the rolled one');
+      ok(MB.player.rig !== beforeRig, 'the merc sprite swaps to hold it');
+      // firing it must produce its rolled projectile count
+      MB.player.weapon.ammo = 20; MB.player.weapon.cool = 0;
+      MB.bullets.length = 0;
+      MB.fire({ fire: true, reloadPressed: false }, 1 / 60);
+      ok(MB.bullets.length === MB.player.weapon.def.count,
+         'it fires its rolled projectile count (' + MB.bullets.length + ')');
+      // and it never silently downgrades when dry
+      MB.player.weapon.ammo = 0; MB.player.spare.proto = 0; MB.player.weapon.cool = 0;
+      MB.fire({ fire: true, reloadPressed: false }, 1 / 60);
+      ok(MB.player.weapon.kind === 'proto', 'a dry prototype is not swapped away');
+    }
+  }
+
+  /* debris belongs to the level it is in */
+  {
+    const pal = MB.scrap.crate.palette;
+    ok(window.CONFIG.SCRAP_PALETTES[cfgB.style].indexOf(pal) >= 0,
+       'debris palette suits the architecture (' + cfgB.style + ' -> ' + pal + ')');
+    /* scrapParamsFor is what the build screen seeds its panel from, so
+       a free roll there would silently override the level match. */
+    for (let i = 0; i < 20; i++) {
+      const sp = window.CONFIG.scrapParamsFor((i * 7919) >>> 0, cfgB);
+      ok(window.CONFIG.SCRAP_PALETTES[cfgB.style].indexOf(sp.palette) >= 0,
+         'scrapParamsFor stays inside the architecture pool');
+      ok(sp.lightdir === cfgB.lightdir, 'debris is lit from the level\'s light angle');
+    }
+    for (const b of MB.rigid.bodies.slice(0, 6)) {
+      const sh = b.sheet;
+      const ink = sh.bodies[0];
+      ok(b.hw < (ink.halfW / 0.90) + 0.01, 'collision box is inset from the silhouette');
+      ok(b.hh < (ink.halfH / 0.82) + 0.01, 'and sunk vertically so it beds in');
+    }
+    // a resting body should overlap the deck it sits on, not perch above it
+    let bedded = 0, resting = 0;
+    for (const b of MB.rigid.bodies) {
+      const gr = MB.world.groundUnder(b.x, b.y, true);
+      if (!gr || Math.abs((b.y + b.hh) - gr.y) > 1.5) continue;
+      resting++;
+      if (b.y + b.sheet.bodies[0].halfH / 0.82 > gr.y) bedded++;
+    }
+    ok(resting === 0 || bedded === resting,
+       'resting debris beds into the deck rather than floating on it (' +
+       bedded + '/' + resting + ')');
+  }
 
   /* corruption */
   const mercs = MB.enemies.filter(e => e.kind === 'grunt' || e.kind === 'trooper' ||

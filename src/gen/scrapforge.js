@@ -561,9 +561,17 @@ function bakeBody(ctx,cx,cy,CW,CH,kind){
     hull.push({x:+(gx+ca*last-cxm).toFixed(2),y:+(gy+sa*last-cym).toFixed(2)});
   }
 
-  /* Half extents come from the ink, not the cell: a cell is padded
-     for the outline dilate and using it would inflate every box. */
-  const hw=(x1-x0+1)/2, hh=(y1-y0+1)/2;
+  /* Half extents come from the ink, not the cell: a cell is padded for
+     the outline dilate and using it would inflate every box.
+
+     They are then pulled in a little further on purpose. A box that
+     matches the silhouette exactly leaves a piece perched on the deck
+     with a hairline of daylight under it — the outline dilate is part
+     of that silhouette, and real debris beds into the ground it lands
+     on. Sinking the box is what makes a crate look like it is sitting
+     in the dirt rather than hovering over it. */
+  const INSET_X=0.90, INSET_Y=0.82;
+  const hw=(x1-x0+1)/2*INSET_X, hh=(y1-y0+1)/2*INSET_Y;
   const fill=n/Math.max(1,(x1-x0+1)*(y1-y0+1));
 
   /* Material feel per kind, scaled by how much of the box is solid. */
@@ -591,7 +599,7 @@ function bakeBody(ctx,cx,cy,CW,CH,kind){
     halfW:+hw.toFixed(2), halfH:+hh.toFixed(2),
     centre:{x:+(gx-cxm).toFixed(2),y:+(gy-cym).toFixed(2)},
     fill:+fill.toFixed(3),
-    mass:+(MAT.density*hw*hh*fill*0.02).toFixed(3),
+    mass:+(MAT.density*(hw/INSET_X)*(hh/INSET_Y)*fill*0.02).toFixed(3),
     bounce:MAT.bounce, friction:MAT.fric,
     hp:Math.round(MAT.hp*(0.6+fill*0.7)),
     kind
