@@ -77,7 +77,15 @@ Both paths share two run options:
 - **RESERVE OPERATIVES** (0–6) — how many frozen allies to scatter down the
   level. They stand in stasis, invulnerable and inert, until you walk into one.
 - **FULL AUTOPILOT** — hand the whole run to the AI and watch. `P` toggles it
-  mid-run either way, so you can take over on the boss or hand it back.
+  mid-run either way, so you can take over on the boss or hand it back, and the
+  handover sticks: the next run starts however you left it.
+
+  Under autopilot the game does not stop at the debrief. Five seconds after a run
+  ends — extracted or wiped out — it rolls the next build and deploys it, and
+  keeps going until you press `ESC`. On RANDOMIZE that is a whole new run each
+  time: architecture, palette, operative, boss and prototype. On CUSTOM BUILD it
+  rerolls only the layout seed, so you get fresh terrain every run and every panel
+  you set is still yours.
 
 Your operative's weapon is not cosmetic: the gun MERC FORGE draws in their hands
 is the gun you fire, with its own fire rate, damage, spread, magazine and sound.
@@ -160,8 +168,9 @@ path in both directions, and writes contact sheets to `out/`:
 | `out_crawler_surfaces.png` | one crawler seated on floor, both walls and ceiling |
 
 It also flies two levels end to end on autopilot and fails if either one does
-not reach extraction. That check is the whole feature: an AI that plays well for
-thirty seconds and then stands under a crate for two minutes passes every
+not reach extraction, then flies a chain of three consecutive rolled builds the
+way continuous mode does. That check is the whole feature: an AI that plays well
+for thirty seconds and then stands under a crate for two minutes passes every
 invariant test you can write and is still broken.
 
 Per the MERC FORGE handoff: keep dumping contact sheets. `out_collision.png` in
@@ -225,6 +234,9 @@ first is what makes it read as wrong.
 
 `src/game/pilot.js` is one brain with two jobs. It drives the frozen operatives
 you thaw out, and it drives your own merc when autopilot is on.
+
+Left running, it is also the attract mode: a finished run rolls the next build
+and deploys it, indefinitely.
 
 It does not move anything. It writes into the same input struct a keyboard and
 mouse fill, and the ordinary `Player.step` consumes it. That constraint is the

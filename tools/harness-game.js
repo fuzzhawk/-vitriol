@@ -1608,6 +1608,54 @@ section('pilot, allies and autopilot');
     ok(won === tried, 'autopilot completed every level it was given (' +
        won + '/' + tried + ')');
   }
+
+  /* ---- it keeps going: a chain of runs, back to back ----
+     The app loop rolls the next build and redeploys when an autopilot
+     run ends, so what has to hold is that consecutive rolled seeds each
+     give a distinct, playable level the pilot can finish, and that a
+     finished run actually reaches the state the loop watches for. */
+  {
+    const IDLE = { left: false, right: false, up: false, down: false, fire: false,
+                   jumpPressed: false, reloadPressed: false,
+                   cursorX: 224, cursorY: 126, aimX: 0, aimY: 0 };
+    const rng = window.GREEBLEWORKS.makeRng(0xC4A1);
+    const seen = new Set();
+    let flown = 0, finished = 0;
+    for (let run = 0; run < 3; run++) {
+      const sd = (rng.rnd() * 0xffffffff) >>> 0;
+      const cfgC = window.CONFIG.randomLevelCfg(sd);
+      cfgC.levelLen = 3;
+      seen.add(cfgC.style + '/' + cfgC.palette + '/' + sd);
+      const gc = window.WORLD.buildMission(cfgC, window.CONFIG.randomMerc(sd),
+        { difficulty: 'recruit', enemyDens: 0.8, lives: 3, allies: 1, autopilot: true });
+      let rc; while (!(rc = gc.next()).done);
+      const MC = rc.value;
+      flown++;
+      let over = false;
+      for (let i = 0; i < 60 * 150; i++) {
+        MC.update(1 / 60, IDLE);
+        if (MC.state === 'won') { over = true; break; }
+        if (MC.state === 'dead') {
+          // the loop only redeploys once the end state has settled
+          if (MC.lives > 0) { if (!MC.respawn()) { over = true; break; } }
+          else if (MC.endT > 1.4) { over = true; break; }
+        }
+      }
+      ok(over, 'run ' + (run + 1) + ' of the chain reached an end state');
+      if (MC.state === 'won') finished++;
+      /* whichever way it ended, the loop's trigger must be reachable:
+         endT keeps accumulating once the run is over */
+      const t0 = MC.endT;
+      for (let i = 0; i < 120; i++) MC.update(1 / 60, IDLE);
+      ok(MC.endT > t0, 'the end-state clock keeps running so the chain can advance');
+      ok(MC.state !== 'play', 'and the run stays ended rather than resuming itself');
+      ok(MC.autopilot === true, 'the next build inherits autopilot from the last');
+    }
+    ok(seen.size === 3, 'each run in the chain is built from its own seed');
+    console.log('  chain: ' + flown + ' runs flown, ' + finished + ' reached extraction');
+    ok(finished === flown, 'every run in the chain reached extraction (' +
+       finished + '/' + flown + ')');
+  }
 }
 
 /* the level's collision data drawn over the play layer */

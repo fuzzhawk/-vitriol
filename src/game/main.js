@@ -38,6 +38,8 @@
     protoPreview: null, protoT: 0, protoShots: [],
     mode: 'random',
     tab: 'level',
+    autoNext: 0,          // countdown to the next run under autopilot
+    autoRuns: 0,          // how many it has flown back to back
     lastStats: null,
     panels: { level: null, merc: null, crawler: null, scrap: null, boss: null, proto: null }
   };
@@ -84,6 +86,10 @@
       if (e.code === 'Escape') {
         if (App.state === 'play') pause(true);
         else if (App.state === 'paused') pause(false);
+        else if (App.state === 'debrief' && App.autoNext > 0) {
+          cancelAutoNext();
+          window.AUDIO.play('ui');
+        }
         return;
       }
       if (e.code === 'Enter') {
@@ -105,6 +111,10 @@
         // handing over mid-run: clear the human's held keys so a key
         // still down when the pilot takes over does not fight it
         App.mission.autopilot = !App.mission.autopilot;
+        // a lasting handover: the option, the build screen and the next
+        // run all follow what you just did
+        App.opts.autopilot = App.mission.autopilot;
+        $('autoField').checked = App.mission.autopilot;
         input.left = input.right = input.up = input.down = false;
         input.fire = false;
         App.mission.say(App.mission.autopilot ? 'PILOT HAS CONTROL' : 'MANUAL CONTROL');
@@ -133,6 +143,7 @@
 
   /* ---------------- screen switching ---------------- */
   function show(name) {
+    if (name !== 'debrief') cancelAutoNext();
     App.state = name;
     for (const id of ['scr-title', 'scr-setup', 'scr-load', 'scr-pause', 'scr-debrief']) {
       $(id).classList.toggle('on', id === 'scr-' + name.replace('play', 'none')
@@ -800,8 +811,39 @@
     }
   }
 
+  /* ---------------- continuous autopilot ----------------
+     A full-auto run that stops at the debrief screen is a demo, not an
+     attract mode. When the pilot had control at the end, roll the next
+     build and deploy it — after a beat, so the score is readable. */
+  const AUTO_NEXT = 5.0;
+
+  function cancelAutoNext() {
+    App.autoNext = 0;
+    $('db-auto').classList.remove('on');
+  }
+
+  function autoNextRun() {
+    cancelAutoNext();
+    App.autoRuns++;
+    if (App.mode === 'random') {
+      // a whole new run: level, operative, boss and gun
+      applySeed(rollSeed());
+      $('seedNote').textContent = 'SEEDED';
+      refreshSetup();
+      syncPanels();
+    } else {
+      /* A custom build is somebody's work — rerolling it would throw
+         that away. Reroll only the layout seed, so the terrain is new
+         and every panel they set still holds. */
+      App.cfg.seed = rollSeed();
+      refreshSetup();
+    }
+    deploy();
+  }
+
   function debrief(won) {
     const st = App.mission.stats();
+    const auto = !!App.mission.autopilot;
     App.lastStats = st;
     window.AUDIO.ambience(false);
     show('debrief');
@@ -814,7 +856,17 @@
       row('COMBAT SCORE', st.score) +
       (won ? row('TIME BONUS', st.timeBonus) + row('VITALS BONUS', st.healthBonus) : '') +
       row('FINAL', st.final) +
-      row('BUILD', App.cfg.seed.toString(16).toUpperCase().padStart(8, '0'));
+      row('BUILD', App.cfg.seed.toString(16).toUpperCase().padStart(8, '0')) +
+      (App.autoRuns ? row('AUTOPILOT RUNS', App.autoRuns + 1) : '');
+    if (auto) {
+      App.autoNext = AUTO_NEXT;
+      $('db-auto').classList.add('on');
+      $('db-auto').textContent = 'AUTOPILOT · NEXT BUILD IN ' + Math.ceil(AUTO_NEXT) +
+                                 '  ·  ESC TO STOP';
+    } else {
+      App.autoRuns = 0;
+      cancelAutoNext();
+    }
   }
 
   /* ---------------- loop ---------------- */
@@ -863,10 +915,18 @@
       if (n === 0) { input.jumpPressed = false; input.reloadPressed = false; }
       if (acc > STEP * 4) acc = 0;
 
-      /* Autopilot redeploys itself. "Without player control" has to
-         include the death screen, or a full-auto run ends the first
-         time it takes a bad landing and sits on PRESS ENTER forever. */
-      if (M.autopilot && M.state === 'dead' && M.endT > 1.4) endStep();
+      /* Autopilot clears its own run-end screens. "Without player
+         control" has to include the death screen and the extraction
+         screen, or a full-auto run ends the first time it takes a bad
+         landing and sits on PRESS ENTER forever. */
+      if (M.autopilot && M.state !== 'play' && M.endT > 1.4) endStep();
+    }
+
+    if (App.state === 'debrief' && App.autoNext > 0) {
+      App.autoNext -= dt;
+      if (App.autoNext <= 0) { autoNextRun(); return; }
+      $('db-auto').textContent = 'AUTOPILOT · NEXT BUILD IN ' + Math.ceil(App.autoNext) +
+                                 '  ·  ESC TO STOP';
     }
 
     window.RENDER.frame(M, ctx, App.canvas);

@@ -186,6 +186,10 @@ button{font:inherit;cursor:pointer}
 .card h3.won{color:var(--good)}
 .card h3.lost{color:var(--hot)}
 .card .acts{display:flex;flex-direction:column;gap:7px;margin-top:20px}
+#db-auto{display:none;margin-top:16px;font-size:10px;letter-spacing:3px;color:var(--good);
+         text-align:center;animation:autoblink 1s steps(2,end) infinite}
+#db-auto.on{display:block}
+@keyframes autoblink{0%,60%{opacity:1}61%,100%{opacity:.45}}
 </style>
 </head>
 <body>
@@ -414,6 +418,7 @@ button{font:inherit;cursor:pointer}
   <div class="card">
     <h3 id="db-title">DEBRIEF</h3>
     <div id="db-stats"></div>
+    <div id="db-auto"></div>
     <div class="acts">
       <button id="btn-again" class="big primary">RUN THIS BUILD AGAIN</button>
       <button id="btn-newseed" class="big">NEW BUILD</button>
