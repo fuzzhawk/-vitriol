@@ -215,11 +215,15 @@ button{font:inherit;cursor:pointer}
       <tr><td>LEFT CLICK</td><td>fire</td></tr>
       <tr><td>R</td><td>reload</td></tr>
       <tr><td>ESC</td><td>pause</td></tr>
+      <tr><td>P</td><td>hand over to the pilot, or take back</td></tr>
       <tr><td>M</td><td>mute</td></tr>
     </table>
     <p>Not everything here walks. Crawlers come up walls and across ceilings,
     haul themselves along on tentacles, and leave a trail you can follow back.
     Shoot them and they come apart.</p>
+    <p>Reserve operatives stand frozen along the route. Walk into one to
+    bring it up — it fights with you and draws fire. The same AI can fly
+    the whole run if you would rather watch.</p>
     <p>Crates and rubble are real weight — shoot them and they move, and they
     will stop a bullet meant for you. Some of the garrison has been got at:
     corrupted mercs hover, vent, and take more killing. Something much larger
@@ -353,6 +357,26 @@ button{font:inherit;cursor:pointer}
         </div>
       </div>
 
+      <div>
+        <p class="side-h">RESERVE OPERATIVES</p>
+        <div class="slide-row">
+          <input id="allyField" type="range" min="0" max="6" step="1" value="2">
+          <span id="allyVal">2</span>
+        </div>
+        <p class="pinnote">Frozen in stasis along the level. Walk into one to
+        bring it up; it fights alongside you and draws fire.</p>
+      </div>
+
+      <div>
+        <p class="side-h">PILOT</p>
+        <label class="pinrow">
+          <input id="autoField" type="checkbox">
+          <span>FULL AUTOPILOT</span>
+        </label>
+        <p class="pinnote">The merc AI runs the whole build unassisted — it
+        navigates, fights and extracts. Toggle it mid-run with P.</p>
+      </div>
+
       <div class="side-foot">
         <button id="btn-deploy" class="big primary">DEPLOY</button>
       </div>
@@ -407,6 +431,7 @@ button{font:inherit;cursor:pointer}
 <script src="src/game/weapons.js"></script>
 <script src="src/game/sprite.js"></script>
 <script src="src/game/physics.js"></script>
+<script src="src/game/pilot.js"></script>
 <script src="src/game/rigid.js"></script>
 <script src="src/game/entities.js"></script>
 <script src="src/game/world.js"></script>

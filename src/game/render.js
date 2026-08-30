@@ -64,6 +64,37 @@ window.RENDER = (function () {
 
     for (const g of M.gibs) drawGib(ctx, g, S);
 
+    /* --- allies --- */
+    for (const A of M.allies) {
+      const ax = A.x - S;
+      if (ax < -60 || ax > LV.W + 60) continue;
+      if (A.dead) {
+        if (A.downT > 1.4) continue;
+        ctx.save();
+        ctx.globalAlpha = clamp(1 - A.downT / 1.4, 0, 1) * 0.65;
+        A.rig.draw(ctx, 'crouch', 1, 0, ax, A.y, A.face < 0);
+        ctx.restore();
+        continue;
+      }
+      if (A.frozen) { drawStasis(ctx, A, ax, time); continue; }
+      const blink = A.invuln > 0 && Math.floor(A.invuln * 18) % 2 === 0;
+      if (!blink) drawActor(ctx, A, ax, A.y, A.flash > 0);
+      drawAllyPip(ctx, A, ax);
+      // a just-woken operative flares for a moment
+      if (A.wakeT > 0) {
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        const k = clamp(A.wakeT / 1.0, 0, 1);
+        const r = 8 + (1 - k) * 22;
+        const g = ctx.createRadialGradient(ax, A.y - A.h * 0.5, 0, ax, A.y - A.h * 0.5, r);
+        g.addColorStop(0, hexA(A.rig.params.colVisor, 0.5 * k));
+        g.addColorStop(1, hexA(A.rig.params.colVisor, 0));
+        ctx.fillStyle = g;
+        ctx.fillRect(ax - r, A.y - A.h * 0.5 - r, r * 2, r * 2);
+        ctx.restore();
+      }
+    }
+
     const P = M.player;
     /* The kick-off ring for a second jump. Without a mark at the point
        it happened, an air jump just looks like the physics glitched. */
@@ -252,6 +283,58 @@ window.RENDER = (function () {
       }
       ctx.restore();
     }
+  }
+
+  /* A frozen operative: held in a field, waiting to be touched. */
+  function drawStasis(ctx, A, ax, time) {
+    const col = A.rig.params.colVisor || '#6cf';
+    const pulse = 0.5 + 0.5 * Math.sin(A.shimmer);
+    const h = A.h + 8, w = A.w + 10;
+    const cy = A.y - A.h * 0.5;
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const g = ctx.createLinearGradient(0, A.y - h, 0, A.y);
+    g.addColorStop(0, hexA(col, 0.05 + 0.07 * pulse));
+    g.addColorStop(0.5, hexA(col, 0.14 + 0.10 * pulse));
+    g.addColorStop(1, hexA(col, 0.04));
+    ctx.fillStyle = g;
+    ctx.fillRect(ax - w / 2, A.y - h, w, h);
+    ctx.restore();
+
+    // the merc itself, drained of colour inside the field
+    ctx.save();
+    ctx.globalAlpha = 0.72;
+    A.rig.draw(ctx, 'idle', 0, 0, ax, A.y, false);
+    ctx.restore();
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = 0.14 + 0.10 * pulse;
+    A.rig.draw(ctx, 'idle', 0, 0, ax, A.y, false);
+    ctx.restore();
+
+    // the cage
+    ctx.strokeStyle = hexA(col, 0.55 + 0.25 * pulse);
+    ctx.lineWidth = 1;
+    ctx.strokeRect(Math.round(ax - w / 2) + 0.5, Math.round(A.y - h) + 0.5, w - 1, h - 1);
+    ctx.fillStyle = hexA(col, 0.85);
+    ctx.fillRect(Math.round(ax - w / 2), Math.round(A.y) - 2, w, 2);
+    // scan line travelling up the field
+    const sy = A.y - ((time * 26 + A.shimmer * 9) % h);
+    ctx.fillStyle = hexA(col, 0.35);
+    ctx.fillRect(Math.round(ax - w / 2), Math.round(sy), w, 1);
+  }
+
+  /* Ally health, in the ally's own colour so a glance separates them
+     from the red pips over hostiles. */
+  function drawAllyPip(ctx, A, ax) {
+    if (A.hp >= A.maxHp) return;
+    const w = Math.max(10, A.w + 4), x = Math.round(ax - w / 2);
+    const y = Math.round(A.y - A.h - 6);
+    ctx.fillStyle = 'rgba(8,9,10,.8)';
+    ctx.fillRect(x, y, w, 2);
+    ctx.fillStyle = A.rig.params.colVisor || '#6cf';
+    ctx.fillRect(x, y, Math.round(w * clamp(A.hp / A.maxHp, 0, 1)), 2);
   }
 
   /* Slime pooled on a deck or running down a wall, oriented by the
@@ -633,6 +716,45 @@ window.RENDER = (function () {
       text(ctx, 'PHASE ' + O.phase, LV.W / 2 + bw / 2, by2 - 9, '#8d9aa2', 'right');
     }
 
+    /* squad strip — one chip per operative */
+    if (M.allies.length) {
+      const y2 = 34;
+      M.allies.forEach((A, i) => {
+        const x2 = 6 + i * 13;
+        const col = A.rig.params.colVisor || '#6cf';
+        ctx.fillStyle = 'rgba(8,10,11,.7)';
+        ctx.fillRect(x2, y2, 11, 5);
+        if (A.dead) {
+          ctx.fillStyle = 'rgba(90,40,40,.9)';
+          ctx.fillRect(x2 + 1, y2 + 1, 9, 3);
+        } else if (A.frozen) {
+          // hatched: present but not yours yet
+          ctx.fillStyle = hexA(col, 0.35);
+          for (let k = 0; k < 9; k += 2) ctx.fillRect(x2 + 1 + k, y2 + 1, 1, 3);
+        } else {
+          ctx.fillStyle = hexA(col, 0.9);
+          ctx.fillRect(x2 + 1, y2 + 1, Math.max(1, Math.round(9 * clamp(A.hp / A.maxHp, 0, 1))), 3);
+        }
+      });
+    }
+
+    /* autopilot badge — steps up out of the way when the mission has
+       something to say, since both want the same line */
+    if (M.autopilot) {
+      const blink = 0.6 + 0.4 * Math.sin(time * 4);
+      const y = (M.bannerT > 0 && M.banner) ? LV.H - 54 : LV.H - 42;
+      text(ctx, 'AUTOPILOT', LV.W / 2, y, hexA('#4ad07a', blink), 'center');
+    }
+
+    /* prompt for a stasis pod you are standing next to */
+    if (M.activatePrompt) {
+      const A = M.activatePrompt;
+      const px = A.x - M.scroll;
+      const blink = Math.floor(time * 3) % 2 === 0;
+      if (blink) text(ctx, 'TOUCH TO REVIVE', px, A.y - A.h - 18,
+                      A.rig.params.colVisor || '#6cf', 'center');
+    }
+
     /* pickup / event banner */
     if (M.bannerT > 0 && M.banner) {
       const a = clamp(M.bannerT / 0.5, 0, 1);
@@ -727,5 +849,6 @@ window.RENDER = (function () {
   }
 
   return { frame, entityPass, hud, overlay, text, bar, hexA, FONT,
-           drawCrawler, drawSlime, drawGib, drawBody, drawVapor };
+           drawCrawler, drawSlime, drawGib, drawBody, drawVapor,
+           drawStasis, drawAllyPip };
 })();

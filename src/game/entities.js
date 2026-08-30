@@ -359,6 +359,70 @@ window.ENTITIES = (function () {
   };
 
   /* ============================================================
+     ALLY — a merc you thaw out.
+
+     Mechanically a Player: the same body, the same movement, the same
+     weapon handling. That is deliberate. An ally driven by the pilot
+     through the ordinary Player.step can only do things the player
+     could do, so it never moves in ways the game does not otherwise
+     allow, and any movement fix lands on both at once.
+
+     It stands in stasis until touched. Frozen it is invulnerable and
+     inert; once running it fights and follows.
+     ============================================================ */
+  function Ally(rig, x, y, diff, seed) {
+    Player.call(this, rig, x, y, diff);
+    this.kind = 'ally';
+    this.ally = true;
+    this.frozen = true;
+    this.maxHp = 70; this.hp = 70;
+    this.seed = seed >>> 0;
+    this.slot = (seed & 1) ? 1 : -1;      // which side of the player it holds
+    this.wakeT = 0;
+    this.shimmer = (seed % 628) / 100;
+    this.downT = 0;
+    // its own input, filled by its pilot and consumed by Player.step
+    this.input = {
+      left: false, right: false, up: false, down: false,
+      fire: false, jumpPressed: false, reloadPressed: false,
+      cursorX: 0, cursorY: 0, aimX: 0, aimY: 0
+    };
+  }
+  Ally.prototype = Object.create(Player.prototype);
+  Ally.prototype.constructor = Ally;
+
+  Ally.prototype.thaw = function (out) {
+    if (!this.frozen) return false;
+    this.frozen = false;
+    this.wakeT = 1.0;
+    this.invuln = 1.2;
+    return true;
+  };
+
+  /* Frozen allies do not take damage — they are scenery until you
+     decide otherwise, and a stray round shouldn't rob you of one. */
+  Ally.prototype.hurt = function (n) {
+    if (this.frozen) return false;
+    return Player.prototype.hurt.call(this, n);
+  };
+
+  Ally.prototype.step = function (world, player, dt, out) {
+    if (this.dead) { this.downT += dt; return; }
+    this.shimmer += dt * 2.2;
+    if (this.wakeT > 0) this.wakeT -= dt;
+    if (this.frozen) {
+      // hold position, and hold the pose
+      this.vx = 0; this.vy = 0;
+      this.anim = 'idle'; this.frame = 0;
+      this.local = 0;
+      return;
+    }
+    this.pilot.think(out, this.input, dt);
+    Player.prototype.step.call(this, world, this.input, dt);
+    if (this.y > world.floor) { this.hp = 0; this.dead = true; }
+  };
+
+  /* ============================================================
      ELDRITCH CRAWLER
 
      It does not walk. Each tentacle independently releases, casts for
@@ -859,7 +923,7 @@ window.ENTITIES = (function () {
   };
 
   return {
-    Actor, Player, Enemy, Crawler, Overlord, Bullet, Particle, Pickup,
+    Actor, Player, Ally, Enemy, Crawler, Overlord, Bullet, Particle, Pickup,
     PICKUP_KINDS, MOVE, LIMB, OVER, foldAim, clamp
   };
 })();

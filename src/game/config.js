@@ -48,7 +48,9 @@ window.CONFIG = (function () {
   const RUN_DEFAULTS = {
     difficulty: 'regular',    // recruit | regular | veteran | vitriol
     enemyDens: 1.0,           // multiplier on spawn count
-    lives: 3
+    lives: 3,
+    allies: 2,                // frozen operatives placed through the level
+    autopilot: false          // let the pilot run the whole thing
   };
 
   const DIFFICULTY = {
@@ -381,6 +383,31 @@ window.CONFIG = (function () {
     });
   }
 
+  /* An ally is cut from the same cloth as the player — same build
+     family, different colours — so a squad reads as one unit rather
+     than as strangers who happen to be shooting the same way. */
+  function allyParams(seed, playerParams) {
+    const R = GW.makeRng((seed ^ 0xa11) >>> 0);
+    const base = Object.assign({}, playerParams || defaultMerc());
+    const h = R.range(0, 360);
+    return Object.assign(base, {
+      seed: seed >>> 0,
+      aimRows: 9, runFrames: 8,
+      corrupt: 0,                       // your people are not infected
+      height: GW.clamp(base.height + R.int(-2, 2), 26, 38),
+      helmet: R.pick(['visor', 'full', 'crest']),
+      backpack: R.pick(['tank', 'pack', 'jet']),
+      gun: R.pick(['rifle', 'smg', 'cannon']),
+      pads: R.range(0.3, 0.9),
+      plates: true,
+      colSuit: window.MERCFORGE.hsl(h, 16 + R.range(0, 22), 30 + R.range(0, 12)),
+      colSuit2: window.MERCFORGE.hsl(h + R.range(-12, 12), 20 + R.range(0, 20), 13 + R.range(0, 8)),
+      // a cold accent, so an ally never reads as a hostile at a glance
+      colAccent: window.MERCFORGE.hsl(180 + R.range(-25, 35), 62 + R.range(0, 26), 48 + R.range(0, 12)),
+      colVisor: window.MERCFORGE.hsl(185 + R.range(-20, 30), 76 + R.range(0, 20), 58 + R.range(0, 12))
+    });
+  }
+
   /* The default player merc: the tool's own 'nick' preset, which is
      the build every other proportion was tuned against. */
   function defaultMerc() {
@@ -401,7 +428,7 @@ window.CONFIG = (function () {
   return {
     LEVEL_DEFAULTS, RUN_DEFAULTS, DIFFICULTY,
     STYLE_AFFINITY, STYLE_KEYS, HARSH_PALETTES,
-    ARCHETYPES, archetypeParams, CORRUPT_RATE, defaultMerc, randomMerc,
+    ARCHETYPES, archetypeParams, CORRUPT_RATE, defaultMerc, randomMerc, allyParams,
     CRAWLER_PALETTES, crawlerParams, overlordParams, defaultCrawler,
     SCRAP_PALETTES, scrapParamsFor, tintScrapToLevel,
     randomLevelCfg, applyCityPreset

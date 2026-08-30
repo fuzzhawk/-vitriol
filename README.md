@@ -25,11 +25,15 @@ S              crouch — hold and jump to drop through a catwalk
 MOUSE          aim (full 360°)
 LEFT CLICK     fire
 R              reload
+P              autopilot on / off
 ESC            pause
 M              mute
 ```
 
 Fight east to the extraction pad. A heavy is always posted on it.
+
+Walk into a stasis pod on the way and the operative inside comes online and
+fights alongside you.
 
 ## The two build paths
 
@@ -68,6 +72,13 @@ table, so the tools and the game cannot drift apart. The harness asserts every
 control names a parameter the generator actually reads — a slider wired to
 nothing is silent otherwise.
 
+Both paths share two run options:
+
+- **RESERVE OPERATIVES** (0–6) — how many frozen allies to scatter down the
+  level. They stand in stasis, invulnerable and inert, until you walk into one.
+- **FULL AUTOPILOT** — hand the whole run to the AI and watch. `P` toggles it
+  mid-run either way, so you can take over on the boss or hand it back.
+
 Your operative's weapon is not cosmetic: the gun MERC FORGE draws in their hands
 is the gun you fire, with its own fire rate, damage, spread, magazine and sound.
 
@@ -89,6 +100,7 @@ src/game/
   sprite.js             MERC FORGE sheet consumer (blit / aim row / muzzle)
   physics.js            swept AABB against the generator's `plats` data
   rigid.js              impulse solver for the debris
+  pilot.js              the AI that plays the game — allies and autopilot
   entities.js           player, enemy AI, projectiles, pickups
   world.js              mission build generator + simulation
   render.js             entity pass, HUD, overlays
@@ -128,7 +140,7 @@ Do not hand-edit `src/gen/*.js` — edit the tool and re-extract.
 
 ```bash
 npm install @napi-rs/canvas
-node tools/harness-game.js     # or: npm test — ~14,900 checks + contact sheets in out/
+node tools/harness-game.js     # or: npm test — ~20,600 checks + contact sheets in out/
 node tools/harness.js          # the original MERC FORGE validator
 ```
 
@@ -146,6 +158,11 @@ path in both directions, and writes contact sheets to `out/`:
 | `out_aim.png` | every aim row of the player sheet, -90° to +90° |
 | `out_crawler.png` | crawlers in a level, mid-fight, with slime and chunks |
 | `out_crawler_surfaces.png` | one crawler seated on floor, both walls and ceiling |
+
+It also flies two levels end to end on autopilot and fails if either one does
+not reach extraction. That check is the whole feature: an AI that plays well for
+thirty seconds and then stands under a crate for two minutes passes every
+invariant test you can write and is still broken.
 
 Per the MERC FORGE handoff: keep dumping contact sheets. `out_collision.png` in
 particular is the one that catches layout bugs — misaligned collision is
@@ -203,6 +220,49 @@ has been got at scales with difficulty, from 18% on recruit to 62% on vitriol.
 The vapour is drawn in two passes — a dark body that eats light, then a dim red
 core inside it. Smoke that only added light read as steam; taking light out
 first is what makes it read as wrong.
+
+## The pilot
+
+`src/game/pilot.js` is one brain with two jobs. It drives the frozen operatives
+you thaw out, and it drives your own merc when autopilot is on.
+
+It does not move anything. It writes into the same input struct a keyboard and
+mouse fill, and the ordinary `Player.step` consumes it. That constraint is the
+whole design: anything the AI can do is by construction something a player could
+have done, allies and the autopilot can never drift apart, and every movement fix
+lands on both at once. An `Ally` is literally a `Player` subclass — same body,
+same physics, same weapon handling — with a pilot on the stick.
+
+Navigation is reactive, not planned. These levels are a ribbon of decks with pits
+between them, so probing a short way ahead against the same `plats` data the
+physics uses gets a body from one end to the other without a pathfinder — and a
+reactive pilot recovers from being knocked off a ledge, which a baked path does
+not. It leads its shots by time-of-flight, holds a reaction delay so it plays
+like an opponent rather than a turret, and jitters its aim by range.
+
+Most of the work was not in making it play well. It was in the four ways a
+reactive pilot stops dead, each of which passed every unit test and lost the run:
+
+- **A goal directly overhead.** With the destination almost straight up, the
+  horizontal error falls inside the arrive radius, the travel direction goes to
+  zero, and a jump gated on having a direction never fires. The body stands under
+  the deck it wants for the rest of the level.
+- **A terrace read as a pit.** The floor probe searched downward from the feet,
+  so a deck one step *up* returned nothing and scored as a hole. The pilot
+  bunny-hopped the length of every terraced level and threw itself into the gaps
+  it was trying to clear.
+- **A standoff limit cycle.** Backing off from something in your face, then
+  closing again the moment it is out of range, is a stable orbit. A timer that
+  decayed on the closing half never tripped, and the run ended two hundred pixels
+  from where it started. The give-up timer now counts the whole time the threat is
+  near, and stuck detection measures progress over a window rather than frame to
+  frame, because a body oscillating across two pixels is as stuck as one pinned
+  against a wall.
+- **A one-way deck over nothing.** Dropping through a catwalk because the exit
+  happens to be lower than the catwalk is a long fall onto no floor at all.
+
+None of these are visible in code review and all of them are obvious the moment
+you make the harness fly a whole level and fail if it does not arrive.
 
 ## Design notes
 

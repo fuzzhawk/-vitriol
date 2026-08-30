@@ -100,6 +100,16 @@
       }
       if (e.code === 'KeyR') input.reloadPressed = true;
       if (e.code === 'KeyM') toggleSound();
+      if (e.code === 'KeyP' && App.mission &&
+          (App.state === 'play' || App.state === 'paused')) {
+        // handing over mid-run: clear the human's held keys so a key
+        // still down when the pilot takes over does not fight it
+        App.mission.autopilot = !App.mission.autopilot;
+        input.left = input.right = input.up = input.down = false;
+        input.fire = false;
+        App.mission.say(App.mission.autopilot ? 'PILOT HAS CONTROL' : 'MANUAL CONTROL');
+        window.AUDIO.play('uiBig');
+      }
     });
     window.addEventListener('keyup', e => {
       if (KEYMAP[e.code]) input[KEYMAP[e.code]] = false;
@@ -251,12 +261,17 @@
       row('WEATHER', App.cfg.weather === 'auto' ? 'auto' : App.cfg.weather) +
       row('OPERATIVE', App.merc.height + 'px · ' + App.merc.helmet + ' · ' + App.merc.backpack) +
       row('LOADOUT', w ? w.label : App.merc.gun) +
-      row('CRAWLERS', (C.CRAWLER_PALETTES[App.cfg.style] || ['assorted']).join(' / '));
+      row('CRAWLERS', (C.CRAWLER_PALETTES[App.cfg.style] || ['assorted']).join(' / ')) +
+      row('RESERVES', App.opts.allies + ' frozen operative' + (App.opts.allies === 1 ? '' : 's')) +
+      row('PILOT', App.opts.autopilot ? 'FULL AUTOPILOT' : 'manual');
 
     for (const k in C.DIFFICULTY) {
       const b = $('d-' + k);
       if (b) b.classList.toggle('on', App.opts.difficulty === k);
     }
+    $('allyField').value = App.opts.allies;
+    $('allyVal').textContent = App.opts.allies;
+    $('autoField').checked = !!App.opts.autopilot;
     $('t-seed').textContent = 'BUILD ' + App.cfg.seed.toString(16).toUpperCase().padStart(8, '0');
   }
 
@@ -847,6 +862,11 @@
       }
       if (n === 0) { input.jumpPressed = false; input.reloadPressed = false; }
       if (acc > STEP * 4) acc = 0;
+
+      /* Autopilot redeploys itself. "Without player control" has to
+         include the death screen, or a full-auto run ends the first
+         time it takes a bad landing and sits on PRESS ENTER forever. */
+      if (M.autopilot && M.state === 'dead' && M.endT > 1.4) endStep();
     }
 
     window.RENDER.frame(M, ctx, App.canvas);
@@ -1004,6 +1024,16 @@
     $('densField').oninput = e => {
       App.opts.enemyDens = +e.target.value;
       $('densVal').textContent = (+e.target.value).toFixed(2) + '×';
+    };
+    $('allyField').oninput = e => {
+      App.opts.allies = +e.target.value;
+      $('allyVal').textContent = e.target.value;
+      refreshSetup();
+    };
+    $('autoField').onchange = e => {
+      App.opts.autopilot = e.target.checked;
+      window.AUDIO.play('ui');
+      refreshSetup();
     };
 
     $('tab-level').onclick = () => setTab('level');

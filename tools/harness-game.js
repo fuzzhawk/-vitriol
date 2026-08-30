@@ -42,7 +42,8 @@ const FILES = [
   'src/gen/greebleworks.js', 'src/gen/mercforge.js', 'src/gen/crawlerforge.js',
   'src/gen/scrapforge.js',
   'src/game/config.js', 'src/game/audio.js', 'src/game/weapons.js',
-  'src/game/sprite.js', 'src/game/physics.js', 'src/game/rigid.js', 'src/game/entities.js',
+  'src/game/sprite.js', 'src/game/physics.js', 'src/game/rigid.js',
+  'src/game/pilot.js', 'src/game/entities.js',
   'src/game/world.js', 'src/game/render.js', 'src/game/screens.js'
 ];
 for (const f of FILES) require(path.join(ROOT, f));
@@ -74,7 +75,7 @@ ok(window.CRAWLERFORGE.ORIENTS.length === 4, '4 surface orientations');
 ok(Object.keys(GW.STYLES).length === 14, '14 facade styles');
 ok(Object.keys(GW.SKYMOODS).length === 15, '15 sky moods');
 ok(Object.keys(GW.CITY_PRESETS).length === 15, '15 city presets');
-for (const m of ['CONFIG', 'WEAPONS', 'SPRITE', 'PHYSICS', 'RIGID', 'ENTITIES', 'WORLD', 'RENDER', 'SCREENS', 'AUDIO']) {
+for (const m of ['CONFIG', 'WEAPONS', 'SPRITE', 'PHYSICS', 'RIGID', 'PILOT', 'ENTITIES', 'WORLD', 'RENDER', 'SCREENS', 'AUDIO']) {
   ok(!!window[m], 'window.' + m + ' present');
 }
 
@@ -1407,6 +1408,205 @@ section('overlord + corruption');
       MB.stepCrush(1 / 60);
       ok(MB.player.hp < 100, 'a thrown body hurts the player');
     }
+  }
+}
+
+section('pilot, allies and autopilot');
+{
+  /* ---- navigation probes, against real terrain ---- */
+  {
+    const A = { x: 100, y: 200, w: 12, h: 30, vx: 0, vy: 0, ground: true,
+                face: 1, airJumps: 1, dead: false, weapon: { def: { speed: 7 } } };
+    const pil = new window.PILOT.Pilot(A, {});
+    // a fake world made of two terraces and a pit, so the probes have
+    // something with a known answer to read
+    const plats = [
+      { x: 0,   w: 120, y: 200, ground: true },
+      { x: 120, w: 120, y: 184, ground: true },   // one step UP
+      { x: 300, w: 200, y: 200, ground: true }    // after a 60px pit
+    ];
+    const fake = {
+      world: {
+        groundUnder(x, y) {
+          let best = null;
+          for (const p of plats) {
+            if (x < p.x || x > p.x + p.w) continue;
+            if (p.y >= y - 1 && (!best || p.y < best.y)) best = p;
+          }
+          return best;
+        },
+        solidAt(x, y) {
+          for (const p of plats) {
+            if (x < p.x || x > p.x + p.w) continue;
+            if (y >= p.y && y <= p.y + 400) return p;
+          }
+          return null;
+        },
+        canSee: () => true
+      },
+      enemies: [], pickups: [], exit: { x: 460, y: 200 }, player: A, scroll: 0
+    };
+    A.x = 110;
+    ok(!!pil.floorAt(fake, 130, A.y - 2),
+       'a terrace one step up reads as floor, not a hole');
+    ok(pil.gapAhead(fake, 1) === 0, 'stepping up is not reported as a gap');
+    A.x = 235;
+    ok(pil.gapAhead(fake, 1) > 30, 'a real pit is reported as a gap (' +
+       pil.gapAhead(fake, 1) + ')');
+    A.x = 110; A.y = 200;
+    ok(pil.climbDir(fake, 184) === 1, 'the climb probe points at the higher deck');
+
+    /* a body standing directly under its goal must still try to get up
+       there — this is the stall that stopped the first autopilot dead */
+    const inp = { cursorX: 0, cursorY: 0 };
+    fake.pickups = [{ x: 112, y: 150, taken: false }];
+    A.x = 112; A.y = 200; A.ground = true;
+    let jumped = false;
+    for (let i = 0; i < 40 && !jumped; i++) {
+      pil.jumpCool = 0;
+      pil.think(fake, inp, 1 / 60);
+      if (inp.jumpPressed) jumped = true;
+    }
+    ok(jumped, 'a goal directly overhead makes it jump rather than stand there');
+
+    /* and it must give up on one it cannot reach */
+    const far = { x: 112, y: -400, taken: false };
+    fake.pickups = [far];
+    pil.skip.clear();
+    for (let i = 0; i < 60 * 6; i++) pil.think(fake, inp, 1 / 60);
+    ok(pil.skip.has(far) || pil.goal.x === fake.exit.x,
+       'an unreachable pickup is abandoned instead of chased forever');
+  }
+
+  /* ---- allies ---- */
+  const cfgA = window.CONFIG.randomLevelCfg(0xA11);
+  cfgA.levelLen = 3;
+  const ga = window.WORLD.buildMission(cfgA, merc,
+    { difficulty: 'recruit', enemyDens: 0.8, lives: 3, allies: 3 });
+  let ra; while (!(ra = ga.next()).done);
+  const MA = ra.value;
+
+  ok(MA.allies.length === 3, 'the reserve slider decides the squad size (' +
+     MA.allies.length + ')');
+  ok(MA.allies.every(A => A.frozen), 'allies start frozen in stasis');
+  ok(MA.allies.every(A => A.pilot instanceof window.PILOT.Pilot),
+     'every ally is driven by the same brain the autopilot uses');
+  for (const A of MA.allies) {
+    const g = MA.world.groundUnder(A.x, A.y - 1, true);
+    ok(g && Math.abs(g.y - A.y) < 2, 'an ally is stood on real ground');
+    ok(A.x > MA.player.x + 100 && A.x < MA.exit.x,
+       'allies are spread down the level, not stacked at the door');
+  }
+  {
+    const xs = MA.allies.map(A => A.x).sort((a, b) => a - b);
+    ok(xs[xs.length - 1] - xs[0] > 200, 'the squad is spread out (' +
+       Math.round(xs[xs.length - 1] - xs[0]) + 'px apart)');
+  }
+
+  /* frozen is frozen: no damage, no shooting, no walking */
+  {
+    const A = MA.allies[0];
+    const hp0 = A.hp, x0 = A.x;
+    ok(A.hurt(50) === false, 'a frozen ally cannot be hurt');
+    ok(A.hp === hp0, 'and takes no damage from the attempt');
+    const bulletsBefore = MA.bullets.length;
+    MA.player.x = A.x - 900;              // well out of touch range
+    for (let i = 0; i < 60; i++) MA.stepAllies(1 / 60);
+    ok(Math.abs(A.x - x0) < 1.5, 'a frozen ally holds its pod');
+    ok(MA.bullets.length === bulletsBefore, 'and does not open fire');
+    ok(A.frozen, 'and stays frozen with nobody near it');
+  }
+
+  /* walking up to one thaws it, and the prompt appears before that */
+  {
+    const A = MA.allies[1];
+    const gp = MA.world.groundUnder(A.x - 50, 0, true);
+    MA.player.x = A.x - 50;
+    if (gp) MA.player.y = gp.y;
+    MA.player.dead = false;
+    MA.stepAllies(1 / 60);
+    ok(MA.activatePrompt === A, 'standing near a pod offers the revive prompt');
+    MA.player.x = A.x;
+    MA.player.y = A.y;
+    MA.stepAllies(1 / 60);
+    ok(!A.frozen, 'touching the pod brings the operative online');
+    ok(A.invuln > 0, 'it comes up with a moment of grace, not into a bullet');
+    A.invuln = 0;
+    ok(A.hurt(5) !== false, 'once that lapses it is a real body that can be hurt');
+    ok(A.maxHp > 0 && A.hp > 0, 'and comes up alive');
+  }
+
+  /* a woken ally follows, fights, and draws fire */
+  {
+    const A = MA.allies[1];
+    A.hp = A.maxHp;
+    const P = MA.player;
+    let fired = 0, moved = 0, targeted = 0;
+    const lastX = A.x;
+    const inp = { left: false, right: false, up: false, down: false, fire: false,
+                  jumpPressed: false, reloadPressed: false,
+                  cursorX: 224, cursorY: 126, aimX: 0, aimY: 0 };
+    // drop a hostile in front of the pair so there is something to do
+    const foe = MA.enemies.find(e => !e.dead);
+    if (foe) {
+      const gf = MA.world.groundUnder(A.x + 120, 0, true);
+      foe.x = A.x + 120; if (gf) foe.y = gf.y;
+      foe.dead = false; foe.hp = foe.maxHp;
+    }
+    for (let i = 0; i < 60 * 8; i++) {
+      A.hp = A.maxHp; P.hp = 100;         // keep both on their feet
+      if (foe) foe.hp = foe.maxHp;
+      const before = MA.bullets.length;
+      MA.update(1 / 60, inp);
+      if (MA.bullets.length > before) fired++;
+      if (Math.abs(A.x - lastX) > 12) moved++;
+      if (foe && MA.threatFor(foe) === A) targeted++;
+      ok(Number.isFinite(A.x) && Number.isFinite(A.y), 'ally position stayed finite');
+    }
+    ok(moved > 0, 'a woken ally moves with the squad');
+    ok(fired > 0, 'a woken ally puts rounds downrange');
+    ok(!A.frozen && !A.dead, 'and survives a quiet eight seconds');
+    if (foe) ok(targeted > 0, 'hostiles will shoot at an ally, not only the player');
+  }
+
+  /* ---- autopilot completes a level ---- */
+  {
+    const IDLE = { left: false, right: false, up: false, down: false, fire: false,
+                   jumpPressed: false, reloadPressed: false,
+                   cursorX: 224, cursorY: 126, aimX: 0, aimY: 0 };
+    let won = 0, tried = 0;
+    for (const sd of [0x51, 0x9E]) {
+      const cfgP = window.CONFIG.randomLevelCfg(sd);
+      cfgP.levelLen = 3;
+      const gp2 = window.WORLD.buildMission(cfgP, window.CONFIG.randomMerc(sd),
+        { difficulty: 'recruit', enemyDens: 0.8, lives: 9, allies: 2, autopilot: true });
+      let rp; while (!(rp = gp2.next()).done);
+      const MP = rp.value;
+      ok(MP.autopilot === true, 'the mission knows it is flying itself');
+      ok(MP.pilot instanceof window.PILOT.Pilot, 'and has a pilot to do it');
+      const startX = MP.player.x;
+      let maxX = startX, deaths = 0, held = 0;
+      for (let i = 0; i < 60 * 150; i++) {
+        MP.update(1 / 60, IDLE);
+        maxX = Math.max(maxX, MP.player.x);
+        // the human's input struct must be left alone while it flies
+        if (IDLE.right || IDLE.left || IDLE.jumpPressed) held++;
+        if (MP.state === 'dead') { deaths++; if (!MP.respawn()) break; }
+        if (MP.state === 'won') break;
+      }
+      ok(held === 0, 'autopilot never writes into the human input struct');
+      const prog = (maxX - startX) / (MP.L.LW - startX);
+      console.log('  autopilot seed ' + sd.toString(16) + ': ' + MP.state +
+                  ' at ' + (prog * 100).toFixed(0) + '%, ' + deaths + ' deaths, ' +
+                  MP.kills + '/' + MP.totalEnemies + ' killed');
+      tried++;
+      if (MP.state === 'won') won++;
+      else ok(false, 'autopilot reached extraction on seed ' + sd.toString(16) +
+                     ' (got ' + MP.state + ' at ' + (prog * 100).toFixed(0) + '%)');
+      ok(MP.kills > 0, 'autopilot fought its way there');
+    }
+    ok(won === tried, 'autopilot completed every level it was given (' +
+       won + '/' + tried + ')');
   }
 }
 

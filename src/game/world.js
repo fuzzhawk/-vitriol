@@ -81,6 +81,19 @@ window.WORLD = (function () {
     const scrap = window.CONFIG.tintScrapToLevel(
       window.SCRAPFORGE.forgeSet(scrapSeed, { params: scrapParams }), cfg);
 
+    /* ---- 4b. allies ----
+       Two rigs shared across however many are placed; a squad that all
+       look identical reads as clones, two silhouettes reads as a unit. */
+    const allyCount = Math.max(0, Math.min(6, Math.round(opts.allies === undefined ? 2 : opts.allies)));
+    const allyRigs = [];
+    if (allyCount > 0) {
+      for (let v = 0; v < Math.min(2, allyCount); v++) {
+        yield { phase: 'rigs', weight: 0.05, msg: 'thawing reserve operative ' + (v + 1) };
+        allyRigs.push(new window.SPRITE.Rig(
+          window.CONFIG.allyParams((cfg.seed + v * 31337) >>> 0, mercParams)));
+      }
+    }
+
     /* ---- 5. the prototype ----
        One rolled weapon per run, and a second player rig holding it, so
        picking it up swaps the sprite instead of stalling the frame on a
@@ -99,13 +112,13 @@ window.WORLD = (function () {
 
     yield { phase: 'deploy', msg: 'deploying hostiles', weight: 0.02 };
     const M = new Mission(L, cfg, playerRig, rigs, mix, diff, opts, rng, scrap,
-                          overlordRig, proto, protoRig);
+                          overlordRig, proto, protoRig, allyRigs, allyCount);
     return M;
   }
 
   /* ---------------- mission ---------------- */
   function Mission(L, cfg, playerRig, rigs, mix, diff, opts, rng, scrap,
-                   overlordRig, proto, protoRig) {
+                   overlordRig, proto, protoRig, allyRigs, allyCount) {
     this.L = L; this.cfg = cfg; this.diff = diff; this.opts = opts;
     this.world = new window.PHYSICS.World(L.plats);
     this.rigs = rigs;
@@ -139,8 +152,19 @@ window.WORLD = (function () {
     this.protoRig = protoRig || null;
     this.overlord = null;
     this.bossBanner = 0;
+    this.allies = [];
+    this.allyRigs = allyRigs || [];
+    this.autopilot = !!opts.autopilot;
+    this.pilot = new window.PILOT.Pilot(this.player, {});
+    this.pilotInput = {
+      left: false, right: false, up: false, down: false,
+      fire: false, jumpPressed: false, reloadPressed: false,
+      cursorX: 0, cursorY: 0, aimX: 0, aimY: 0
+    };
+    this.activatePrompt = null;
     if (overlordRig) this.placeOverlord();
     if (proto) this.placeProto();
+    if (this.allyRigs.length && allyCount > 0) this.placeAllies(allyCount, rng);
     this.spawnEnemies(mix, rng);
 
     this.scroll = 0;
@@ -368,6 +392,118 @@ window.WORLD = (function () {
     this.protoPickup = p;
   };
 
+  /* ---------------- allies ----------------
+     Frozen mercs, spread along the level so you meet them as you go
+     rather than collecting a squad at the door. */
+  Mission.prototype.placeAllies = function (n, rng) {
+    const runs = this.ground.filter(r => r.w >= 50 && r.x > this.player.x + 140 &&
+                                         r.x < this.exit.x - 120);
+    if (!runs.length) return;
+    // spread them across the level's length rather than clustering
+    for (let i = 0; i < n; i++) {
+      const want = this.player.x + (this.exit.x - this.player.x) * ((i + 0.6) / (n + 0.4));
+      let best = null, bd = 1e9;
+      for (const r of runs) {
+        const cx = clamp(want, r.x + 18, r.x + r.w - 18);
+        const d = Math.abs(cx - want);
+        if (d < bd) { bd = d; best = { x: cx, y: r.y }; }
+      }
+      if (!best) continue;
+      const rig = this.allyRigs[i % this.allyRigs.length];
+      const A = new E.Ally(rig, best.x, best.y, this.diff, (this.cfg.seed + i * 90001) >>> 0);
+      A.slot = (i % 2) ? 1 : -1;
+      A.pilot = new window.PILOT.Pilot(A, { follow: true, slot: A.slot });
+      this.allies.push(A);
+    }
+  };
+
+  Mission.prototype.stepAllies = function (dt) {
+    const P = this.player;
+    this.activatePrompt = null;
+    for (const A of this.allies) {
+      if (A.dead) { A.downT += dt; continue; }
+      if (A.frozen) {
+        A.step(this.world, P, dt, this);
+        // touching a stasis pod brings it up
+        if (!P.dead && Math.abs(A.x - P.x) < A.w + P.w && Math.abs(A.y - P.y) < A.h) {
+          if (A.thaw(this)) {
+            this.say('OPERATIVE ONLINE');
+            this.shake = Math.min(4, this.shake + 1.2);
+            window.AUDIO.play('extract');
+            for (let i = 0; i < 18; i++) {
+              const a2 = Math.random() * TAU, sp = 0.6 + Math.random() * 2;
+              this.parts.push(new E.Particle(A.x, A.y - A.h * 0.5,
+                Math.cos(a2) * sp, Math.sin(a2) * sp, 0.3 + Math.random() * 0.4,
+                A.rig.params.colVisor || '#8cf', 0.04));
+            }
+          }
+        } else if (!P.dead && Math.abs(A.x - P.x) < 70 && Math.abs(A.y - P.y) < 60) {
+          this.activatePrompt = A;
+        }
+        continue;
+      }
+      // culled like anything else once it is a long way off screen
+      if (Math.abs(A.x - (this.scroll + LV.W / 2)) > LV.W * 1.6) continue;
+      A.step(this.world, P, dt, this);
+      this.allyFire(A, dt);
+      // it picks things up too
+      for (let i = this.pickups.length - 1; i >= 0; i--) {
+        const p = this.pickups[i];
+        if (p.shrine) continue;                     // the prototype is yours
+        if (Math.abs(p.x - A.x) < 12 && Math.abs(p.y - (A.y - A.h * 0.4)) < 20) {
+          if (p.kind === 'health') A.hp = Math.min(A.maxHp, A.hp + p.payload);
+          else A.weapon.ammo = A.weapon.def.mag;
+          this.pickups.splice(i, 1);
+          window.AUDIO.play('pickup', null, this.distTo(A.x));
+        }
+      }
+    }
+  };
+
+  /* Allies shoot through the same path the player does, so their
+     rounds behave identically — including a rolled prototype if that
+     is what they are holding. */
+  Mission.prototype.allyFire = function (A, dt) {
+    const W = A.weapon;
+    W.cool -= dt;
+    if (W.reloading > 0) {
+      W.reloading -= dt;
+      if (W.reloading <= 0) W.ammo = W.def.mag;
+      return;
+    }
+    if (W.ammo <= 0) { W.reloading = W.def.reload; return; }
+    if (!A.input.fire || W.cool > 0) return;
+    W.cool = W.def.rate;
+    W.ammo--;
+    A.kick = 1;
+    const m = A.muzzle();
+    const tint = W.def.tint || A.rig.params.colVisor;
+    const n = W.def.count || 1;
+    for (let k = 0; k < n; k++) {
+      const off = n === 1 ? (Math.random() - 0.5) * 2
+                          : ((k / (n - 1)) - 0.5) * 2 + (Math.random() - 0.5) * 0.4;
+      this.bullets.push(new E.Bullet(m.x, m.y, A.aim + W.def.spread * off, W.def, true, tint));
+    }
+    this.flashes.push({ x: m.x, y: m.y, life: 0.06, r: 8, c: tint });
+    window.AUDIO.play('shot', W.def.tone, this.distTo(A.x));
+  };
+
+  /* The nearest thing a hostile should be shooting at. An ally that
+     hostiles ignore is a spectator, not a squadmate. */
+  Mission.prototype.threatFor = function (e) {
+    const P = this.player;
+    let best = P.dead ? null : P, bd = P.dead ? 1e9
+      : (P.x - e.x) * (P.x - e.x) + (P.y - e.y) * (P.y - e.y);
+    for (const A of this.allies) {
+      if (A.dead || A.frozen) continue;
+      const d = (A.x - e.x) * (A.x - e.x) + (A.y - e.y) * (A.y - e.y);
+      // a small bias to the player, so allies draw fire without
+      // becoming a way to ignore the fight entirely
+      if (d * 1.35 < bd) { bd = d * 1.35; best = A; }
+    }
+    return best || P;
+  };
+
   /* ---------------- demonic vapour ---------------- */
   Mission.prototype.vapor = function (x, y, scale) {
     if (this.vapors.length > 260) this.vapors.shift();
@@ -479,16 +615,28 @@ window.WORLD = (function () {
     const P = this.player;
 
     if (this.state === 'play' && !P.dead) {
-      /* aim target in world space */
-      input.aimX = input.cursorX + this.scroll;
-      input.aimY = input.cursorY;
-      P.step(this.world, input, dt);
+      /* On autopilot the pilot fills a struct of the same shape and
+         the ordinary player path consumes it — so nothing downstream
+         knows or cares who is flying. */
+      let inUse = input;
+      if (this.autopilot) {
+        this.pilot.think(this, this.pilotInput, dt);
+        inUse = this.pilotInput;
+        // keep the camera looking where the pilot is aiming
+        this.cursorX = inUse.cursorX;
+        this.cursorY = inUse.cursorY;
+      } else {
+        input.aimX = input.cursorX + this.scroll;
+        input.aimY = input.cursorY;
+      }
+      this.autoInput = inUse;
+      P.step(this.world, inUse, dt);
       if (P.y > this.world.floor) {           // pit
         P.hp = 0; P.dead = true;
         window.AUDIO.play('die');
       }
       P.x = clamp(P.x, 8, this.L.LW - 8);
-      this.fire(input, dt);
+      this.fire(this.autoInput || input, dt);
     } else if (P.dead && this.state === 'play') {
       this.state = 'dead'; this.endT = 0;
     }
@@ -499,7 +647,7 @@ window.WORLD = (function () {
       // Only simulate what's near the view; the rest hold position.
       // The boss is never culled: it owns the arena you are fighting in.
       if (!e.boss && Math.abs(e.x - (this.scroll + LV.W / 2)) > LV.W * 1.35) continue;
-      e.step(this.world, P, dt, this);
+      e.step(this.world, this.threatFor(e), dt, this);
       /* Corrupted mercs vent, and ride a little off the deck. The lift
          is cosmetic — it is applied at draw time, not to the collision
          position — so the thing you shoot at is still where it stands. */
@@ -523,6 +671,7 @@ window.WORLD = (function () {
       }
     }
 
+    this.stepAllies(dt);
     this.stepBullets(dt);
     this.stepParticles(dt);
     this.stepPickups(dt);
@@ -546,7 +695,8 @@ window.WORLD = (function () {
     if (this.state !== 'play') this.endT += dt;
 
     /* camera: lead the player, bias toward the cursor, clamp to level */
-    const target = P.x - LV.W / 2 + (input.cursorX - LV.W / 2) * 0.20;
+    const cx = this.autopilot && this.autoInput ? this.autoInput.cursorX : input.cursorX;
+    const target = P.x - LV.W / 2 + (cx - LV.W / 2) * 0.20;
     this.scroll += (target - this.scroll) * Math.min(1, 0.12 * dt * 60);
     this.scroll = clamp(this.scroll, 0, Math.max(0, this.L.LW - LV.W));
     this.shake *= 0.86;
@@ -708,14 +858,32 @@ window.WORLD = (function () {
               break;
             }
           }
-        } else if (!P.dead &&
-            Math.abs(b.x - P.x) < P.w * 0.6 + b.size && b.y > P.y - P.h && b.y < P.y + 2) {
-          if (P.hurt(b.dmg * 3.2)) {
-            this.hitFlash = 0.3;
-            this.shake = Math.min(5, this.shake + 1.1);
+        } else {
+          /* Hostile fire. Allies are shot at on the same terms the
+             player is — a squadmate that rounds pass through is not
+             in the fight. */
+          let hitWho = null;
+          if (!P.dead && Math.abs(b.x - P.x) < P.w * 0.6 + b.size &&
+              b.y > P.y - P.h && b.y < P.y + 2) hitWho = P;
+          if (!hitWho) {
+            for (const A of this.allies) {
+              if (A.dead || A.frozen) continue;
+              if (Math.abs(b.x - A.x) < A.w * 0.6 + b.size &&
+                  b.y > A.y - A.h && b.y < A.y + 2) { hitWho = A; break; }
+            }
           }
-          this.impact(b, -b.vx, -b.vy);
-          this.bullets.splice(i, 1); removed = true;
+          if (hitWho) {
+            if (hitWho.hurt(b.dmg * 3.2)) {
+              if (hitWho === P) {
+                this.hitFlash = 0.3;
+                this.shake = Math.min(5, this.shake + 1.1);
+              } else if (hitWho.dead) {
+                this.say('OPERATIVE DOWN');
+              }
+            }
+            this.impact(b, -b.vx, -b.vy);
+            this.bullets.splice(i, 1); removed = true;
+          }
         }
       }
       if (!removed && b.life <= 0) this.bullets.splice(i, 1);
@@ -746,7 +914,11 @@ window.WORLD = (function () {
     const r = Math.random();
     if (r < 0.16) this.pickups.push(new E.Pickup(e.x, e.y - 4, 'health', 30));
     else if (r < 0.42) this.pickups.push(new E.Pickup(e.x, e.y - 4, 'ammo', null));
-    else if (r < 0.52) this.pickups.push(new E.Pickup(e.x, e.y - 4, 'weapon', e.rig.gun));
+    // Crawlers and the overlord carry no gun, so their rig has no
+    // `gun` to drop — give up the weapon roll rather than a pickup
+    // that names a weapon that does not exist.
+    else if (r < 0.52 && window.WEAPONS.table[e.rig.gun])
+      this.pickups.push(new E.Pickup(e.x, e.y - 4, 'weapon', e.rig.gun));
   };
 
   Mission.prototype.stepPickups = function (dt) {
@@ -918,6 +1090,13 @@ window.WORLD = (function () {
     this.gibs.length = 0;
     this.vapors.length = 0;
     for (const b of this.rigid.bodies) { b.dangerT = 0; b.thrownBy = null; }
+    // bring the squad back with you rather than leaving them mid-level
+    for (const A of this.allies) {
+      if (A.frozen || A.dead) continue;
+      A.x = P.x + A.slot * 22; A.y = P.y;
+      A.vx = 0; A.vy = 0; A.invuln = 1.5;
+      A.hp = Math.max(A.hp, A.maxHp * 0.5);
+    }
     // Let anything that was chasing lose the thread.
     for (const e of this.enemies) if (!e.dead) { e.alerted = false; e.state = 'patrol'; e.burst = 0; }
     this.say('RESPAWN');
@@ -930,6 +1109,10 @@ window.WORLD = (function () {
     const healthBonus = Math.round(P.hp * 8);
     return {
       kills: this.kills, total: this.totalEnemies,
+      alliesWoken: this.allies.filter(a => !a.frozen).length,
+      alliesAlive: this.allies.filter(a => !a.frozen && !a.dead).length,
+      allies: this.allies.length,
+      autopilot: this.autopilot,
       time: this.time, score: P.score,
       timeBonus, healthBonus,
       final: P.score + (this.state === 'won' ? timeBonus + healthBonus : 0),
