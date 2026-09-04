@@ -246,6 +246,7 @@ button{font:inherit;cursor:pointer}
     <h2>BUILD</h2>
     <div class="seg">
       <button id="m-random" class="on">RANDOMIZE</button>
+      <button id="m-campaign">CAMPAIGN</button>
       <button id="m-custom">CUSTOM BUILD</button>
     </div>
     <div class="field">
@@ -371,6 +372,17 @@ button{font:inherit;cursor:pointer}
         bring it up; it fights alongside you and draws fire.</p>
       </div>
 
+      <div id="campaignWrap">
+        <p class="side-h">CAMPAIGN LENGTH</p>
+        <div class="slide-row">
+          <input id="sectorField" type="range" min="2" max="12" step="1" value="8">
+          <span id="sectorVal">8</span>
+        </div>
+        <p class="pinnote">A string of sectors from one seed, each deeper and
+        harder than the last. Your operative and everything in their hands
+        carries through; the place does not.</p>
+      </div>
+
       <div>
         <p class="side-h">PILOT</p>
         <label class="pinrow">
@@ -436,6 +448,8 @@ button{font:inherit;cursor:pointer}
 <script src="src/game/weapons.js"></script>
 <script src="src/game/sprite.js"></script>
 <script src="src/game/physics.js"></script>
+<script src="src/game/dialog.js"></script>
+<script src="src/game/campaign.js"></script>
 <script src="src/game/pilot.js"></script>
 <script src="src/game/rigid.js"></script>
 <script src="src/game/entities.js"></script>

@@ -46,6 +46,31 @@ const P={
   outline:true, shading:true, aimRows:9, previewFps:12
 };
 
+/* The weapon roster's silhouettes. Above CONTROLS because the panel
+   builds its weapon dropdown straight off the keys. */
+const GUN_SHAPES={
+  pistol: {len:6, h:1.5,grip:2.6,mag:false,scope:false,drum:false},
+  smg:    {len:9, h:1.8,grip:3.0,mag:true, scope:false,drum:false},
+  rifle:  {len:13,h:1.6,grip:3.0,mag:true, scope:true, drum:false},
+  cannon: {len:11,h:3.0,grip:3.2,mag:false,scope:false,drum:true},
+  beam:   {len:12,h:2.2,grip:3.0,mag:false,scope:false,drum:true},
+  /* The second ten. A weapon roster the silhouette cannot tell apart is
+     a list, not a roster, so each of these owns at least one part the
+     others do not: a second barrel, a slung canister, coil rings, a top
+     hopper, an emitter bulb, a smoothbore tube, a bayonet. */
+  scatter:{len:8, h:2.6,grip:3.0,mag:false,scope:false,drum:false,twin:true},
+  flak:   {len:10,h:2.6,grip:3.1,mag:false,scope:false,drum:true, vent:true},
+  rail:   {len:16,h:1.5,grip:3.0,mag:false,scope:true, drum:false,coil:true},
+  nail:   {len:9, h:2.0,grip:2.9,mag:false,scope:false,drum:false,hopper:true},
+  pulse:  {len:10,h:2.2,grip:3.0,mag:false,scope:false,drum:false,bulb:true,tank:true},
+  torch:  {len:8, h:2.0,grip:3.0,mag:false,scope:false,drum:false,tank:true,nozzle:true},
+  mortar: {len:9, h:3.4,grip:3.2,mag:false,scope:false,drum:false,tube:true},
+  coil:   {len:14,h:1.8,grip:3.0,mag:true, scope:false,drum:false,coil:true},
+  swarm:  {len:9, h:2.4,grip:3.0,mag:false,scope:false,drum:false,hopper:true,bulb:true},
+  reaper: {len:13,h:2.4,grip:3.1,mag:true, scope:true, drum:false,blade:true}
+};
+const GUN_KINDS=Object.keys(GUN_SHAPES);
+
 const CONTROLS=[
  {g:'FRAME',c:[
   {k:'height',l:'height',t:'r',min:18,max:46,step:1,fmt:v=>v+'px'},
@@ -74,7 +99,7 @@ const CONTROLS=[
   {k:'antenna',l:'antenna',t:'c'}
  ]},
  {g:'WEAPON',c:[
-  {k:'gun',l:'weapon',t:'s',opt:['pistol','smg','rifle','cannon','beam']},
+  {k:'gun',l:'weapon',t:'s',opt:GUN_KINDS},
   {k:'gunSize',l:'weapon scale',t:'r',min:0.6,max:1.7,step:0.05},
   {k:'twoHanded',l:'two-handed grip',t:'c'},
   {k:'muzzleBrake',l:'muzzle brake',t:'c'},
@@ -99,7 +124,7 @@ const CONTROLS=[
   {k:'idleBob',l:'idle breath',t:'r',min:0,max:0.05,step:0.002}
  ]},
  {g:'SHEET',c:[
-  {k:'aimRows',l:'aim directions',t:'s',opt:['5','9','13','17'],num:true},
+  {k:'aimRows',l:'aim directions',t:'s',opt:['1','3','5','9','13','17'],num:true},
   {k:'previewFps',l:'preview fps',t:'r',min:2,max:24,step:1},
   {k:'__buttons',t:'buttons'}
  ]}
@@ -130,7 +155,7 @@ function randomParams(seed){
     gloveSize:0.2+R()*0.7,
     helmet:pick(['none','visor','full','crest']),
     backpack:pick(['none','tank','jet','pack']),
-    gun:pick(['pistol','smg','rifle','cannon','beam']),
+    gun:pick(GUN_KINDS),
     gunSize:0.75+R()*0.8,
     twoHanded:R()>0.3,
     plates:R()>0.35,
@@ -316,16 +341,13 @@ function pose(state,f,nf,aim){
 }
 
 /* ---------- weapon table ---------- */
+
 function gunSpec(){
   const u=P.height*0.030*P.gunSize;
-  const t={
-    pistol:{len:6,h:1.5,grip:2.6,mag:false,scope:false,drum:false},
-    smg:   {len:9,h:1.8,grip:3.0,mag:true, scope:false,drum:false},
-    rifle: {len:13,h:1.6,grip:3.0,mag:true, scope:true, drum:false},
-    cannon:{len:11,h:3.0,grip:3.2,mag:false,scope:false,drum:true},
-    beam:  {len:12,h:2.2,grip:3.0,mag:false,scope:false,drum:true}
-  }[P.gun];
-  return {u,len:t.len*u,h:t.h*u,grip:t.grip*u,mag:t.mag,scope:t.scope,drum:t.drum};
+  const t=GUN_SHAPES[P.gun]||GUN_SHAPES.rifle;
+  return {u,len:t.len*u,h:t.h*u,grip:t.grip*u,mag:t.mag,scope:t.scope,drum:t.drum,
+          twin:!!t.twin,vent:!!t.vent,coil:!!t.coil,hopper:!!t.hopper,bulb:!!t.bulb,
+          tank:!!t.tank,nozzle:!!t.nozzle,tube:!!t.tube,blade:!!t.blade};
 }
 
 /* Corruption placement needs its own deterministic stream: it is a
@@ -633,12 +655,42 @@ function drawChar(g,ps,C,opts){
     g.fillRect(-u*1.6,-bh*0.5,gs.len,bh);
     g.fillStyle=P.colGun;                                     // receiver
     g.fillRect(-u*1.6,-rh*0.5,gs.len*0.42,rh);
+    if(gs.tube){                                            // fat smoothbore, no receiver step
+      g.fillStyle=shade(P.colGun,-0.06);g.fillRect(-u*1.6,-rh*0.62,gs.len,rh*1.24);
+      g.fillStyle=shade(P.colGun,-0.30);g.fillRect(gs.len*0.72,-rh*0.72,Math.max(1.6,u*1.2),rh*1.44);}
+    if(gs.twin){                                            // second barrel, slung under
+      g.fillStyle=shade(P.colGun,-0.18);g.fillRect(-u*1.2,bh*0.55,gs.len*0.94,bh*0.9);}
+    if(gs.coil){                                            // accelerator rings down the barrel
+      g.fillStyle=P.colAccent;
+      for(let i=0;i<4;i++)g.fillRect(gs.len*(0.30+i*0.16),-gs.h*0.72,Math.max(1.2,u*0.7),gs.h*1.44);}
+    if(gs.vent){                                            // heat slots cut in the shroud
+      g.fillStyle=shade(P.colGun,-0.36);
+      for(let i=0;i<3;i++)g.fillRect(gs.len*(0.46+i*0.13),-gs.h*0.34,Math.max(1,u*0.5),gs.h*0.68);}
+    if(gs.tank){                                            // canister slung under the receiver
+      g.fillStyle=shade(P.colGun,-0.24);
+      g.fillRect(-u*1.2,gs.h*0.5,gs.len*0.40,gs.grip*0.72);
+      g.fillStyle=P.colAccent;g.fillRect(-u*0.9,gs.h*0.5+gs.grip*0.2,gs.len*0.30,Math.max(1,u*0.5));}
+    if(gs.hopper){                                          // box feed standing proud on top
+      g.fillStyle=shade(P.colGun,-0.28);
+      g.fillRect(u*0.4,-gs.h*1.5,gs.len*0.30,gs.h*1.05);
+      g.fillStyle=shade(P.colGun,0.06);g.fillRect(u*0.4,-gs.h*1.5,gs.len*0.30,Math.max(1,u*0.4));}
     if(gs.mag){g.fillStyle=shade(P.colGun,-0.3);g.fillRect(u*0.9,gs.h*0.3,u*1.1,gs.grip*0.7);}
     if(gs.scope){g.fillStyle=shade(P.colGun,-0.12);g.fillRect(u*0.2,-gs.h*0.95,gs.len*0.26,gs.h*0.42);
                  g.fillStyle=P.colVisor;g.fillRect(u*0.2+gs.len*0.2,-gs.h*0.9,u*0.5,gs.h*0.3);}
     if(gs.drum){g.fillStyle=shade(P.colGun,-0.15);g.beginPath();g.arc(gs.len*0.30,0,gs.h*0.72,0,TAU);g.fill();
                 g.fillStyle=P.colAccent;g.beginPath();g.arc(gs.len*0.30,0,gs.h*0.26,0,TAU);g.fill();}
-    if(P.muzzleBrake){g.fillStyle=shade(P.colGun,0.12);g.fillRect(gs.len-Math.max(1.6,u*1.5),-Math.max(1.6,gs.h*0.46),Math.max(1.6,u*1.5),Math.max(3.2,gs.h*0.92));}
+    if(gs.blade){                                           // bayonet spike under the muzzle
+      g.fillStyle=shade(P.colGun,0.18);
+      g.beginPath();g.moveTo(gs.len*0.62,bh*0.4);g.lineTo(gs.len*1.06,bh*0.1);
+      g.lineTo(gs.len*0.66,bh*1.5);g.closePath();g.fill();}
+    if(gs.nozzle){                                          // flared throat
+      g.fillStyle=shade(P.colGun,0.10);
+      g.beginPath();g.moveTo(gs.len*0.80,-bh*0.5);g.lineTo(gs.len,-gs.h*0.95);
+      g.lineTo(gs.len,gs.h*0.95);g.lineTo(gs.len*0.80,bh*0.5);g.closePath();g.fill();}
+    if(gs.bulb){                                            // emitter, lit from its own accent
+      g.fillStyle=shade(P.colGun,-0.1);g.beginPath();g.arc(gs.len*0.94,0,gs.h*0.80,0,TAU);g.fill();
+      g.fillStyle=P.colAccent;g.beginPath();g.arc(gs.len*0.94,0,gs.h*0.38,0,TAU);g.fill();}
+    if(P.muzzleBrake&&!gs.nozzle&&!gs.bulb){g.fillStyle=shade(P.colGun,0.12);g.fillRect(gs.len-Math.max(1.6,u*1.5),-Math.max(1.6,gs.h*0.46),Math.max(1.6,u*1.5),Math.max(3.2,gs.h*0.92));}
     g.restore();
   }
 
@@ -847,7 +899,12 @@ const measure=document.createElement('canvas');
 const mctx=measure.getContext('2d',{willReadFrequently:true});
 
 function aimAngles(){
-  const n=P.aimRows,out=[];
+  const n=Math.max(1,P.aimRows|0),out=[];
+  /* One row means a figure that does not aim — it looks straight
+     ahead. Spreading -90..+90 over a single row divides by zero, and a
+     NaN angle measures a cell that crops the sprite off at the hips,
+     which is a very confusing way to find out. */
+  if(n<2)return[0];
   for(let i=0;i<n;i++)out.push(-90+180*i/(n-1));
   return out;
 }

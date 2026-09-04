@@ -44,7 +44,8 @@ window.PILOT = (function () {
     dropDrop: 130,       // ...and only onto floor no further down than this
     faceBand: 34,        // a threat within this much height is in our face
     probeWindow: 0.5,    // how often to ask whether we are getting anywhere
-    probeMove: 9         // ...and how far counts as getting somewhere
+    probeMove: 9,        // ...and how far counts as getting somewhere
+    edge: 16             // jump a pit from this close to its lip, not on sight
   };
 
   function Pilot(actor, opts) {
@@ -102,6 +103,15 @@ window.PILOT = (function () {
       const side = this.o.slot || 1;
       return { x: P.x - side * 26, y: P.y, soft: true };
     }
+    /* A warden it has not spoken to yet is worth a detour: a pilot that
+       walks past every gift in the level is playing worse than a person
+       would, and in a campaign those grafts are most of the run. */
+    for (const W of M.wardens) {
+      if (W.spent) continue;
+      const d = Math.abs(W.x - a.x);
+      if (d < 260 && W.x > a.x - 40) return { x: W.x, y: W.y, warden: W };
+    }
+
     // something worth a detour, if it is roughly on the way
     let pick = null, pd = 150 * 150;
     for (const p of M.pickups) {
@@ -126,7 +136,12 @@ window.PILOT = (function () {
   };
 
   /* How wide is the hole starting ahead of us, in the travel
-     direction? Returns 0 when there is no hole. */
+     direction? Returns 0 when there is no hole, and records how far
+     ahead the lip is in `this.holeAt` — the caller needs both, because
+     a gap seen from 80px away is something to keep running at, and the
+     same gap seen from 8px away is something to jump. Jumping on
+     sight is how a body clears the lip and lands short of the far
+     side, in the pit, every time. */
   Pilot.prototype.gapAhead = function (M, dir) {
     const a = this.a;
     const y = a.y - 2;
@@ -135,6 +150,7 @@ window.PILOT = (function () {
       const x = a.x + dir * d;
       if (!this.floorAt(M, x, y)) { firstHole = d; break; }
     }
+    this.holeAt = firstHole < 0 ? 999 : firstHole;
     if (firstHole < 0) return 0;
     for (let d = firstHole; d <= 130; d += 5) {
       const x = a.x + dir * d;
@@ -179,6 +195,17 @@ window.PILOT = (function () {
     input.reloadPressed = false;
     input.fire = false;
     if (a.dead) return input;
+
+    /* A box is up: hold still and read it. The mission advances the
+       page off the pilot's behalf, so all this has to do is stop
+       walking away mid-sentence. */
+    if (M.dialog && M.dialog.open) {
+      input.aimX = a.x + (a.face || 1) * 60;
+      input.aimY = a.y - a.h * 0.5;
+      input.cursorX = clamp(input.aimX - M.scroll, 0, LV.W);
+      input.cursorY = clamp(input.aimY, 0, LV.H);
+      return input;
+    }
 
     this.react -= dt;
     this.retarget -= dt;
@@ -280,7 +307,9 @@ window.PILOT = (function () {
       const stepUp = dir !== 0 && M.world.solidAt(a.x + dir * (a.w * 0.5 + 4), a.y - 3, false);
 
       if (a.ground && this.jumpCool <= 0) {
-        if (dir !== 0 && gap > 6) { input.jumpPressed = true; this.jumpCool = 0.3; }
+        if (dir !== 0 && gap > 6 && this.holeAt <= CFG.edge) {
+          input.jumpPressed = true; this.jumpCool = 0.3;
+        }
         else if (wall || stepUp) { input.jumpPressed = true; this.jumpCool = 0.3; }
         else if (wantUp) {
           // Straight up if the deck is over our head, otherwise run at

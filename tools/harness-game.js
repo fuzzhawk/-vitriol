@@ -43,6 +43,7 @@ const FILES = [
   'src/gen/scrapforge.js',
   'src/game/config.js', 'src/game/audio.js', 'src/game/weapons.js',
   'src/game/sprite.js', 'src/game/physics.js', 'src/game/rigid.js',
+  'src/game/dialog.js', 'src/game/campaign.js',
   'src/game/pilot.js', 'src/game/entities.js',
   'src/game/world.js', 'src/game/render.js', 'src/game/screens.js'
 ];
@@ -519,12 +520,21 @@ section('scrap forge');
 section('prototype weapon');
 {
   const W = window.WEAPONS;
-  ok(W.PROTO_PARAMS.length === 10, 'ten rolled parameters');
+  ok(W.PROTO_PARAMS.length === 20, 'twenty rolled parameters');
+  ok(W.PROTO_CORE.length === 5, 'five core handling axes');
+  ok(W.PROTO_EXOTIC.length === 15, 'fifteen exotic effects');
+  for (const k of W.PROTO_EXOTIC) {
+    ok(!!W.EXOTIC_SPEC[k], 'exotic "' + k + '" has a spec');
+    ok(W.EXOTIC_SPEC[k].max > 0, 'exotic "' + k + '" declares its ceiling');
+    ok(typeof W.EXOTIC_SPEC[k].tag === 'string', 'exotic "' + k + '" has a HUD tag');
+  }
   const seen = {};
   W.PROTO_PARAMS.forEach(k => { seen[k] = new Set(); });
   const names = new Set(), bases = new Set();
-  let anyCount = 0, anySplash = 0, anyHoming = 0, anyBounce = 0, anyDrop = 0, anyPierce = 0;
-  for (let i = 0; i < 80; i++) {
+  const hits = {};
+  W.PROTO_EXOTIC.forEach(k => { hits[k] = 0; });
+  let exSum = 0, minEx = 99, maxEx = 0;
+  for (let i = 0; i < 300; i++) {
     const d = W.rollProto(window.GREEBLEWORKS.makeRng((i * 2654435761) >>> 0));
     ok(typeof d.label === 'string' && d.label.length > 4, 'prototype has a generated name');
     ok(d.proto === true, 'prototype is flagged');
@@ -533,38 +543,49 @@ section('prototype weapon');
     ok(d.speed > 2 && d.speed <= 14, 'speed in range');
     ok(d.count >= 1 && d.count <= 6, 'projectile count in range');
     ok(d.spread >= 0 && d.spread < 0.4, 'spread in range');
-    ok(d.pierce >= 0 && d.pierce <= 4, 'pierce in range');
-    ok(d.splash >= 0 && d.splash < 40, 'splash in range');
-    ok(d.homing >= 0 && d.homing <= 0.2, 'homing in range');
-    ok(d.bounce >= 0 && d.bounce <= 4, 'bounce in range');
-    ok(d.drop >= 0 && d.drop <= 0.2, 'drop in range');
     ok(d.mag >= 8, 'magazine is usable (' + d.mag + ')');
     ok(d.reload > 0 && d.reload < 3, 'reload in range');
     ok(W.table[d.base] !== undefined, 'base sprite "' + d.base + '" is a real weapon');
     ok(/^#[0-9a-f]{6}$/i.test(d.tint), 'prototype has a tint');
-    ok(d.rolled.length === 10, 'prototype reports its ten rolls');
+    ok(d.rolled.length === 20, 'prototype reports all twenty rolls');
     ok(!!d.tone, 'prototype has a sound spec');
+    /* Every exotic is either off or inside its declared ceiling. An
+       unclamped effect is the bug this whole spec table exists to
+       stop, so it is checked on every roll rather than on a sample. */
+    for (const k of W.PROTO_EXOTIC) {
+      const v = d[k];
+      ok(v === 0 || (v > 0 && v <= W.EXOTIC_SPEC[k].max + 1e-6),
+         'exotic "' + k + '" is off or inside its ceiling (' + v + ')');
+      if (v) hits[k]++;
+    }
+    ok(Array.isArray(d.exotics), 'the roll reports which exotics it picked');
+    ok(d.exotics.every(k => d[k] > 0), 'every picked exotic is actually turned on');
+    ok(W.PROTO_EXOTIC.every(k => d[k] === 0 || d.exotics.indexOf(k) >= 0),
+       'nothing is on that was not picked');
+    exSum += d.exotics.length;
+    minEx = Math.min(minEx, d.exotics.length);
+    maxEx = Math.max(maxEx, d.exotics.length);
+    ok(W.tagsFor(d).length === d.exotics.length, 'the HUD tags match the picked effects');
     names.add(d.label); bases.add(d.base);
     W.PROTO_PARAMS.forEach(k => seen[k].add(Math.round(d[k] * 1000)));
-    if (d.count > 1) anyCount++;
-    if (d.count === 1) anyCount += 0;
-    if (d.splash) anySplash++;
-    if (d.homing) anyHoming++;
-    if (d.bounce) anyBounce++;
-    if (d.drop) anyDrop++;
-    if (d.pierce) anyPierce++;
   }
   console.log('  ' + names.size + ' distinct names, ' + bases.size + ' base shapes | ' +
-    'multishot ' + anyCount + ' · blast ' + anySplash + ' · seek ' + anyHoming +
-    ' · ricochet ' + anyBounce + ' · arc ' + anyDrop + ' · pierce ' + anyPierce + ' / 80');
-  ok(names.size > 60, 'names vary run to run (' + names.size + '/80)');
-  ok(bases.size >= 3, 'it takes several different shapes');
+    'exotics per gun ' + minEx + '-' + maxEx + ', mean ' + (exSum / 300).toFixed(2));
+  console.log('  ' + W.PROTO_EXOTIC.map(k => k + ':' + hits[k]).join(' '));
+  ok(names.size > 200, 'names vary run to run (' + names.size + '/300)');
+  ok(bases.size >= 6, 'it takes many different shapes (' + bases.size + ')');
+  /* A prototype has to be describable in one sentence: a smear of all
+     fifteen effects is the failure this roll is shaped to avoid. */
+  ok(minEx >= 2 && maxEx <= 4, 'every gun runs two to four effects, never fifteen');
   /* Every axis has to actually vary, or a "rolled" parameter is a
      constant wearing a costume. */
-  for (const k of W.PROTO_PARAMS) {
-    ok(seen[k].size > 3, 'parameter "' + k + '" genuinely varies (' + seen[k].size + ' values)');
+  for (const k of W.PROTO_CORE) {
+    ok(seen[k].size > 3, 'core "' + k + '" genuinely varies (' + seen[k].size + ' values)');
   }
-  ok(anySplash > 2 && anyHoming > 2 && anyBounce > 2, 'the exotic behaviours do come up');
+  for (const k of W.PROTO_EXOTIC) {
+    ok(hits[k] > 8, 'exotic "' + k + '" does come up (' + hits[k] + '/300)');
+    ok(seen[k].size > 3, 'exotic "' + k + '" varies when it does (' + seen[k].size + ')');
+  }
   /* determinism */
   const a1 = W.rollProto(window.GREEBLEWORKS.makeRng(99));
   const a2 = W.rollProto(window.GREEBLEWORKS.makeRng(99));
@@ -1072,6 +1093,63 @@ function dump(name, cv) {
   dump('out_game.png', cv);
 }
 
+/* the whole weapon roster in one operative's hands. A roster the
+   silhouette cannot tell apart is a list, not a roster. */
+{
+  const kinds = window.WEAPONS.ORDER;
+  const cols = 5, rows = Math.ceil(kinds.length / cols);
+  const CWc = 232, CHc = 208, Z = 2;    // 2x, or the parts are too small to judge
+  const cv = createCanvas(cols * CWc, rows * CHc);
+  const cx = cv.getContext('2d');
+  cx.imageSmoothingEnabled = false;
+  cx.fillStyle = '#14181a';
+  cx.fillRect(0, 0, cv.width, cv.height);
+  cx.font = '12px monospace';
+  cx.textAlign = 'center';
+  const inkOf = c => {
+    const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+    let n = 0;
+    for (let i = 3; i < d.length; i += 4) if (d[i] > 8) n++;
+    return n;
+  };
+  const silhouettes = [];
+  kinds.forEach((k, i) => {
+    const rig = new window.SPRITE.Rig(Object.assign({}, merc,
+      { gun: k, gunSize: 1.25, aimRows: 3, runFrames: 4 }));
+    const col = i % cols, row = (i / cols) | 0;
+    const x = col * CWc, y = row * CHc;
+    cx.save();
+    cx.translate(x + CWc * 0.5, y + CHc - 34);
+    cx.scale(Z, Z);
+    rig.draw(cx, 'idle', 0, 0, 0, 0, false);
+    cx.restore();
+    cx.fillStyle = '#8a9099';
+    cx.fillText(k.toUpperCase(), x + CWc * 0.5, y + 18);
+    cx.fillStyle = '#4a5058';
+    cx.fillText(window.WEAPONS.table[k].label, x + CWc * 0.5, y + CHc - 10);
+    cx.strokeStyle = '#1e242b';
+    cx.strokeRect(x + 0.5, y + 0.5, CWc - 1, CHc - 1);
+    // the held sheet, on its own, so we can compare silhouettes
+    const one = createCanvas(120, 90);
+    const oc = one.getContext('2d');
+    oc.imageSmoothingEnabled = false;
+    rig.draw(oc, 'idle', 0, 0, 60, 76, false);
+    silhouettes.push({ k, ink: inkOf(one) });
+    ok(rig.gun === k, 'the rig holds the weapon it was built with (' + k + ')');
+  });
+  /* Every shape has to be genuinely different in the hand. Comparing
+     ink counts is crude but it catches the failure that matters: a new
+     weapon that silently falls back to the rifle shape. */
+  {
+    const counts = silhouettes.map(s => s.ink);
+    const uniq = new Set(counts);
+    ok(uniq.size >= kinds.length - 1,
+       'each weapon draws its own silhouette (' + uniq.size + '/' + kinds.length + ' distinct)');
+    for (const s of silhouettes) ok(s.ink > 40, s.k + ' actually draws something');
+  }
+  dump('out_guns.png', cv);
+}
+
 /* the entity cast, blitted from their sheets */
 {
   const kinds = Object.keys(window.CONFIG.ARCHETYPES);
@@ -1411,6 +1489,331 @@ section('overlord + corruption');
   }
 }
 
+section('exotic weapon effects');
+{
+  /* Every one of the ten new effects has to DO something observable.
+     A rolled parameter that changes no state is a number in a table,
+     and the whole point of the second ten is that they are not. */
+  const cfgX = window.CONFIG.randomLevelCfg(0x5EED);
+  cfgX.levelLen = 3;
+  const gx = window.WORLD.buildMission(cfgX, window.CONFIG.randomMerc(0x5EED),
+    { difficulty: 'regular', enemyDens: 1.4, lives: 9, allies: 0, wardens: 0 });
+  let rx; while (!(rx = gx.next()).done);
+  const MX = rx.value, PX = MX.player;
+  const IDLE = { left: false, right: false, up: false, down: false, fire: false,
+                 jumpPressed: false, reloadPressed: false, talkPressed: false,
+                 cursorX: 224, cursorY: 126, aimX: 0, aimY: 0 };
+  // settle into a real pose, or muzzle() has no frame to read
+  for (let i = 0; i < 6; i++) MX.update(1 / 60, IDLE);
+
+  const BASE = { label: 'T', rate: 0.1, speed: 8, dmg: 3, spread: 0, mag: 99, reload: 1,
+                 kick: 0, shake: 0, size: 2, life: 1.5, count: 1, pierce: 0,
+                 tone: { f: 400, drop: 0.5, len: 0.1, noise: 0.5, type: 'sine' } };
+  const mk = o => Object.assign({}, BASE, o);
+
+  /* An immortal dummy on solid ground in front of the player. */
+  function dummy(dist) {
+    const e = MX.enemies.find(x => !x.dead) || MX.enemies[0];
+    const gr = MX.world.groundUnder(PX.x + dist, 0, true);
+    e.x = PX.x + dist; if (gr) e.y = gr.y;
+    e.dead = false; e.maxHp = 1e6; e.hp = 1e6;
+    e.burnT = 0; e.burnDps = 0; e.slowT = 0; e.slowMul = 1;
+    return e;
+  }
+  function volley(def, frames, dist, alsoRigid) {
+    const e = dummy(dist === undefined ? 60 : dist);
+    MX.bullets.length = 0; MX.arcs = [];
+    PX.weapon = { kind: 'test', def, ammo: 9999, reloading: 0, cool: 0, charge: 0 };
+    PX.spare.test = Infinity;
+    const inp = Object.assign({}, IDLE, { fire: true });
+    let peakBullets = 0, peakArcs = 0, forked = 0;
+    for (let i = 0; i < (frames || 60); i++) {
+      inp.aimX = e.x; inp.aimY = e.y - e.h * 0.5;
+      PX.aim = Math.atan2(inp.aimY - (PX.y - PX.h * 0.72), inp.aimX - PX.x);
+      MX.fire(inp, 1 / 60);
+      MX.stepBullets(1 / 60);
+      if (alsoRigid) MX.rigid.step(1 / 60);
+      e.stepStatus(1 / 60);
+      peakBullets = Math.max(peakBullets, MX.bullets.length);
+      peakArcs = Math.max(peakArcs, (MX.arcs || []).length);
+      forked = Math.max(forked, MX.bullets.filter(b => b.forked).length);
+    }
+    return { e, peakBullets, peakArcs, forked };
+  }
+
+  // a plain round is the control: everything below is measured against it
+  {
+    const v = volley(mk({}));
+    ok(1e6 - v.e.hp > 10, 'the control weapon damages the dummy');
+  }
+  { const v = volley(mk({ burn: 4 }));
+    ok(v.e.burnT > 0 && v.e.burnDps > 0, 'incendiary sets the target alight');
+    ok(v.e.burnDps === 4, 'and burns at the strength it was rolled at');
+    // refreshing takes the fiercer, it does not stack into an instant kill
+    v.e.ignite(2, 3); ok(v.e.burnDps === 4, 'a weaker burn does not weaken a fiercer one');
+    v.e.ignite(9, 3); ok(v.e.burnDps === 9, 'a fiercer burn does replace a weaker one'); }
+  { const v = volley(mk({ slow: 0.5 }));
+    ok(v.e.slowT > 0, 'mire lands a slow');
+    ok(Math.abs(v.e.slowMul - 0.5) < 1e-6, 'and halves the speed it was rolled to halve'); }
+  { PX.hp = 40;
+    const v = volley(mk({ vamp: 0.3, dmg: 6 }));
+    ok(PX.hp > 40, 'leech heals the shooter (' + PX.hp.toFixed(1) + ')');
+    ok(PX.hp <= PX.maxHp, 'and never past full');
+    PX.hp = PX.maxHp; }
+  { PX.ward = 0; PX.wardMax = 0;
+    volley(mk({ shield: 12 }));
+    ok(PX.wardMax >= 12, 'ward rounds raise a shell (' + PX.wardMax + ')');
+    /* and the shell has to actually eat damage before health does */
+    PX.ward = PX.wardMax; PX.hp = 100; PX.invuln = 0;
+    PX.hurt(4);
+    ok(PX.hp === 100, 'a small hit lands entirely on the ward');
+    ok(PX.ward < PX.wardMax, 'and the ward is spent by it');
+    PX.ward = 3; PX.hp = 100; PX.invuln = 0;
+    PX.hurt(20);
+    ok(PX.hp < 100, 'an overflowing hit still reaches health');
+    PX.wardMax = 0; PX.ward = 0; PX.hp = PX.maxHp; }
+  { const e = dummy(60);
+    const live = MX.enemies.filter(x => x !== e).slice(0, 2);
+    live.forEach((o, i) => { o.dead = false; o.hp = 1e6; o.maxHp = 1e6; o.x = e.x + 18 + i * 22; o.y = e.y; });
+    const hp0 = live.map(o => o.hp);
+    const v = volley(mk({ chain: 2 }));
+    ok(v.peakArcs > 0, 'a chain round draws its arc');
+    ok(live.filter((o, i) => o.hp < hp0[i]).length === live.length,
+       'and hurts the neighbours it jumped to');
+    live.forEach(o => { o.x = -9999; }); }
+  { const v = volley(mk({ fork: 3, rate: 0.5 }), 60, 70);
+    ok(v.forked >= 3, 'a forking round splits into its children (' + v.forked + ')');
+    ok(MX.bullets.every(b => !b.fork || !b.forked),
+       'and the children do not fork again'); }
+  { const e = dummy(60);
+    const body = MX.rigid.bodies.find(b => !b.dead);
+    if (body) {
+      body.x = e.x + 14; body.y = e.y - 10; body.vx = 0; body.vy = 0;
+      body.asleep = false; body.sleep = 0;
+      const bx = body.x, by = body.y;
+      volley(mk({ quake: 2.5, rate: 0.5 }), 60, 60, true);
+      ok(Math.hypot(body.x - bx, body.y - by) > 4,
+         'quake shoves loose debris (' + Math.hypot(body.x - bx, body.y - by).toFixed(1) + 'px)');
+    } }
+  { /* spiral has to wander AND still arrive: a corkscrew that misses
+       everything is a visual effect, not a weapon */
+    const v = volley(mk({ spiral: 2, speed: 5, life: 2 }));
+    ok(1e6 - v.e.hp > 5, 'a spiralling round still lands on what it was aimed at');
+    const b = new window.ENTITIES.Bullet(0, 0, 0, mk({ spiral: 2 }), true, '#fff');
+    const ys = [];
+    for (let i = 0; i < 30; i++) { b.spiralT += 1 / 60;
+      const sp = Math.hypot(b.vx, b.vy);
+      const a2 = b.baseA + Math.sin(b.spiralT * 13) * b.spiral * 0.30;
+      b.vx = Math.cos(a2) * sp; b.vy = Math.sin(a2) * sp; ys.push(b.vy); }
+    ok(Math.max.apply(null, ys) > 0 && Math.min.apply(null, ys) < 0,
+       'and it wanders to both sides of its flight line'); }
+  { /* echo: the same trigger pull produces more rounds than it should */
+    const plain = volley(mk({ rate: 0.6 }), 60);
+    const plainDmg = 1e6 - plain.e.hp;
+    const ech = volley(mk({ rate: 0.6, echo: 0.2 }), 60);
+    const echDmg = 1e6 - ech.e.hp;
+    ok(echDmg > plainDmg, 'an echo weapon lands more than the same gun without it (' +
+       echDmg.toFixed(1) + ' vs ' + plainDmg.toFixed(1) + ')'); }
+  { /* charge: holding does not fire, releasing fires harder */
+    const e = dummy(60);
+    const def = mk({ charge: 3, rate: 0.4 });
+    PX.weapon = { kind: 'test', def, ammo: 99, reloading: 0, cool: 0, charge: 0 };
+    MX.bullets.length = 0;
+    const inp = Object.assign({}, IDLE, { fire: true });
+    for (let i = 0; i < 12; i++) {
+      PX.aim = Math.atan2((e.y - e.h * 0.5) - (PX.y - PX.h * 0.72), e.x - PX.x);
+      MX.fire(inp, 1 / 60);
+    }
+    ok(MX.bullets.length === 0, 'holding a charge weapon does not fire it');
+    ok(PX.weapon.charge > 0, 'it winds up instead');
+    for (let i = 0; i < 60; i++) MX.fire(inp, 1 / 60);
+    ok(PX.weapon.charge >= 0.999, 'and reaches a full charge');
+    inp.fire = false;
+    MX.fire(inp, 1 / 60);
+    ok(MX.bullets.length > 0, 'releasing fires it');
+    ok(MX.bullets[0].dmg > def.dmg * 2.5,
+       'a full charge multiplies the damage (' + MX.bullets[0].dmg.toFixed(2) + ')');
+    ok(PX.weapon.charge === 0, 'and spends the charge'); }
+
+  /* the stock roster's own exotics have to reach the bullet */
+  for (const k of window.WEAPONS.ORDER) {
+    const def = window.WEAPONS.table[k];
+    const b = new window.ENTITIES.Bullet(0, 0, 0, def, true, '#fff');
+    for (const x of window.WEAPONS.PROTO_EXOTIC) {
+      if (x === 'charge' || x === 'echo') continue;   // handled in fire(), not on the bullet
+      ok((b[x] || 0) === (def[x] || 0),
+         k + "'s " + x + ' reaches the round it fires');
+    }
+    ok(b.dmg === def.dmg && b.size === def.size, k + ' carries its damage and calibre');
+  }
+}
+
+section('wardens and the dialog box');
+{
+  const cfgW = window.CONFIG.randomLevelCfg(0xABCD);
+  cfgW.levelLen = 3;
+  const gw = window.WORLD.buildMission(cfgW, window.CONFIG.randomMerc(0xABCD),
+    { difficulty: 'recruit', enemyDens: 0.5, lives: 9, allies: 0, wardens: 3 });
+  let rw; while (!(rw = gw.next()).done);
+  const MW = rw.value, PW = MW.player;
+
+  ok(MW.wardens.length === 3, 'the level places the wardens it was asked for');
+  const bossX = MW.overlord ? MW.overlord.x : MW.exit.x;
+  for (const W of MW.wardens) {
+    const g = MW.world.groundUnder(W.x, W.y - 1, true);
+    ok(g && Math.abs(g.y - W.y) < 2, 'a warden stands on real ground');
+    ok(W.x > PW.x + 150, 'and not on top of the drop-in');
+    ok(W.x < bossX, 'and on the way to the boss, not past it');
+    ok(!!W.gift && (W.gift.kind === 'weapon' || W.gift.kind === 'power'),
+       'it is holding something real');
+    ok(W.lines.length >= 2, 'and has something to say (' + W.lines.length + ' pages)');
+    ok(W.lines.every(l => typeof l === 'string' && l.length > 4), 'every page has text');
+    ok(!W.spent, 'it has not been talked to yet');
+  }
+  {
+    const xs = MW.wardens.map(W => W.x).sort((a, b) => a - b);
+    for (let i = 1; i < xs.length; i++) {
+      ok(xs[i] - xs[i - 1] > 100, 'wardens are spread out, not stacked');
+    }
+  }
+
+  /* walking into one opens the box and hands the gift over */
+  {
+    const W = MW.wardens[0];
+    const before = { gun: PW.weapon.kind, buffs: JSON.stringify(PW.buffs),
+                     maxHp: PW.maxHp, ward: PW.wardMax };
+    PW.x = W.x; PW.y = W.y; PW.dead = false;
+    MW.stepWardens(1 / 60);
+    ok(MW.dialog.open, 'walking into a warden opens the box');
+    ok(MW.dialog.speaker === 'WARDEN', 'the box names who is talking');
+    ok(MW.dialog.portrait === W.rig, 'and shows their face');
+    ok(W.spent, 'it has handed over what it was holding');
+    const changed = PW.weapon.kind !== before.gun ||
+                    JSON.stringify(PW.buffs) !== before.buffs ||
+                    PW.maxHp !== before.maxHp || PW.wardMax !== before.ward;
+    ok(changed, 'and the gift actually landed on the player');
+  }
+
+  /* the box: reveal, advance, and hold */
+  {
+    const D = MW.dialog;
+    const pages = D.pages.length;
+    ok(D.shown === 0, 'a page starts unrevealed');
+    ok(!D.full(), 'and is not complete on the first frame');
+    // the opening hold ignores a mash
+    D.step(0.01, true, false);
+    ok(D.page === 0 && D.shown < D.text().length,
+       'a keypress in the first moments does not skip the page');
+    for (let i = 0; i < 30; i++) D.step(1 / 60, false, false);
+    ok(D.shown > 0, 'text reveals over time');
+    // holding runs it out fast
+    const before = D.shown;
+    D.step(1 / 60, false, true);
+    ok(D.shown - before > window.DIALOG.CPS / 60,
+       'holding the key runs the reveal out faster');
+    // a press fills the page, the next press turns it
+    D.step(1 / 60, true, false);
+    ok(D.full(), 'a press fills the current page');
+    if (pages > 1) {
+      D.step(1 / 60, true, false);
+      ok(D.page === 1 && D.shown === 0, 'the next press turns to the next page');
+    }
+    // running off the end closes it
+    let guard = 0;
+    while (D.open && guard++ < 200) { D.hold = 0; D.step(1 / 60, true, false); }
+    ok(!D.open, 'running off the last page closes the box');
+    ok(guard < 200, 'and it closes in a bounded number of presses');
+  }
+
+  /* an onClose callback fires exactly once */
+  {
+    let closed = 0;
+    MW.dialog.say(['ONE', 'TWO'], { onClose: () => closed++ });
+    let guard = 0;
+    while (MW.dialog.open && guard++ < 50) { MW.dialog.hold = 0; MW.dialog.step(1 / 60, true, false); }
+    ok(closed === 1, 'the close callback fires once');
+    MW.dialog.step(1 / 60, true, false);
+    ok(closed === 1, 'and not again after it has closed');
+  }
+
+  /* talking twice gets a different, empty-handed conversation */
+  {
+    const W = MW.wardens[0];
+    const gunBefore = PW.weapon.kind;
+    W.cooldown = 0;
+    PW.x = W.x; PW.y = W.y;
+    MW.dialog.open = false;
+    MW.stepWardens(1 / 60);
+    ok(MW.dialog.open, 'you can talk to a spent warden again');
+    ok(MW.dialog.pages.some(l => window.DIALOG.EMPTY.indexOf(l) >= 0),
+       'and it tells you it has nothing left');
+    ok(PW.weapon.kind === gunBefore, 'a spent warden does not hand over a second gift');
+    MW.dialog.close();
+  }
+
+  /* the box holds the player still without stopping the world */
+  {
+    const W = MW.wardens[1];
+    PW.x = W.x - 400;
+    const gr = MW.world.groundUnder(PW.x, 0, true);
+    if (gr) PW.y = gr.y;
+    MW.dialog.say(['HOLD STILL AND READ THIS LINE OF TEXT PLEASE.'], { speaker: 'TEST' });
+    const x0 = PW.x, t0 = MW.time;
+    const run = { left: false, right: true, up: false, down: false, fire: true,
+                  jumpPressed: false, reloadPressed: false, talkPressed: false,
+                  cursorX: 224, cursorY: 126, aimX: 0, aimY: 0 };
+    const bullets0 = MW.bullets.length;
+    for (let i = 0; i < 30; i++) MW.update(1 / 60, run);
+    ok(Math.abs(PW.x - x0) < 2, 'the player does not walk off mid-sentence');
+    ok(MW.bullets.length === bullets0, 'and does not fire through the box');
+    ok(MW.time > t0, 'but the mission keeps running behind it');
+    MW.dialog.close();
+  }
+
+  /* generated lines have to actually vary */
+  {
+    const seen = new Set();
+    for (let i = 0; i < 120; i++) {
+      const rngL = window.GREEBLEWORKS.makeRng((i * 7919) >>> 0);
+      const g = window.CONFIG.wardenGift(rngL, 1 + (i % 8));
+      seen.add(window.DIALOG.lines(rngL, g, false).join('|'));
+    }
+    ok(seen.size > 100, 'wardens do not repeat themselves (' + seen.size + '/120)');
+  }
+
+  /* the gift roll stays inside what the game can actually give */
+  {
+    const rngG = window.GREEBLEWORKS.makeRng(4242);
+    let weapons = 0, powers = 0;
+    for (let i = 0; i < 400; i++) {
+      const g = window.CONFIG.wardenGift(rngG, 1 + (i % 8));
+      ok(typeof g.line === 'string' && g.line.length > 4, 'a gift has a line to go with it');
+      if (g.kind === 'weapon') {
+        weapons++;
+        ok(!!window.WEAPONS.table[g.weapon], 'a gifted weapon is a real weapon');
+        ok(g.weapon !== 'pistol', 'and never your own sidearm');
+      } else {
+        powers++;
+        ok(!!window.CONFIG.POWERUPS[g.power], 'a gifted power-up is a real one');
+      }
+    }
+    ok(weapons > 40 && powers > 40, 'both kinds of gift come up (' + weapons + 'w/' + powers + 'p)');
+  }
+
+  /* power-ups are capped: a long campaign must not end in a god merc */
+  {
+    for (let i = 0; i < 60; i++) {
+      for (const k of window.CONFIG.POWERUP_KEYS) MW.giveGift({ kind: 'power', power: k });
+    }
+    for (const k in PW.buffs) {
+      const spec = Object.values(window.CONFIG.POWERUPS).find(s => s.stat === k);
+      if (spec) ok(PW.buffs[k] <= spec.cap + 1e-9, 'buff "' + k + '" honours its cap');
+    }
+    ok(PW.maxHp <= window.CONFIG.POWERUPS.vitals.cap, 'vitals honour their cap');
+    ok(PW.wardMax <= window.CONFIG.POWERUPS.ward.cap, 'the ward honours its cap');
+  }
+}
+
 section('pilot, allies and autopilot');
 {
   /* ---- navigation probes, against real terrain ---- */
@@ -1444,7 +1847,9 @@ section('pilot, allies and autopilot');
         },
         canSee: () => true
       },
-      enemies: [], pickups: [], exit: { x: 460, y: 200 }, player: A, scroll: 0
+      enemies: [], pickups: [], wardens: [], allies: [],
+      dialog: { open: false },
+      exit: { x: 460, y: 200 }, player: A, scroll: 0
     };
     A.x = 110;
     ok(!!pil.floorAt(fake, 130, A.y - 2),
@@ -1569,92 +1974,191 @@ section('pilot, allies and autopilot');
     if (foe) ok(targeted > 0, 'hostiles will shoot at an ally, not only the player');
   }
 
-  /* ---- autopilot completes a level ---- */
-  {
-    const IDLE = { left: false, right: false, up: false, down: false, fire: false,
-                   jumpPressed: false, reloadPressed: false,
-                   cursorX: 224, cursorY: 126, aimX: 0, aimY: 0 };
-    let won = 0, tried = 0;
-    for (const sd of [0x51, 0x9E]) {
-      const cfgP = window.CONFIG.randomLevelCfg(sd);
-      cfgP.levelLen = 3;
-      const gp2 = window.WORLD.buildMission(cfgP, window.CONFIG.randomMerc(sd),
-        { difficulty: 'recruit', enemyDens: 0.8, lives: 9, allies: 2, autopilot: true });
-      let rp; while (!(rp = gp2.next()).done);
-      const MP = rp.value;
-      ok(MP.autopilot === true, 'the mission knows it is flying itself');
-      ok(MP.pilot instanceof window.PILOT.Pilot, 'and has a pilot to do it');
-      const startX = MP.player.x;
-      let maxX = startX, deaths = 0, held = 0;
-      for (let i = 0; i < 60 * 150; i++) {
-        MP.update(1 / 60, IDLE);
-        maxX = Math.max(maxX, MP.player.x);
-        // the human's input struct must be left alone while it flies
-        if (IDLE.right || IDLE.left || IDLE.jumpPressed) held++;
-        if (MP.state === 'dead') { deaths++; if (!MP.respawn()) break; }
-        if (MP.state === 'won') break;
-      }
-      ok(held === 0, 'autopilot never writes into the human input struct');
-      const prog = (maxX - startX) / (MP.L.LW - startX);
-      console.log('  autopilot seed ' + sd.toString(16) + ': ' + MP.state +
-                  ' at ' + (prog * 100).toFixed(0) + '%, ' + deaths + ' deaths, ' +
-                  MP.kills + '/' + MP.totalEnemies + ' killed');
-      tried++;
-      if (MP.state === 'won') won++;
-      else ok(false, 'autopilot reached extraction on seed ' + sd.toString(16) +
-                     ' (got ' + MP.state + ' at ' + (prog * 100).toFixed(0) + '%)');
-      ok(MP.kills > 0, 'autopilot fought its way there');
+}
+
+/* wardens in the world, and the box they talk through */
+{
+  const cfgV = window.CONFIG.randomLevelCfg(0x77A1);
+  cfgV.levelLen = 3;
+  const gv = window.WORLD.buildMission(cfgV, merc,
+    { difficulty: 'regular', enemyDens: 0.4, lives: 3, allies: 0, wardens: 3 });
+  let rv; while (!(rv = gv.next()).done);
+  const MV = rv.value;
+  ok(MV.wardens.length > 0, 'the contact sheet has a warden to photograph');
+
+  const one = createCanvas(LV.W, LV.H);
+  const ox = one.getContext('2d');
+  const cv = createCanvas(LV.W, LV.H * 3);
+  const cx = cv.getContext('2d');
+  MV.state = 'play'; MV.player.dead = false; MV.player.hp = 78;
+  MV.player.anim = 'idle'; MV.player.frame = 0; MV.player.local = 0; MV.player.face = 1;
+
+  const W0 = MV.wardens[0];
+  const shots = [
+    /* approaching: the beacon and the light it stands in */
+    () => { MV.player.x = W0.x - 74; MV.talkPrompt = null; },
+    /* close enough to be offered the conversation */
+    () => { MV.player.x = W0.x - 36; MV.talkPrompt = W0; },
+    /* mid-sentence */
+    () => {
+      MV.player.x = W0.x - 20;
+      MV.talkPrompt = null;
+      MV.dialog.say(W0.lines, { speaker: 'WARDEN', tint: W0.rig.params.colVisor,
+                                portrait: W0.rig });
+      MV.dialog.shown = 34;
     }
-    ok(won === tried, 'autopilot completed every level it was given (' +
-       won + '/' + tried + ')');
+  ];
+  shots.forEach((pose, i) => {
+    pose();
+    const g = MV.world.groundUnder(MV.player.x, 0, true);
+    if (g) MV.player.y = g.y;
+    MV.scroll = clamp(W0.x - LV.W / 2, 0, Math.max(0, MV.L.LW - LV.W));
+    MV.time = 2 + i * 2;
+    MV.cursorX = 260; MV.cursorY = 120;
+    for (const W of MV.wardens) W.step(0.4);
+    window.RENDER.frame(MV, ox, one);
+    cx.drawImage(one, 0, i * LV.H);
+  });
+  /* the box has to have actually drawn something over the frame */
+  {
+    const d = cx.getImageData(12, LV.H * 2 + LV.H - 60, LV.W - 24, 50).data;
+    let lit = 0;
+    for (let i = 0; i < d.length; i += 4) if (d[i] + d[i + 1] + d[i + 2] > 90) lit++;
+    ok(lit > 200, 'the dialog box renders over the frame (' + lit + ' lit pixels)');
+  }
+  /* the portrait panel has to have a face in it, not an empty box */
+  {
+    const px0 = 16, py0 = LV.H * 2 + (LV.H - 62 - 6) + 6;
+    const d = cx.getImageData(px0, py0, 40, 50).data;
+    let lit = 0;
+    for (let i = 0; i < d.length; i += 4) if (d[i] + d[i + 1] + d[i + 2] > 120) lit++;
+    ok(lit > 120, 'the speaker portrait draws a face (' + lit + ' lit pixels)');
+  }
+  MV.dialog.close();
+
+  /* and a zoom on one warden, because the lantern glow is the whole
+     read and it is invisible at 1:1 in a contact sheet */
+  {
+    const Z = 3, zw = 150, zh = 120;
+    const zoom = createCanvas(zw * Z, zh * Z);
+    const zx = zoom.getContext('2d');
+    zx.imageSmoothingEnabled = false;
+    zx.fillStyle = '#0b0d10';
+    zx.fillRect(0, 0, zoom.width, zoom.height);
+    zx.save();
+    zx.scale(Z, Z);
+    zx.translate(-(W0.x - zw / 2), -(W0.y - zh * 0.78));
+    for (const W of MV.wardens) W.step(0.3);
+    window.RENDER.drawWarden(zx, W0, W0.x, 3.4);
+    zx.restore();
+    dump('out_warden_zoom.png', zoom);
+  }
+  dump('out_wardens.png', cv);
+}
+
+section('flights (each in its own process)');
+{
+  /* Every mission bakes its own sprite sheets, and those are native
+     canvas buffers V8 feels no pressure from — so a process that flies
+     eight of them dies of memory rather than of a failed assertion.
+     The scenarios run in child processes and report back; the checks
+     are here with everything else. */
+  const { execFileSync } = require('child_process');
+  const FLIGHTS = path.join(__dirname, 'harness-flights.js');
+  function flight(name) {
+    const t0 = Date.now();
+    const out = execFileSync(process.execPath, [FLIGHTS, name],
+      { encoding: 'utf8', maxBuffer: 8 << 20 });
+    console.log('  ' + name + ': ' + ((Date.now() - t0) / 1000).toFixed(1) + 's');
+    return JSON.parse(out);
   }
 
-  /* ---- it keeps going: a chain of runs, back to back ----
-     The app loop rolls the next build and redeploys when an autopilot
-     run ends, so what has to hold is that consecutive rolled seeds each
-     give a distinct, playable level the pilot can finish, and that a
-     finished run actually reaches the state the loop watches for. */
+  /* --- can it finish a level at all --- */
   {
-    const IDLE = { left: false, right: false, up: false, down: false, fire: false,
-                   jumpPressed: false, reloadPressed: false,
-                   cursorX: 224, cursorY: 126, aimX: 0, aimY: 0 };
-    const rng = window.GREEBLEWORKS.makeRng(0xC4A1);
-    const seen = new Set();
-    let flown = 0, finished = 0;
-    for (let run = 0; run < 3; run++) {
-      const sd = (rng.rnd() * 0xffffffff) >>> 0;
-      const cfgC = window.CONFIG.randomLevelCfg(sd);
-      cfgC.levelLen = 3;
-      seen.add(cfgC.style + '/' + cfgC.palette + '/' + sd);
-      const gc = window.WORLD.buildMission(cfgC, window.CONFIG.randomMerc(sd),
-        { difficulty: 'recruit', enemyDens: 0.8, lives: 3, allies: 1, autopilot: true });
-      let rc; while (!(rc = gc.next()).done);
-      const MC = rc.value;
-      flown++;
-      let over = false;
-      for (let i = 0; i < 60 * 150; i++) {
-        MC.update(1 / 60, IDLE);
-        if (MC.state === 'won') { over = true; break; }
-        if (MC.state === 'dead') {
-          // the loop only redeploys once the end state has settled
-          if (MC.lives > 0) { if (!MC.respawn()) { over = true; break; } }
-          else if (MC.endT > 1.4) { over = true; break; }
-        }
-      }
-      ok(over, 'run ' + (run + 1) + ' of the chain reached an end state');
-      if (MC.state === 'won') finished++;
-      /* whichever way it ended, the loop's trigger must be reachable:
-         endT keeps accumulating once the run is over */
-      const t0 = MC.endT;
-      for (let i = 0; i < 120; i++) MC.update(1 / 60, IDLE);
-      ok(MC.endT > t0, 'the end-state clock keeps running so the chain can advance');
-      ok(MC.state !== 'play', 'and the run stays ended rather than resuming itself');
-      ok(MC.autopilot === true, 'the next build inherits autopilot from the last');
+    const F = flight('autopilot');
+    ok(F.runs.length === 2, 'both autopilot seeds ran');
+    for (const r of F.runs) {
+      ok(r.autopilot === true, 'the mission knows it is flying itself');
+      ok(r.hasPilot, 'and has a pilot to do it');
+      ok(!r.inputTouched, 'autopilot never writes into the human input struct');
+      ok(r.state === 'won', 'autopilot reached extraction on seed ' + r.seed +
+         ' (got ' + r.state + ' at ' + (r.progress * 100).toFixed(0) + '%)');
+      ok(r.kills > 0, 'autopilot fought its way there');
+      console.log('    seed ' + r.seed + ': ' + r.state + ' at ' +
+                  (r.progress * 100).toFixed(0) + '%, ' + r.deaths + ' deaths, ' +
+                  r.kills + '/' + r.total + ' killed');
     }
-    ok(seen.size === 3, 'each run in the chain is built from its own seed');
-    console.log('  chain: ' + flown + ' runs flown, ' + finished + ' reached extraction');
-    ok(finished === flown, 'every run in the chain reached extraction (' +
-       finished + '/' + flown + ')');
+  }
+
+  /* --- continuous mode: a chain of rolled builds --- */
+  {
+    const F = flight('chain');
+    ok(F.runs.length === 3, 'the chain flew three builds');
+    ok(F.distinctSeeds === 3, 'each run in the chain is built from its own seed');
+    for (const r of F.runs) {
+      ok(r.state === 'won', 'chain run reached extraction (' + r.style + ', ' + r.state + ')');
+      ok(r.endClockRuns, 'the end-state clock keeps running so the chain can advance');
+      ok(r.stayedEnded, 'and the run stays ended rather than resuming itself');
+      ok(r.keptAutopilot, 'the next build inherits autopilot from the last');
+    }
+    console.log('    ' + F.runs.map(r => r.style).join(' → '));
+  }
+
+  /* --- a campaign, flown end to end --- */
+  {
+    const F = flight('campaign');
+    ok(F.sectors.length === 3, 'the campaign flew every sector (' + F.sectors.length + '/3)');
+    ok(F.done && F.won, 'and the campaign reports itself finished');
+    ok(F.logged === 3, 'every cleared sector is logged');
+    ok(F.score > 0 && F.kills > 0, 'the campaign totals accumulate');
+    ok(F.styles.length > 1, 'the sectors are not all the same place (' +
+       F.styles.join(', ') + ')');
+    let prev = null;
+    for (const sct of F.sectors) {
+      ok(sct.state === 'won', 'autopilot cleared sector ' + sct.n +
+         ' (' + sct.style + ', got ' + sct.state + ')');
+      ok(sct.knowsCampaign, 'the mission knows its campaign');
+      ok(sct.knowsSector, 'and which sector it is');
+      ok(sct.wardens > 0, 'every sector has someone standing in it');
+      ok(sct.densRose, 'each sector deploys at least as many');
+      ok(sct.sameOperative, 'the same operative walks into every sector');
+      if (sct.carriedWeaponIn) {
+        ok(sct.weaponIn === sct.carriedWeaponIn,
+           'the weapon carried into sector ' + sct.n + ' (' + sct.carriedWeaponIn + ')');
+      }
+      ok(sct.carryWeapon === sct.weaponOut, 'the carry snapshot took the weapon in hand');
+      ok(sct.carryHp > 0, 'and you do not start the next floor dead');
+      ok(sct.carryHp >= sct.carryFloor, 'clearing a sector is worth a breath');
+      if (prev) {
+        /* Whatever the wardens grafted has to still be there. Comparing
+           the string is the point: any buff quietly resetting between
+           sectors is exactly the bug this catches. */
+        const before = JSON.parse(prev.buffsOut), now = JSON.parse(sct.buffsIn);
+        for (const k in before) {
+          ok(now[k] >= before[k] - 1e-9,
+             'buff "' + k + '" survived the sector boundary');
+        }
+        ok(sct.maxHpIn >= prev.maxHpIn, 'a raised vitals ceiling survives too');
+      }
+      prev = sct;
+    }
+    console.log('    ' + F.sectors.map(s => s.n + ':' + s.style).join(' → ') +
+                ' | ' + F.kills + ' killed, ' + F.score + ' scored');
+  }
+
+  /* --- the prototype across a sector boundary --- */
+  {
+    const F = flight('protocarry');
+    ok(F.placed, 'the sector placed its prototype');
+    ok(F.equipped, 'and taking it equips the prototype');
+    ok(F.kindOut === 'proto', 'the prototype carries to the next sector');
+    ok(F.labelOut === F.label, 'and it is the same gun, not a new roll');
+    ok(F.sameRig, 'and the sprite still holds it');
+    ok(F.dmgBuff === 1.5, 'grafted power-ups carry');
+    ok(F.maxHp === 140, 'a raised vitals ceiling carries');
+    ok(F.hp > 60 && F.hp <= 140, 'and you get a breath, not a full heal');
+    ok(F.ammo === 3, 'the magazine you walked out with carries');
+    ok(F.differentPlace, 'the next sector is a different place');
   }
 }
 

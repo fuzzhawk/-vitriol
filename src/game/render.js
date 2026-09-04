@@ -64,6 +64,13 @@ window.RENDER = (function () {
 
     for (const g of M.gibs) drawGib(ctx, g, S);
 
+    /* --- wardens --- */
+    for (const W of M.wardens) {
+      const wx = W.x - S;
+      if (wx < -70 || wx > LV.W + 70) continue;
+      drawWarden(ctx, W, wx, time);
+    }
+
     /* --- allies --- */
     for (const A of M.allies) {
       const ax = A.x - S;
@@ -113,6 +120,28 @@ window.RENDER = (function () {
     if (!P.dead) {
       const blink = P.invuln > 0 && Math.floor(P.invuln * 18) % 2 === 0;
       if (!blink) drawActor(ctx, P, P.x - S, P.y, P.flash > 0);
+    }
+
+    /* chain lightning: a jagged line between the two it jumped over */
+    if (M.arcs) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      for (const a of M.arcs) {
+        const k = clamp(a.life / 0.18, 0, 1);
+        ctx.strokeStyle = hexA(a.c || '#8cf', 0.55 + 0.45 * k);
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        const steps = 5;
+        ctx.moveTo(a.x0 - S, a.y0);
+        for (let i = 1; i <= steps; i++) {
+          const t = i / steps;
+          const jx = i === steps ? 0 : (Math.random() - 0.5) * 7;
+          const jy = i === steps ? 0 : (Math.random() - 0.5) * 7;
+          ctx.lineTo(a.x0 + (a.x1 - a.x0) * t - S + jx, a.y0 + (a.y1 - a.y0) * t + jy);
+        }
+        ctx.stroke();
+      }
+      ctx.restore();
     }
 
     for (const b of M.bullets) drawBullet(ctx, b, S);
@@ -170,6 +199,21 @@ window.RENDER = (function () {
 
   function drawActor(ctx, a, sx, sy, flashing) {
     contactShadow(ctx, a, sx, a.ground && !(a.lift > 0.5));
+    if (a.burnT > 0) {
+      // fire sits UNDER the body: a sprite drawn inside its own flame
+      // reads as glowing, which is not the same thing as burning
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      const k = clamp(a.burnT / 2.4, 0, 1);
+      const r = a.h * (0.55 + 0.25 * Math.random());
+      const g = ctx.createRadialGradient(sx, sy - a.h * 0.45, 0, sx, sy - a.h * 0.45, r);
+      g.addColorStop(0, 'rgba(255,150,40,' + (0.32 * k).toFixed(3) + ')');
+      g.addColorStop(0.5, 'rgba(220,60,20,' + (0.15 * k).toFixed(3) + ')');
+      g.addColorStop(1, 'rgba(200,40,10,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(sx - r, sy - a.h * 0.45 - r, r * 2, r * 2);
+      ctx.restore();
+    }
     if (a.corrupt > 0) {
       // a rot-coloured bloom, so a corrupted merc reads across a room
       ctx.save();
@@ -186,6 +230,15 @@ window.RENDER = (function () {
     }
     if (a.alerted && !a.dead) halo(ctx, a, sx, sy, 0.20);
     a.rig.draw(ctx, a.anim, a.frame || 0, a.local, sx, sy, a.face < 0);
+    if (a.slowT > 0) {
+      // a cold cast over the sprite, so a mired body reads as slowed
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = 0.16 * clamp(a.slowT / 2, 0, 1);
+      ctx.fillStyle = '#3ee0ff';
+      a.rig.draw(ctx, a.anim, a.frame || 0, a.local, sx, sy, a.face < 0);
+      ctx.restore();
+    }
     if (flashing) {
       // Re-blit the same cell as a white silhouette for the hit tick.
       ctx.save();
@@ -323,6 +376,63 @@ window.RENDER = (function () {
     const sy = A.y - ((time * 26 + A.shimmer * 9) % h);
     ctx.fillStyle = hexA(col, 0.35);
     ctx.fillRect(Math.round(ax - w / 2), Math.round(sy), w, 1);
+  }
+
+  /* ============================================================
+     A WARDEN — a lit figure standing very still.
+
+     Drawn with a lantern glow it casts rather than one it wears, so it
+     reads as a light source in the room and you walk toward it before
+     you have worked out what it is. Once it has given up what it was
+     holding the glow drops but does not go out: it is still someone.
+     ============================================================ */
+  function drawWarden(ctx, W, wx, time) {
+    const col = W.rig.params.colVisor || '#ffb45a';
+    const acc = W.rig.params.colAccent || col;
+    const cy = W.y - W.h * 0.55;
+    const lit = W.spent ? 0.4 : 1;
+
+    // the light it stands in
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const r = (W.h * 1.5) * (0.9 + W.glow * 0.2);
+    const g = ctx.createRadialGradient(wx, cy, 0, wx, cy, r);
+    g.addColorStop(0, hexA(acc, (0.13 + 0.07 * W.glow) * lit));
+    g.addColorStop(0.55, hexA(acc, 0.05 * lit));
+    g.addColorStop(1, hexA(acc, 0));
+    ctx.fillStyle = g;
+    ctx.fillRect(wx - r, cy - r, r * 2, r * 2);
+    ctx.restore();
+
+    // the pool it casts on the deck
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = (0.16 + 0.08 * W.glow) * lit;
+    ctx.fillStyle = acc;
+    ctx.beginPath();
+    ctx.ellipse(wx, W.y + 1, W.w * 1.5, 3.2, 0, 0, TAU);
+    ctx.fill();
+    ctx.restore();
+
+    contactShadow(ctx, W, wx, true);
+    W.rig.draw(ctx, 'idle', W.frame || 0, W.local, wx, W.y, W.face < 0);
+
+    // a slow mote drifting off it, so it never looks like a static decal
+    if (!W.spent && Math.random() < 0.06) {
+      // drawn straight rather than pushed into the particle system: a
+      // warden's motes belong to the warden, not to the mission
+      ctx.fillStyle = hexA(col, 0.5);
+      ctx.fillRect(Math.round(wx + (Math.random() - 0.5) * W.w),
+                   Math.round(W.y - W.h * Math.random()), 1, 1);
+    }
+
+    // the "there is something here" beacon over its head
+    if (!W.spent) {
+      const bob = Math.sin(time * 2.4 + W.t) * 1.5;
+      ctx.fillStyle = hexA(col, 0.55 + 0.45 * W.glow);
+      ctx.fillRect(Math.round(wx) - 1, Math.round(W.y - W.h - 9 + bob), 2, 4);
+      ctx.fillRect(Math.round(wx) - 2, Math.round(W.y - W.h - 5 + bob), 4, 1);
+    }
   }
 
   /* Ally health, in the ally's own colour so a glance separates them
@@ -646,6 +756,16 @@ window.RENDER = (function () {
     bar(ctx, 8, 16, 78, 4, P.hp / P.maxHp, P.hp > 35 ? '#4ad07a' : '#e0552a');
     text(ctx, String(Math.max(0, Math.ceil(P.hp))).padStart(3, '0'), 108, 15, P.hp > 35 ? '#cfe6d8' : '#ff9b3d', 'right');
     text(ctx, 'LIVES ' + '■'.repeat(Math.max(0, M.lives)), 8, 23, acc);
+    /* the ward, drawn over the health bar rather than beside it: it is
+       the thing standing in front of that number */
+    if (P.wardMax > 0) {
+      const wf = clamp(P.ward / P.wardMax, 0, 1);
+      ctx.fillStyle = P.wardT > 0 && Math.floor(time * 18) % 2 ? '#ffffff' : hexA('#7ad8ff', 0.92);
+      ctx.fillRect(8, 14, Math.round(78 * wf), 2);
+    }
+    if (P.burnT > 0 && Math.floor(time * 8) % 2 === 0) {
+      text(ctx, 'BURNING', 116, 15, '#ff7a2a');
+    }
 
     /* weapon */
     const W = P.weapon;
@@ -653,24 +773,21 @@ window.RENDER = (function () {
     ctx.fillRect(LV.W - 118, 4, 114, 26);
     text(ctx, W.def.label, LV.W - 8, 7, W.def.proto ? (W.def.tint || vis) : vis, 'right');
     if (W.def.proto) {
-      // a rolled gun earns a line of what it rolled
-      const r = W.def;
-      const bits = [];
-      if (r.count > 1) bits.push('x' + r.count);
-      if (r.pierce) bits.push('PRC' + r.pierce);
-      if (r.splash) bits.push('BLST');
-      if (r.homing) bits.push('SEEK');
-      if (r.bounce) bits.push('RIC' + r.bounce);
-      if (r.drop) bits.push('ARC');
-      if (bits.length) text(ctx, bits.join(' '), LV.W - 8, 31, hexA(r.tint, 0.9), 'right');
+      /* A rolled gun earns a line of what it rolled. The tags come from
+         the weapon module rather than a list here, so an effect added
+         to the roll shows up in the HUD the same day. */
+      const bits = window.WEAPONS.tagsFor(W.def);
+      if (W.def.count > 1) bits.unshift('x' + W.def.count);
+      if (bits.length) text(ctx, bits.join(' '), LV.W - 8, 31, hexA(W.def.tint, 0.9), 'right');
     }
     if (W.reloading > 0) {
       bar(ctx, LV.W - 114, 16, 106, 4, 1 - W.reloading / W.def.reload, vis);
       text(ctx, 'RELOADING', LV.W - 8, 23, '#8d9aa2', 'right');
     } else {
-      const cells = Math.min(W.def.mag, 30);
+      const MAG = M.magOf ? M.magOf(W) : W.def.mag;
+      const cells = Math.min(MAG, 30);
       const per = Math.floor(106 / cells);
-      const lit = Math.round(cells * (W.ammo / W.def.mag));
+      const lit = Math.round(cells * (W.ammo / MAG));
       for (let i = 0; i < cells; i++) {
         ctx.fillStyle = i < lit ? vis : 'rgba(52,58,62,.85)';
         ctx.fillRect(LV.W - 114 + i * per, 16, Math.max(1, per - 1), 4);
@@ -693,13 +810,41 @@ window.RENDER = (function () {
     ctx.fillStyle = acc;
     ctx.fillRect(bx + Math.round(px * 118), 12, 2, 6);
 
-    /* hostiles + score */
-    text(ctx, 'HOSTILES ' + (M.totalEnemies - M.kills) + '/' + M.totalEnemies, 4, LV.H - 18, '#8d9aa2');
-    text(ctx, String(P.score).padStart(6, '0'), LV.W - 4, LV.H - 18, vis, 'right');
+    /* which sector of the campaign this is */
+    if (M.campaign) {
+      const C = M.campaign;
+      const lab = 'SECTOR ' + String(M.sector).padStart(2, '0') + ' / ' + String(C.total).padStart(2, '0');
+      text(ctx, lab, LV.W / 2, 20, hexA(acc, 0.85), 'center');
+    }
+
+    /* What the wardens have grafted on. Under the weapon panel rather
+       than under the vitals, because these are things the gun does. */
+    {
+      const B = P.buffs, marks = [];
+      if (B.dmg > 1) marks.push(['DMG', '#ff5a3d', B.dmg]);
+      if (B.rate > 1) marks.push(['RTE', '#ffd06b', B.rate]);
+      if (B.reload > 1) marks.push(['RLD', '#8cff5a', B.reload]);
+      if (B.mag > 1) marks.push(['MAG', '#c060ff', B.mag]);
+      if (B.speed > 1) marks.push(['SPD', '#3ee0ff', B.speed]);
+      if (B.armour > 1) marks.push(['ARM', '#9fb0c0', B.armour]);
+      const y0 = W.def.proto ? 40 : 33;
+      marks.forEach((m, i) => {
+        text(ctx, m[0] + ' x' + m[2].toFixed(1), LV.W - 8, y0 + i * 7, hexA(m[1], 0.85), 'right');
+      });
+    }
+
+    /* Hostiles + score. The dialog box owns this band while it is up —
+       a score readout showing through a conversation looks like a
+       rendering bug, because it is one. */
+    const talking = M.dialog && M.dialog.open;
+    if (!talking) {
+      text(ctx, 'HOSTILES ' + (M.totalEnemies - M.kills) + '/' + M.totalEnemies, 4, LV.H - 18, '#8d9aa2');
+      text(ctx, String(P.score).padStart(6, '0'), LV.W - 4, LV.H - 18, vis, 'right');
+    }
 
     /* boss bar — only once it knows you are there */
     const O = M.overlord;
-    if (O && !O.dead && O.aggroed) {
+    if (O && !O.dead && O.aggroed && !talking) {
       const bw = 170, bx2 = Math.round(LV.W / 2 - bw / 2), by2 = LV.H - 30;
       ctx.fillStyle = 'rgba(8,10,11,.80)';
       ctx.fillRect(bx2 - 3, by2 - 10, bw + 6, 17);
@@ -740,10 +885,20 @@ window.RENDER = (function () {
 
     /* autopilot badge — steps up out of the way when the mission has
        something to say, since both want the same line */
-    if (M.autopilot) {
+    if (M.autopilot && !talking) {
       const blink = 0.6 + 0.4 * Math.sin(time * 4);
       const y = (M.bannerT > 0 && M.banner) ? LV.H - 54 : LV.H - 42;
       text(ctx, 'AUTOPILOT', LV.W / 2, y, hexA('#4ad07a', blink), 'center');
+    }
+
+    /* a warden you could walk into */
+    if (M.talkPrompt && !M.dialog.open) {
+      const W = M.talkPrompt;
+      const px = W.x - M.scroll;
+      if (Math.floor(time * 3) % 2 === 0) {
+        text(ctx, W.spent ? 'SPEAK' : 'SOMETHING IS HERE', px, W.y - W.h - 20,
+             W.rig.params.colVisor || '#ffb45a', 'center');
+      }
     }
 
     /* prompt for a stasis pod you are standing next to */
@@ -755,13 +910,17 @@ window.RENDER = (function () {
                       A.rig.params.colVisor || '#6cf', 'center');
     }
 
-    /* pickup / event banner */
-    if (M.bannerT > 0 && M.banner) {
+    /* pickup / event banner — the box is already saying it */
+    if (M.bannerT > 0 && M.banner && !talking) {
       const a = clamp(M.bannerT / 0.5, 0, 1);
       ctx.globalAlpha = a;
       text(ctx, M.banner, LV.W / 2, LV.H - 40, vis, 'center');
       ctx.globalAlpha = 1;
     }
+
+    /* the warden's box goes over everything except the vignettes: it
+       is the thing you are being asked to read */
+    if (M.dialog.open) dialogBox(M, ctx, time);
 
     /* crosshair */
     const cx = Math.round(M.cursorX), cy = Math.round(M.cursorY);
@@ -794,6 +953,118 @@ window.RENDER = (function () {
       g.addColorStop(1, 'rgba(150,20,14,' + a + ')');
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, LV.W, LV.H);
+    }
+  }
+
+  /* ============================================================
+     THE TEXT BOX
+
+     Deliberately the oldest thing on the screen: a hard rectangle at
+     the bottom, a portrait panel, a name plate, and characters
+     arriving one at a time. It does not fade, it does not round its
+     corners and it does not animate in — the whole point of the form
+     is that it stops the world flat.
+     ============================================================ */
+  function wrapLines(ctx, s, maxW) {
+    ctx.font = FONT;
+    const out = [];
+    for (const para of String(s).split('\n')) {
+      if (!para) { out.push(''); continue; }
+      let line = '';
+      for (const word of para.split(' ')) {
+        const test = line ? line + ' ' + word : word;
+        if (ctx.measureText(test).width > maxW && line) { out.push(line); line = word; }
+        else line = test;
+      }
+      out.push(line);
+    }
+    return out;
+  }
+
+  function dialogBox(M, ctx, time) {
+    const D = M.dialog;
+    const col = D.tint || '#8cf';
+    const PAD = 6;
+    const H = 62;
+    const y0 = LV.H - H - 6;
+    const x0 = 10, x1 = LV.W - 10;
+    const w = x1 - x0;
+
+    // the frame: flat fill, hard double border
+    ctx.fillStyle = 'rgba(6,8,10,.93)';
+    ctx.fillRect(x0, y0, w, H);
+    ctx.strokeStyle = hexA(col, 0.85);
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x0 + 0.5, y0 + 0.5, w - 1, H - 1);
+    ctx.strokeStyle = hexA(col, 0.25);
+    ctx.strokeRect(x0 + 2.5, y0 + 2.5, w - 5, H - 5);
+
+    // portrait: the speaker's own sprite, cropped to the head and
+    // shoulders by the box rather than by a separate portrait asset
+    let tx = x0 + PAD;
+    if (D.portrait) {
+      const pw = 40, ph = H - PAD * 2;
+      const px = x0 + PAD, py = y0 + PAD;
+      ctx.save();
+      ctx.beginPath(); ctx.rect(px, py, pw, ph); ctx.clip();
+      ctx.fillStyle = 'rgba(14,17,20,.9)';
+      ctx.fillRect(px, py, pw, ph);
+      /* Framed on the head and shoulders. The rig draws from the feet
+         up, so the scale and the offset are both derived from the panel
+         and the rig's own height — a portrait framed with fixed numbers
+         crops the head off the first time a taller build turns up, and
+         no separate portrait art is worth that. */
+      const R = D.portrait;
+      const sc = (ph * 2.0) / Math.max(1, R.h);      // ~2 panels tall
+      const head = ph * 0.16;                         // headroom above the crown
+      ctx.translate(px + pw / 2 + 1, py + head + R.h * sc);
+      ctx.scale(sc, sc);
+      R.draw(ctx, 'idle', 0, 0, 0, 0, false);
+      ctx.restore();
+      ctx.strokeStyle = hexA(col, 0.45);
+      ctx.strokeRect(px + 0.5, py + 0.5, pw - 1, ph - 1);
+      tx = px + pw + PAD;
+    }
+
+    // name plate, sitting on the top border like a tab
+    if (D.speaker) {
+      const nw = ctx.measureText ? 0 : 0;
+      ctx.font = FONT;
+      const label = ' ' + D.speaker + ' ';
+      const lw = Math.ceil(ctx.measureText(label).width) + 4;
+      ctx.fillStyle = 'rgba(6,8,10,.98)';
+      ctx.fillRect(tx - 2, y0 - 8, lw, 9);
+      ctx.strokeStyle = hexA(col, 0.85);
+      ctx.strokeRect(tx - 1.5, y0 - 7.5, lw - 1, 9);
+      text(ctx, D.speaker, tx + 1, y0 - 6, col);
+    }
+
+    // the text, revealed a character at a time
+    const maxW = x1 - PAD - tx;
+    const lines = wrapLines(ctx, D.text(), maxW);
+    let budget = Math.floor(D.shown);
+    let ly = y0 + PAD + 2;
+    for (const line of lines) {
+      if (budget <= 0) break;
+      const take = line.slice(0, budget);
+      budget -= line.length + 1;
+      if (take) text(ctx, take, tx, ly, '#d8dee4');
+      ly += 9;
+      if (ly > y0 + H - 12) break;
+    }
+
+    // the blinking "more" wedge, only once the page has finished
+    if (D.full() && Math.floor(time * 2.6) % 2 === 0) {
+      const bx = x1 - PAD - 5, by = y0 + H - PAD - 5;
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.moveTo(bx, by); ctx.lineTo(bx + 5, by); ctx.lineTo(bx + 2.5, by + 4);
+      ctx.closePath(); ctx.fill();
+    }
+    // page counter, so a long speech has a shape
+    if (D.pages.length > 1) {
+      text(ctx, (D.page + 1) + '/' + D.pages.length, x1 - PAD - 12, y0 + 3,
+           hexA(col, 0.6), 'right');
     }
   }
 
@@ -850,5 +1121,5 @@ window.RENDER = (function () {
 
   return { frame, entityPass, hud, overlay, text, bar, hexA, FONT,
            drawCrawler, drawSlime, drawGib, drawBody, drawVapor,
-           drawStasis, drawAllyPip };
+           drawStasis, drawAllyPip, drawWarden, dialogBox };
 })();

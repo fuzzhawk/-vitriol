@@ -408,6 +408,87 @@ window.CONFIG = (function () {
     });
   }
 
+  /* ---------------- wardens ----------------
+     The standing figures. Built to read as neither yours nor theirs:
+     tall, robed by a heavy pauldron and a long coat of armour, no
+     corruption, and lit by one warm lantern colour that nothing else
+     in the level uses. You should be able to tell one from a hostile
+     across a dark room without reading the HUD. */
+  const WARDEN_HUES = [38, 44, 28, 52, 20];
+
+  function wardenParams(seed, cfg) {
+    const R = GW.makeRng((seed ^ 0x3a1d) >>> 0);
+    const h = R.pick(WARDEN_HUES);
+    return Object.assign({}, window.MERCFORGE.P_DEFAULTS, {
+      seed: seed >>> 0,
+      /* Three aim rows, not one: the warden is drawn on the bottom row,
+         which points its arm at the floor. A figure standing with its
+         weapon lowered reads as someone waiting; the same figure on the
+         middle row is pointing a gun at you. */
+      aimRows: 3, runFrames: 2,
+      corrupt: 0, growths: 0, rotVeins: 0,
+      height: GW.clamp(38 + R.int(0, 6), 34, 46),
+      headSize: 0.78,
+      helmet: R.pick(['crest', 'full']),
+      backpack: R.pick(['pack', 'tank']),
+      gun: 'pistol', gunSize: 0.75, twoHanded: false,
+      pads: R.range(0.9, 1.4),
+      plates: true,
+      armour: R.range(0.9, 1.5),
+      limbThick: R.range(0.048, 0.062),
+      colSuit: window.MERCFORGE.hsl(h, 12 + R.range(0, 10), 16 + R.range(0, 8)),
+      colSuit2: window.MERCFORGE.hsl(h, 10 + R.range(0, 10), 9 + R.range(0, 5)),
+      colGun: window.MERCFORGE.hsl(h, 8, 22),
+      colAccent: window.MERCFORGE.hsl(h, 74 + R.range(0, 20), 52 + R.range(0, 10)),
+      colVisor: window.MERCFORGE.hsl(h + R.range(-6, 6), 88, 62 + R.range(0, 10))
+    });
+  }
+
+  /* What a warden can be carrying. Weapons come out of the live roster
+     rather than a list here, so a gun added to WEAPONS is one a warden
+     can hand you the same day. Power-ups are permanent and multiply,
+     which is what makes them worth crossing a room for in a campaign. */
+  const POWERUPS = {
+    dmg:    { label: 'VITRIOL ROUNDS',  line: 'YOUR ROUNDS WILL BITE DEEPER NOW.',
+              stat: 'dmg',    step: 0.22, cap: 2.6, col: '#ff5a3d' },
+    rate:   { label: 'TRIGGER GRAFT',   line: 'THE TRIGGER WILL ANSWER BEFORE YOU ASK.',
+              stat: 'rate',   step: 0.16, cap: 2.2, col: '#ffd06b' },
+    reload: { label: 'LOADER SPINE',    line: 'YOUR HANDS WILL KNOW THE DRILL.',
+              stat: 'reload', step: 0.18, cap: 2.4, col: '#8cff5a' },
+    speed:  { label: 'TENDON WEAVE',    line: 'THE GROUND WILL PASS FASTER UNDER YOU.',
+              stat: 'speed',  step: 0.12, cap: 1.7, col: '#3ee0ff' },
+    mag:    { label: 'DEEP MAGAZINE',   line: 'THERE WILL BE MORE IN IT THAN THERE SHOULD BE.',
+              stat: 'mag',    step: 0.30, cap: 3.0, col: '#c060ff' },
+    armour: { label: 'PLATE SIGIL',     line: 'WHAT STRIKES YOU WILL STRIKE LESS.',
+              stat: 'armour', step: 0.20, cap: 2.4, col: '#9fb0c0' },
+    vitals: { label: 'MARROW GRAFT',    line: 'YOU WILL HOLD MORE OF YOURSELF TOGETHER.',
+              stat: 'vitals', step: 25,   cap: 220,  col: '#4ad07a' },
+    ward:   { label: 'ASH WARD',        line: 'SOMETHING WILL STAND BETWEEN YOU AND THE FIRST BLOW.',
+              stat: 'ward',   step: 18,   cap: 90,   col: '#7ad8ff' }
+  };
+  const POWERUP_KEYS = Object.keys(POWERUPS);
+
+  /* Roll what one warden is holding. Weapons are commoner than
+     power-ups early and rarer later, because by sector six a gun is a
+     sidegrade and a permanent multiplier is not. */
+  function wardenGift(rng, sector) {
+    const n = sector || 1;
+    const wantPower = rng.rnd() < GW.clamp(0.35 + n * 0.06, 0.3, 0.75);
+    if (wantPower) {
+      const k = rng.pick(POWERUP_KEYS);
+      const P = POWERUPS[k];
+      return { kind: 'power', power: k, label: P.label, line: P.line, col: P.col };
+    }
+    /* Never the pistol: being handed your own sidearm by a figure who
+       has been standing in the dark for a century is a bathos. */
+    const pool = window.WEAPONS.ORDER.filter(k => k !== 'pistol');
+    const k = rng.pick(pool);
+    const def = window.WEAPONS.table[k];
+    return { kind: 'weapon', weapon: k, label: def.label,
+             line: 'IT IS CALLED ' + def.label + '. IT HAS OTHER NAMES.',
+             col: '#f0a830' };
+  }
+
   /* The default player merc: the tool's own 'nick' preset, which is
      the build every other proportion was tuned against. */
   function defaultMerc() {
@@ -429,6 +510,7 @@ window.CONFIG = (function () {
     LEVEL_DEFAULTS, RUN_DEFAULTS, DIFFICULTY,
     STYLE_AFFINITY, STYLE_KEYS, HARSH_PALETTES,
     ARCHETYPES, archetypeParams, CORRUPT_RATE, defaultMerc, randomMerc, allyParams,
+    wardenParams, wardenGift, POWERUPS, POWERUP_KEYS,
     CRAWLER_PALETTES, crawlerParams, overlordParams, defaultCrawler,
     SCRAP_PALETTES, scrapParamsFor, tintScrapToLevel,
     randomLevelCfg, applyCityPreset

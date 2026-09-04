@@ -25,6 +25,7 @@ S              crouch — hold and jump to drop through a catwalk
 MOUSE          aim (full 360°)
 LEFT CLICK     fire
 R              reload
+E / ENTER      talk — advance a warden's text
 P              autopilot on / off
 ESC            pause
 M              mute
@@ -35,15 +36,23 @@ Fight east to the extraction pad. A heavy is always posted on it.
 Walk into a stasis pod on the way and the operative inside comes online and
 fights alongside you.
 
-## The two build paths
+## The three ways in
 
-The launch screen leads to **BUILD**, which offers exactly two ways in:
+The launch screen leads to **BUILD**, which offers three:
 
 **RANDOMIZE** — one seed rolls the whole run: architecture, palette, sky mood,
 skyline, weather, level length, and the operative you play as. The roll is
 *coherent* rather than uniform: `STYLE_AFFINITY` in `src/game/config.js` pairs
 each of the 14 architectures with the sky moods, skylines and palettes it belongs
 under, so a random level looks deliberate instead of like a slot machine.
+
+**CAMPAIGN** — a string of sectors from one seed, 2 to 12 of them, each deeper
+and harder than the last. **You** carry through: the operative, the gun in your
+hands, its magazine, the spare ammo, everything the wardens grafted onto you.
+**The place** does not: every sector rerolls its architecture, palette, garrison,
+debris and boss. Difficulty rides on top of whatever you chose rather than
+replacing it, so RECRUIT at the bottom is still gentler than VITRIOL at the top.
+Autopilot flies a campaign the same way it flies a single level.
 
 **CUSTOM BUILD** — both generators opened up.
 
@@ -62,7 +71,7 @@ under, so a random level looks deliberate instead of like a slot machine.
 - **OVERLORD · BOSS FORGE** — the boss is CRAWLER FORGE at boss scale, so it
   gets the same control table, with a live preview of it hovering and coiling
   at true size.
-- **PROTOTYPE · WEAPON FORGE** — all ten rolled parameters as sliders, over a
+- **PROTOTYPE · WEAPON FORGE** — all twenty rolled parameters as sliders, over a
   live firing range that shoots the gun you are editing at a target plate.
   Trails, ricochets, arc and seeking are all visible in the range, which is a
   far better way to understand a roll than a table of numbers.
@@ -108,6 +117,8 @@ src/game/
   sprite.js             MERC FORGE sheet consumer (blit / aim row / muzzle)
   physics.js            swept AABB against the generator's `plats` data
   rigid.js              impulse solver for the debris
+  dialog.js             the RPG text box the wardens talk through
+  campaign.js           a run made of many sectors: the curve and the carry
   pilot.js              the AI that plays the game — allies and autopilot
   entities.js           player, enemy AI, projectiles, pickups
   world.js              mission build generator + simulation
@@ -122,6 +133,7 @@ tools/
   extract.js            slices the generator cores out of the tools
   harness.js            the original MERC FORGE validator
   harness-game.js       validates the game layer + dumps contact sheets
+  harness-flights.js    the scenarios that have to actually PLAY
 docs/                   the original handoff documents
 ```
 
@@ -148,7 +160,7 @@ Do not hand-edit `src/gen/*.js` — edit the tool and re-extract.
 
 ```bash
 npm install @napi-rs/canvas
-node tools/harness-game.js     # or: npm test — ~20,600 checks + contact sheets in out/
+node tools/harness-game.js     # or: npm test — ~30,300 checks + contact sheets in out/
 node tools/harness.js          # the original MERC FORGE validator
 ```
 
@@ -165,13 +177,24 @@ path in both directions, and writes contact sheets to `out/`:
 | `out_cast.png` | the player rig beside all four hostile archetypes |
 | `out_aim.png` | every aim row of the player sheet, -90° to +90° |
 | `out_crawler.png` | crawlers in a level, mid-fight, with slime and chunks |
+| `out_guns.png` | all fifteen weapons in one operative's hands |
+| `out_wardens.png` | approaching a warden, the prompt, and mid-sentence |
+| `out_warden_zoom.png` | one warden at 3x, for the lantern glow |
 | `out_crawler_surfaces.png` | one crawler seated on floor, both walls and ceiling |
 
-It also flies two levels end to end on autopilot and fails if either one does
-not reach extraction, then flies a chain of three consecutive rolled builds the
-way continuous mode does. That check is the whole feature: an AI that plays well
-for thirty seconds and then stands under a crate for two minutes passes every
-invariant test you can write and is still broken.
+It also flies: two levels end to end on autopilot, a chain of three consecutive
+rolled builds the way continuous mode does, and a whole campaign with the
+loadout carried across every sector boundary. Those are the checks that matter
+most — an AI that plays well for thirty seconds and then stands under a crate
+for two minutes passes every invariant test you can write and is still broken.
+
+The flown scenarios live in `harness-flights.js` and run in **child processes**,
+one each. Every mission bakes its own sprite sheets, and those are native canvas
+buffers V8 feels no pressure from, so they are never collected inside a
+long-lived process; eight flown missions in one address space is a few gigabytes
+and an OOM kill, which reads like a test failure and is not one. The assertions
+still live in `harness-game.js` with everything else — only the address space is
+separate.
 
 Per the MERC FORGE handoff: keep dumping contact sheets. `out_collision.png` in
 particular is the one that catches layout bugs — misaligned collision is
@@ -180,14 +203,25 @@ invisible in code review and obvious in a PNG.
 ## The Overlord, the debris, and the rot
 
 **The prototype.** One weapon is rolled per run from the build seed and left on
-a lit pedestal on the last ground before the boss. Ten parameters — rate,
-damage, speed, projectile count, spread, pierce, splash, homing, ricochet and
-arc — plus a generated name, a tint, and which of the five base shapes the merc
-holds. The ten are not independent knobs: the roll spends a fixed budget across
-them, so taking more of one thing gives way somewhere else. That is what makes
-a prototype interesting rather than simply better. A second player rig is forged
-during loading holding it, so picking it up swaps the sprite instead of stalling
-the frame on a re-forge mid-fight.
+a lit pedestal on the last ground before the boss. Twenty parameters, split into
+five CORE handling axes every gun has some of — rate, damage, speed, projectile
+count, spread — and fifteen EXOTIC effects most guns have none of: pierce,
+blast, seeking, ricochet, arc, incendiary, chain arc, fork, mire, leech, charge,
+ward, quake, spiral and echo.
+
+They are not independent knobs. The core five share a budget, so taking more of
+one gives way somewhere else. The exotics work differently: the roll **picks two
+to four** and spends a separate budget only on those. Spreading one budget over
+all twenty would give every prototype a thin smear of everything and no
+character — a prototype should be describable in one sentence, and three effects
+turned up loud beat fifteen turned down. Every exotic value goes through a spec
+table that clamps it, because a budget that can put all its weight on one axis
+can also produce a pierce of 22, which is not a weapon but a bug.
+
+A second player rig is forged during loading holding it, so picking it up swaps
+the sprite instead of stalling the frame on a re-forge mid-fight — and the shape
+it swaps to is chosen by the loudest thing about the build, so the gun in the
+merc's hands does not lie about what it does.
 
 **SCRAP FORGE** bakes the physics props: crates, drums, concrete slabs, girder
 offcuts, scrap bales and torn plate, in seven industrial palettes. Two things
@@ -229,6 +263,55 @@ has been got at scales with difficulty, from 18% on recruit to 62% on vitriol.
 The vapour is drawn in two passes — a dark body that eats light, then a dim red
 core inside it. Smoke that only added light read as steam; taking light out
 first is what makes it read as wrong.
+
+## The roster, the wardens and the campaign
+
+**Fifteen weapons**, and the silhouette tells them apart. The first five are the
+originals; the second ten each own a role none of them had, and each is built
+around one exotic effect, so everything the prototype can roll is something you
+have already met on a stock gun: SHORT SCATTER, FLAK REPEATER, RAIL SPIKE, NAIL
+DRIVER, PULSE EMITTER, VENT TORCH (incendiary), TRENCH MORTAR (quake), COIL
+DRIVER (chain), SWARM HIVE, REAPER SHARD (leech).
+
+MERC FORGE draws all fifteen, and each has at least one part the others do not —
+a second barrel, a slung canister, accelerator rings, a top hopper, an emitter
+bulb, a smoothbore tube, a bayonet. `out_guns.png` is the contact sheet that
+proves it; a roster the silhouette cannot tell apart is a list, not a roster.
+
+**Wardens** are the standing figures. Occasionally a level puts one on a wide
+run between the drop-in and the boss: a heavy armoured shape with its weapon
+lowered, standing in a lantern glow it casts rather than wears, so you walk
+toward it before you have worked out what it is. Walk into one and it hands over
+a weapon or a permanent graft — damage, fire rate, reload, foot speed, magazine
+depth, armour, vitals or a regenerating ward — and tells you something you will
+not understand.
+
+The gift lands on the **first** page rather than the last, so skipping out of the
+conversation still leaves you holding it; a reward you can lose by pressing a
+key too fast is a bug wearing a design. A warden never takes the prototype off
+you either — that is the run's prize, and the rest of the code already refuses
+to fall back off it.
+
+What they say is generated from an opening, a middle and a turn, deterministic in
+the run's seed, so the same seed always meets the same warden saying the same
+thing and the hundredth run still says something you have not read.
+
+`dialog.js` is the box: a queue of pages revealed a character at a time, a
+portrait cropped live out of the speaker's own sprite, a name plate on the top
+border, a page counter and a blinking wedge. Holding the key runs the reveal
+out early. It is deliberately the oldest thing on the screen — it does not fade,
+round its corners or animate in, because the point of the form is that it stops
+the world flat. It runs *over* live gameplay: the mission keeps stepping behind
+it and the player is simply held still, so it reads as somebody stopping you
+rather than a screen appearing.
+
+**A campaign** is a seed and a sector number, and everything else is derived —
+which is what makes sector 7 of seed X always the same sector 7. `campaign.js`
+owns the curve (density, hostile health, incoming damage, fire rate, corruption
+and sector length all rise together, each separately clamped) and the carry.
+Autopilot handles it without knowing it is in one: a cleared sector is not the
+end of a run, it is the middle of one, so the app loop advances the campaign
+where it would otherwise have rolled a fresh build.
 
 ## The pilot
 

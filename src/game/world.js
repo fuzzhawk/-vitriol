@@ -65,9 +65,13 @@ window.WORLD = (function () {
         } else {
           yield { phase: 'rigs', weight: 0.14,
                   msg: 'forging hostiles — ' + kind + ' ' + (v + 1) + '/' + variants };
+          /* In a campaign the sector curve decides how much of the
+             garrison has been got at, so the descent shows on the
+             enemies and not only in their health bars. */
+          const rot = opts.sectorScale ? opts.sectorScale.corrupt
+                    : (window.CONFIG.CORRUPT_RATE[opts.difficulty] || 0.30);
           rigs[kind].push(new window.SPRITE.Rig(window.CONFIG.archetypeParams(
-            kind, seed, cfg.style,
-            window.CONFIG.CORRUPT_RATE[opts.difficulty] || 0.30)));
+            kind, seed, cfg.style, rot)));
         }
         done++;
       }
@@ -105,6 +109,19 @@ window.WORLD = (function () {
       Object.assign({}, mercParams, { gun: proto.base, gunSize: 1.25,
                                       colGun: proto.tint, twoHanded: true }));
 
+    /* ---- 5b. wardens ----
+       Standing figures who hand you something and say something you
+       will not understand. One rig each, because there are never many
+       and a warden that looks like the last warden is furniture. */
+    const wardenCount = Math.max(0, Math.min(4,
+      opts.wardens === undefined ? (rng.chance(0.65) ? 1 : 0) : opts.wardens));
+    const wardenRigs = [];
+    for (let v = 0; v < wardenCount; v++) {
+      yield { phase: 'rigs', weight: 0.05, msg: 'someone is already standing here' };
+      wardenRigs.push(new window.SPRITE.Rig(
+        window.CONFIG.wardenParams((cfg.seed + v * 0x5bd1) >>> 0, cfg)));
+    }
+
     /* ---- 6. the boss ---- */
     yield { phase: 'rigs', weight: 0.10, msg: 'something large is already here' };
     const overlordRig = new window.SPRITE.CrawlerRig(
@@ -112,13 +129,13 @@ window.WORLD = (function () {
 
     yield { phase: 'deploy', msg: 'deploying hostiles', weight: 0.02 };
     const M = new Mission(L, cfg, playerRig, rigs, mix, diff, opts, rng, scrap,
-                          overlordRig, proto, protoRig, allyRigs, allyCount);
+                          overlordRig, proto, protoRig, allyRigs, allyCount, wardenRigs);
     return M;
   }
 
   /* ---------------- mission ---------------- */
   function Mission(L, cfg, playerRig, rigs, mix, diff, opts, rng, scrap,
-                   overlordRig, proto, protoRig, allyRigs, allyCount) {
+                   overlordRig, proto, protoRig, allyRigs, allyCount, wardenRigs) {
     this.L = L; this.cfg = cfg; this.diff = diff; this.opts = opts;
     this.world = new window.PHYSICS.World(L.plats);
     this.rigs = rigs;
@@ -162,10 +179,38 @@ window.WORLD = (function () {
       cursorX: 0, cursorY: 0, aimX: 0, aimY: 0
     };
     this.activatePrompt = null;
+
+    /* --- campaign --- */
+    this.campaign = opts.campaign || null;
+    this.sector = opts.sector || 0;
+    this.sectorScale = opts.sectorScale || null;
+    if (this.sectorScale) {
+      /* The sector curve rides on top of the difficulty you chose
+         rather than replacing it, so RECRUIT at sector 8 is still
+         gentler than VITRIOL at sector 1. */
+      this.diff = diff = Object.assign({}, diff, {
+        dmgIn: diff.dmgIn * this.sectorScale.dmg,
+        enemyHp: diff.enemyHp * this.sectorScale.hp,
+        fireRate: diff.fireRate * this.sectorScale.fire
+      });
+      this.player.diff = diff;
+    }
+
+    /* --- wardens and the box they talk through --- */
+    this.wardens = [];
+    this.wardenRigs = wardenRigs || [];
+    this.dialog = new window.DIALOG.Dialog();
+    this.talkPrompt = null;
+
     if (overlordRig) this.placeOverlord();
     if (proto) this.placeProto();
     if (this.allyRigs.length && allyCount > 0) this.placeAllies(allyCount, rng);
+    if (this.wardenRigs.length) this.placeWardens(rng);
     this.spawnEnemies(mix, rng);
+
+    /* The loadout the last sector was walked out with, put back before
+       anything else touches the player. */
+    if (this.campaign) this.campaign.give(this.player, this);
 
     this.scroll = 0;
     this.shake = 0;
@@ -395,6 +440,118 @@ window.WORLD = (function () {
   /* ---------------- allies ----------------
      Frozen mercs, spread along the level so you meet them as you go
      rather than collecting a squad at the door. */
+  /* ---------------- wardens ----------------
+     Placed on wide, flat, well-separated ground between the drop-in and
+     the boss, so you meet one by walking past it rather than by
+     hunting. A warden in a corner you have to backtrack to is a warden
+     nobody talks to. */
+  Mission.prototype.placeWardens = function (rng) {
+    const bossX = this.overlord ? this.overlord.x : this.exit.x;
+    const runs = this.ground.filter(r => r.w >= 70 &&
+                                         r.x > this.player.x + 200 &&
+                                         r.x + r.w < bossX - 120);
+    if (!runs.length) return;
+    const taken = [];
+    for (let i = 0; i < this.wardenRigs.length; i++) {
+      // spread them down the level, then settle onto the nearest run
+      const want = this.player.x + (bossX - this.player.x) * ((i + 0.8) / (this.wardenRigs.length + 0.6));
+      let best = null, bd = 1e9;
+      for (const r of runs) {
+        const cx = clamp(want, r.x + 26, r.x + r.w - 26);
+        if (taken.some(t => Math.abs(t - cx) < 150)) continue;
+        const d = Math.abs(cx - want);
+        if (d < bd) { bd = d; best = { x: cx, y: r.y }; }
+      }
+      if (!best) continue;
+      taken.push(best.x);
+      const rig = this.wardenRigs[i];
+      const gift = window.CONFIG.wardenGift(rng, this.sector || 1);
+      const lines = window.DIALOG.lines(rng, gift, false);
+      const W = new E.Warden(rig, best.x, best.y, gift, lines,
+                             (this.cfg.seed + i * 7717) >>> 0);
+      W.face = -1;
+      this.wardens.push(W);
+    }
+  };
+
+  Mission.prototype.stepWardens = function (dt) {
+    const P = this.player;
+    this.talkPrompt = null;
+    for (const W of this.wardens) {
+      W.step(dt);
+      if (P.dead || this.dialog.open) continue;
+      if (!W.inReach(P)) continue;
+      // walking into one starts it; it will not start twice in a row
+      if (W.cooldown > 0) { W.cooldown -= dt; continue; }
+      this.talk(W);
+      break;
+    }
+    // step the ones we walked away from back off cooldown
+    for (const W of this.wardens) {
+      if (W.cooldown > 0 && !W.inReach(P)) W.cooldown = 0;
+    }
+  };
+
+  /* Open the box, and hand over whatever it was holding. The gift lands
+     on the FIRST page rather than the last, so a player who skips out
+     of the conversation still walks away with it — a reward you can
+     lose by pressing a key too fast is a bug wearing a design. */
+  Mission.prototype.talk = function (W) {
+    const first = !W.spent;
+    if (first) this.giveGift(W.gift, W);
+    W.spent = true;
+    W.seen++;
+    W.cooldown = 1.0;
+    const lines = first ? W.lines
+      : window.DIALOG.lines(GW.makeRng((this.cfg.seed ^ (W.seen * 977)) >>> 0), W.gift, true);
+    this.dialog.say(lines, {
+      speaker: 'WARDEN',
+      tint: W.rig.params.colVisor,
+      portrait: W.rig
+    });
+    window.AUDIO.play('extract');
+  };
+
+  /* Apply what a warden handed over. Power-ups are permanent and
+     multiply; weapons replace what is in your hands and come loaded. */
+  Mission.prototype.giveGift = function (g, W) {
+    if (!g) return;
+    const P = this.player;
+    if (g.kind === 'weapon') {
+      /* Never over the prototype. It is the run's prize and the rest of
+         the code already refuses to fall back off it; a warden handing
+         you a stock rifle and taking it away would be the one place
+         that promise broke. Top up the spare instead. */
+      if (P.weapon.kind === 'proto') {
+        const spec = window.CONFIG.POWERUPS.dmg;
+        P.buffs.dmg = Math.min(spec.cap, P.buffs.dmg + spec.step);
+        this.say('ROUNDS TEMPERED');
+        this.bannerT = 2.6;
+        return;
+      }
+      if (P.giveWeapon(g.weapon)) this.say(g.label + ' RECEIVED');
+      this.bannerT = 2.6;
+      return;
+    }
+    const spec = window.CONFIG.POWERUPS[g.power];
+    if (!spec) return;
+    if (spec.stat === 'vitals') {
+      P.maxHp = Math.min(spec.cap, P.maxHp + spec.step);
+      P.hp = Math.min(P.maxHp, P.hp + spec.step);
+    } else if (spec.stat === 'ward') {
+      P.giveWard(Math.min(spec.cap, P.wardMax + spec.step));
+    } else {
+      P.buffs[spec.stat] = Math.min(spec.cap, (P.buffs[spec.stat] || 1) + spec.step);
+    }
+    this.say(spec.label + ' GRAFTED');
+    this.bannerT = 2.6;
+    for (let i = 0; i < 22; i++) {
+      const a = Math.random() * TAU, sp = 0.5 + Math.random() * 2.2;
+      this.parts.push(new E.Particle(P.x, P.y - P.h * 0.5,
+        Math.cos(a) * sp, Math.sin(a) * sp, 0.35 + Math.random() * 0.5, spec.col, 0.02));
+    }
+  };
+
   Mission.prototype.placeAllies = function (n, rng) {
     const runs = this.ground.filter(r => r.w >= 50 && r.x > this.player.x + 140 &&
                                          r.x < this.exit.x - 120);
@@ -414,6 +571,30 @@ window.WORLD = (function () {
       A.slot = (i % 2) ? 1 : -1;
       A.pilot = new window.PILOT.Pilot(A, { follow: true, slot: A.slot });
       this.allies.push(A);
+    }
+  };
+
+  /* Burn, mire and the ward, ticked once per frame on the player.
+     Enemies tick theirs in the enemy loop; keeping the two apart is
+     what lets each route its damage through its own hurt path. */
+  Mission.prototype.stepPlayerStatus = function (dt) {
+    const P = this.player;
+    const burn = P.stepStatus(dt);
+    if (burn > 0) {
+      P.burnTick(burn);
+      this.hitFlash = Math.max(this.hitFlash, 0.12);
+      if (Math.random() < dt * 22) {
+        this.parts.push(new E.Particle(P.x + (Math.random() - 0.5) * P.w,
+          P.y - Math.random() * P.h, (Math.random() - 0.5) * 0.5, -0.5 - Math.random(),
+          0.25 + Math.random() * 0.3, '#ff7a2a', -0.02));
+      }
+      if (P.dead) this.say('BURNED DOWN');
+    }
+    if (P.wardT > 0) P.wardT -= dt;
+    /* The ward regrows between fights rather than on a timer from the
+       last hit, so it rewards disengaging instead of waiting. */
+    if (P.wardMax > 0 && P.ward < P.wardMax && P.wardT <= 0) {
+      P.ward = Math.min(P.wardMax, P.ward + P.wardMax * 0.14 * dt);
     }
   };
 
@@ -614,6 +795,16 @@ window.WORLD = (function () {
 
     const P = this.player;
 
+    /* A warden talking holds the player still but not the world: the
+       box runs over live gameplay, which is what makes it feel like
+       somebody stopped you rather than a screen appearing. */
+    const talking = this.dialog.open;
+    if (talking) {
+      const adv = this.autopilot ? true : !!(input.jumpPressed || input.talkPressed);
+      const held = this.autopilot ? true : !!(input.fire || input.up);
+      this.dialog.step(dt, adv, held);
+    }
+
     if (this.state === 'play' && !P.dead) {
       /* On autopilot the pilot fills a struct of the same shape and
          the ordinary player path consumes it — so nothing downstream
@@ -629,7 +820,13 @@ window.WORLD = (function () {
         input.aimX = input.cursorX + this.scroll;
         input.aimY = input.cursorY;
       }
+      if (talking) inUse = this.HELD || (this.HELD = {
+        left: false, right: false, up: false, down: false, fire: false,
+        jumpPressed: false, reloadPressed: false,
+        cursorX: 0, cursorY: 0, aimX: 0, aimY: 0
+      });
       this.autoInput = inUse;
+      if (talking) { inUse.aimX = P.x + P.face * 40; inUse.aimY = P.y - P.h * 0.5; }
       P.step(this.world, inUse, dt);
       if (P.y > this.world.floor) {           // pit
         P.hp = 0; P.dead = true;
@@ -637,6 +834,8 @@ window.WORLD = (function () {
       }
       P.x = clamp(P.x, 8, this.L.LW - 8);
       this.fire(this.autoInput || input, dt);
+      this.stepPlayerStatus(dt);
+      if (this.wardens.length) this.stepWardens(dt);
     } else if (P.dead && this.state === 'play') {
       this.state = 'dead'; this.endT = 0;
     }
@@ -647,6 +846,26 @@ window.WORLD = (function () {
       // Only simulate what's near the view; the rest hold position.
       // The boss is never culled: it owns the arena you are fighting in.
       if (!e.boss && Math.abs(e.x - (this.scroll + LV.W / 2)) > LV.W * 1.35) continue;
+      /* Status before the brain: a mired hostile has to move slowly on
+         the same frame it decides where to go, and a burning one that
+         dies this frame must not also get a turn. */
+      const burn = e.stepStatus(dt);
+      if (burn > 0) {
+        e.hurtBy(burn, this);
+        if (Math.random() < dt * 14) {
+          this.parts.push(new E.Particle(e.x + (Math.random() - 0.5) * e.w,
+            e.y - Math.random() * (e.h || 20), (Math.random() - 0.5) * 0.5,
+            -0.4 - Math.random(), 0.22 + Math.random() * 0.3, '#ff7a2a', -0.02));
+        }
+        if (e.dead) {
+          this.kills++;
+          // a kill by fire still pays, and still drops
+          const by = e.burnBy;
+          if (by === this.player || !by) this.player.score += e.A ? e.A.score : 20;
+          this.maybeDrop(e);
+          continue;
+        }
+      }
       e.step(this.world, this.threatFor(e), dt, this);
       /* Corrupted mercs vent, and ride a little off the deck. The lift
          is cosmetic — it is applied at draw time, not to the collision
@@ -701,29 +920,82 @@ window.WORLD = (function () {
     this.scroll = clamp(this.scroll, 0, Math.max(0, this.L.LW - LV.W));
     this.shake *= 0.86;
     if (this.hitFlash > 0) this.hitFlash -= dt;
+    if (this.arcs) {
+      for (let i = this.arcs.length - 1; i >= 0; i--) {
+        if ((this.arcs[i].life -= dt) <= 0) this.arcs.splice(i, 1);
+      }
+    }
+  };
+
+  /* The magazine a weapon has in the player's hands, after the deep
+     magazine graft. Kept in one place because the reload, the dry
+     check and the HUD all have to agree about it. */
+  Mission.prototype.magOf = function (W) {
+    return Math.max(1, Math.round(W.def.mag * (this.player.buffs.mag || 1)));
   };
 
   Mission.prototype.fire = function (input, dt) {
     const P = this.player, W = P.weapon;
+    const B = P.buffs;
+    const MAG = this.magOf(W);
     W.cool -= dt;
+
+    /* Echo: a delayed second shot out of the same muzzle. Queued at
+       fire time and released here, so it survives the player letting
+       go of the trigger — that is what makes it read as an echo. */
+    if (this.echoes && this.echoes.length) {
+      for (let i = this.echoes.length - 1; i >= 0; i--) {
+        const e = this.echoes[i];
+        e.t -= dt;
+        if (e.t > 0) continue;
+        this.echoes.splice(i, 1);
+        this.emit(e.def, e.x, e.y, e.a, e.tint, e.mul * 0.6, true);
+      }
+    }
+
     if (W.reloading > 0) {
       W.reloading -= dt;
       if (W.reloading <= 0) {
-        const take = P.spare[W.kind] === Infinity ? W.def.mag
-          : Math.min(W.def.mag, P.spare[W.kind]);
+        const take = P.spare[W.kind] === Infinity ? MAG
+          : Math.min(MAG, P.spare[W.kind]);
         W.ammo = take;
         if (P.spare[W.kind] !== Infinity) P.spare[W.kind] -= take;
       }
       return;
     }
-    if (input.reloadPressed && W.ammo < W.def.mag &&
+    if (input.reloadPressed && W.ammo < MAG &&
         (P.spare[W.kind] === Infinity || P.spare[W.kind] > 0)) {
-      W.reloading = W.def.reload; window.AUDIO.play('reload'); return;
+      W.reloading = W.def.reload / (B.reload || 1); window.AUDIO.play('reload'); return;
     }
+
+    /* Charge: holding the trigger winds the shot up instead of firing
+       it, and letting go lets it out. A charge weapon that also
+       auto-fired would never charge, so the two are exclusive. */
+    const chg = W.def.charge || 0;
+    if (chg > 1) {
+      if (input.fire && W.ammo > 0 && W.cool <= 0) {
+        W.charge = Math.min(1, (W.charge || 0) + dt / 0.85);
+        if (Math.random() < dt * 30 * W.charge) {
+          const mm = P.muzzle();
+          const a2 = Math.random() * TAU, r2 = 8 + Math.random() * 10;
+          this.parts.push(new E.Particle(mm.x + Math.cos(a2) * r2, mm.y + Math.sin(a2) * r2,
+            -Math.cos(a2) * 1.6, -Math.sin(a2) * 1.6, 0.16, W.def.tint || '#fff', 0));
+        }
+        return;
+      }
+      if (!input.fire && (W.charge || 0) > 0.12) {
+        const mul = 1 + (chg - 1) * W.charge;
+        W.charge = 0;
+        this.shoot(W, mul);
+        return;
+      }
+      if (!input.fire) W.charge = 0;
+    }
+
     if (!input.fire || W.cool > 0) return;
     if (W.ammo <= 0) {
       if (P.spare[W.kind] === Infinity || P.spare[W.kind] > 0) {
-        W.reloading = W.def.reload; window.AUDIO.play('reload');
+        W.reloading = W.def.reload / (B.reload || 1); window.AUDIO.play('reload');
       } else {
         W.cool = 0.3; window.AUDIO.play('dry');
         // the prototype is the run's prize; it never falls back
@@ -731,31 +1003,54 @@ window.WORLD = (function () {
       }
       return;
     }
+    this.shoot(W, 1);
+  };
 
-    W.cool = W.def.rate;
+  /* One trigger pull. Split out of fire() because charge releases and
+     ordinary shots have to be the same event — a charged shot that took
+     a different path would drift from the plain one the first time
+     either changed. */
+  Mission.prototype.shoot = function (W, mul) {
+    const P = this.player, B = P.buffs;
+    W.cool = W.def.rate / (B.rate || 1);
     W.ammo--;
     P.kick = 1;
     this.shake = Math.min(4.5, this.shake + W.def.shake);
-
     const m = P.muzzle();
     const tint = W.def.tint || P.rig.params.colVisor;
-    const n = W.def.count || 1;
+    this.emit(W.def, m.x, m.y, P.aim, tint, mul, false);
+    if (W.def.echo) {
+      (this.echoes || (this.echoes = [])).push({
+        def: W.def, x: m.x, y: m.y, a: P.aim, tint, mul, t: W.def.echo
+      });
+    }
+  };
+
+  /* Put a weapon's projectiles into the world. Everything that fires —
+     the trigger, a charge release, an echo — comes through here, so a
+     gun behaves the same however the shot was caused. */
+  Mission.prototype.emit = function (def, x, y, aim, tint, mul, quiet) {
+    const P = this.player;
+    const n = def.count || 1;
+    const dmgMul = (P.buffs.dmg || 1) * (mul || 1);
     for (let k = 0; k < n; k++) {
       // a single round gets a jittered spread; a burst gets a fan
       const off = n === 1 ? (Math.random() - 0.5) * 2
                           : ((k / (n - 1)) - 0.5) * 2 + (Math.random() - 0.5) * 0.4;
-      this.bullets.push(new E.Bullet(m.x, m.y, P.aim + W.def.spread * off,
-                                     W.def, true, tint));
+      const b = new E.Bullet(x, y, aim + def.spread * off, def, true, tint);
+      b.dmg *= dmgMul;
+      if (mul > 1.05) b.size = Math.min(6, b.size + 1);   // a charged round looks charged
+      this.bullets.push(b);
     }
-    const a = P.aim;
-    this.flashes.push({ x: m.x, y: m.y, life: 0.06, r: W.def.size > 2 ? 16 : 9, c: tint });
+    this.flashes.push({ x, y, life: 0.06,
+                        r: (def.size > 2 ? 16 : 9) * (mul > 1.05 ? 1.6 : 1), c: tint });
     for (let i = 0; i < 4; i++) {
-      this.parts.push(new E.Particle(m.x, m.y,
-        Math.cos(a) * (1 + Math.random() * 2) + (Math.random() - 0.5),
-        Math.sin(a) * (1 + Math.random() * 2) + (Math.random() - 0.5),
+      this.parts.push(new E.Particle(x, y,
+        Math.cos(aim) * (1 + Math.random() * 2) + (Math.random() - 0.5),
+        Math.sin(aim) * (1 + Math.random() * 2) + (Math.random() - 0.5),
         0.12 + Math.random() * 0.1, tint, 0));
     }
-    window.AUDIO.play('shot', W.def.tone, 0);
+    if (!quiet) window.AUDIO.play('shot', def.tone, 0);
   };
 
   Mission.prototype.stepBullets = function (dt) {
@@ -765,9 +1060,19 @@ window.WORLD = (function () {
       b.life -= dt;
       let removed = false;
 
-      /* Prototype steering, applied once per frame rather than per
-         substep so the turn rate does not depend on substep count. */
+      /* Exotic steering, applied once per frame rather than per substep
+         so the turn rate does not depend on substep count. */
       if (b.drop) b.vy += b.drop;
+      if (b.spiral) {
+        /* Corkscrew around the flight line. Rotating the velocity would
+           make it orbit forever; rotating it back and forth around the
+           angle it was fired at keeps it going where it was aimed. */
+        b.spiralT += dt;
+        const sp = Math.hypot(b.vx, b.vy);
+        const wob = Math.sin(b.spiralT * 13) * b.spiral * 0.30;
+        const a2 = b.baseA + wob;
+        b.vx = Math.cos(a2) * sp; b.vy = Math.sin(a2) * sp;
+      }
       if (b.homing && b.friendly) {
         const t = this.homingTarget(b);
         if (t) {
@@ -844,6 +1149,7 @@ window.WORLD = (function () {
             if (hit) {
               if (b.hitList && b.hitList.indexOf(e) >= 0) continue;
               e.hurtBy(b.dmg, this);
+              this.onHit(b, e);
               this.impact(b, -b.vx, -b.vy);
               window.AUDIO.play('flesh', null, this.distTo(b.x));
               if (e.dead) {
@@ -873,6 +1179,7 @@ window.WORLD = (function () {
             }
           }
           if (hitWho) {
+            this.onHit(b, hitWho);
             if (hitWho.hurt(b.dmg * 3.2)) {
               if (hitWho === P) {
                 this.hitFlash = 0.3;
@@ -893,6 +1200,108 @@ window.WORLD = (function () {
   /* Nearest live hostile ahead of a homing round. Deliberately narrow:
      a bullet that turns toward anything on screen feels like it is
      playing the game for you. */
+  /* ============================================================
+     What a round does BESIDES damage.
+
+     One place for all of it, called from both the friendly and the
+     hostile hit path, so an incendiary round the boss throws burns you
+     exactly the way yours burns it. Each effect is a no-op when its
+     field is zero, which is every stock weapon that does not have it.
+     ============================================================ */
+  Mission.prototype.onHit = function (b, victim) {
+    if (b.burn) {
+      victim.ignite(b.burn, 2.4, b.friendly ? this.player : null);
+      for (let i = 0; i < 5; i++) {
+        const a = Math.random() * TAU;
+        this.parts.push(new E.Particle(b.x, b.y, Math.cos(a) * 1.2, Math.sin(a) * 1.2 - 0.6,
+          0.3 + Math.random() * 0.3, '#ff7a2a', -0.02));
+      }
+    }
+    if (b.slow) victim.mire(b.slow, 2.0);
+
+    if (b.quake) {
+      /* Shove everything loose away from the impact. The falloff is
+         linear rather than inverse-square: at these ranges the square
+         law means "nothing happens, then everything happens". */
+      const R = 40 + b.quake * 22;
+      for (const body of this.rigid.bodies) {
+        if (body.dead || body.held) continue;
+        const dx = body.x - b.x, dy = body.y - b.y;
+        const d = Math.hypot(dx, dy);
+        if (d > R || d < 0.01) continue;
+        const k = (1 - d / R) * b.quake * 5.5;
+        body.applyImpulse(dx / d * k, dy / d * k - k * 0.4, b.x, b.y);
+      }
+      for (const e of this.enemies) {
+        if (e.dead || e.boss || e.flying) continue;
+        const dx = e.x - b.x;
+        if (Math.abs(dx) > R || Math.abs(e.y - b.y) > R) continue;
+        e.x += Math.sign(dx || 1) * b.quake * 2.2;
+        e.vy = Math.min(e.vy || 0, -b.quake * 0.9);
+      }
+      this.shake = Math.min(5, this.shake + b.quake * 0.8);
+      window.AUDIO.play('boom', null, this.distTo(b.x));
+    }
+
+    if (b.vamp && b.friendly) {
+      const P = this.player;
+      if (!P.dead) {
+        P.hp = Math.min(P.maxHp, P.hp + b.dmg * b.vamp);
+        this.parts.push(new E.Particle(b.x, b.y,
+          (P.x - b.x) * 0.03, (P.y - P.h * 0.5 - b.y) * 0.03, 0.4, '#ff3d7a', 0));
+      }
+    }
+
+    if (b.shield && b.friendly) this.player.giveWard(b.shield);
+
+    if (b.chain) {
+      /* Arc to somebody else. Deliberately short-ranged and it never
+         comes back to the thing it just hit, or a chain round in a
+         crowd becomes a screen-clear. */
+      let n = b.chain, from = victim, seen = [victim];
+      while (n-- > 0) {
+        let best = null, bd = 78 * 78;
+        const pool = b.friendly ? this.enemies : [this.player].concat(this.allies);
+        for (const t of pool) {
+          if (!t || t.dead || t.frozen || seen.indexOf(t) >= 0) continue;
+          const ty = (t.kind === 'crawler' || t.kind === 'overlord') ? t.y : t.y - t.h * 0.5;
+          const d = (t.x - from.x) * (t.x - from.x) + (ty - from.y) * (ty - from.y);
+          if (d < bd) { bd = d; best = t; }
+        }
+        if (!best) break;
+        const dmg = b.dmg * 0.55;
+        if (b.friendly) {
+          best.hurtBy(dmg, this);
+          if (best.dead) { this.kills++; this.player.score += best.A ? best.A.score : 20; this.maybeDrop(best); }
+        } else if (best.hurt) best.hurt(dmg * 2.2);
+        const fy = from.kind === 'crawler' || from.kind === 'overlord' ? from.y : from.y - from.h * 0.5;
+        const by = best.kind === 'crawler' || best.kind === 'overlord' ? best.y : best.y - best.h * 0.5;
+        this.arcs = this.arcs || [];
+        this.arcs.push({ x0: from.x, y0: fy, x1: best.x, y1: by, life: 0.18, c: b.tint });
+        seen.push(best);
+        from = best;
+      }
+      window.AUDIO.play('hit', null, this.distTo(b.x));
+    }
+
+    if (b.fork && !b.forked) {
+      /* Split into smaller rounds, fanned around where the parent was
+         going. The children inherit nothing exotic but pierce — a
+         forking, chaining, burning cascade is a fireworks display, not
+         a weapon. */
+      const base = Math.atan2(b.vy, b.vx);
+      const sp = Math.hypot(b.vx, b.vy) * 0.85;
+      for (let k = 0; k < b.fork; k++) {
+        const a = base + ((k / Math.max(1, b.fork - 1)) - 0.5) * 1.5;
+        const c = new E.Bullet(b.x, b.y, a,
+          { speed: sp, life: 0.5, dmg: b.dmg * 0.45, size: Math.max(1, b.size - 1),
+            pierce: 0 }, b.friendly, b.tint);
+        c.forked = true;
+        this.bullets.push(c);
+      }
+    }
+  };
+
   Mission.prototype.homingTarget = function (b) {
     let best = null, bd = 130 * 130;
     const ang = Math.atan2(b.vy, b.vx);

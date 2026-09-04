@@ -40,6 +40,8 @@
     tab: 'level',
     autoNext: 0,          // countdown to the next run under autopilot
     autoRuns: 0,          // how many it has flown back to back
+    campaign: null,       // the live campaign, when running one
+    sectors: window.CAMPAIGN.SECTORS,
     lastStats: null,
     panels: { level: null, merc: null, crawler: null, scrap: null, boss: null, proto: null }
   };
@@ -47,6 +49,7 @@
   const input = {
     left: false, right: false, up: false, down: false,
     fire: false, jumpPressed: false, reloadPressed: false,
+    talkPressed: false,
     cursorX: LV.W / 2, cursorY: LV.H / 2, aimX: 0, aimY: 0
   };
 
@@ -105,6 +108,7 @@
         if (e.code === 'Space') e.preventDefault();
       }
       if (e.code === 'KeyR') input.reloadPressed = true;
+      if (e.code === 'KeyE' || e.code === 'Enter') input.talkPressed = true;
       if (e.code === 'KeyM') toggleSound();
       if (e.code === 'KeyP' && App.mission &&
           (App.state === 'play' || App.state === 'paused')) {
@@ -247,8 +251,12 @@
     $('seedField').value = App.cfg.seed.toString(16).toUpperCase().padStart(8, '0');
     $('m-random').classList.toggle('on', App.mode === 'random');
     $('m-custom').classList.toggle('on', App.mode === 'custom');
+    $('m-campaign').classList.toggle('on', App.mode === 'campaign');
     $('customWrap').style.display = App.mode === 'custom' ? '' : 'none';
-    $('rollSummary').style.display = App.mode === 'random' ? '' : 'none';
+    $('rollSummary').style.display = App.mode === 'custom' ? 'none' : '';
+    $('campaignWrap').style.display = App.mode === 'campaign' ? '' : 'none';
+    $('sectorField').value = App.sectors;
+    $('sectorVal').textContent = App.sectors;
     // The per-tab sidebar controls only make sense in custom mode.
     const custom = App.mode === 'custom';
     $('previewWrap').style.display = custom && App.tab === 'merc' ? '' : 'none';
@@ -274,6 +282,11 @@
       row('LOADOUT', w ? w.label : App.merc.gun) +
       row('CRAWLERS', (C.CRAWLER_PALETTES[App.cfg.style] || ['assorted']).join(' / ')) +
       row('RESERVES', App.opts.allies + ' frozen operative' + (App.opts.allies === 1 ? '' : 's')) +
+      (App.mode === 'campaign'
+        ? row('CAMPAIGN', App.sectors + ' sectors · ' +
+              window.CAMPAIGN.DEPTH[0] + ' → ' +
+              window.CAMPAIGN.DEPTH[Math.min(window.CAMPAIGN.DEPTH.length, App.sectors) - 1])
+        : '') +
       row('PILOT', App.opts.autopilot ? 'FULL AUTOPILOT' : 'manual');
 
     for (const k in C.DIFFICULTY) {
@@ -728,15 +741,40 @@
     show('loading');
     App.jobProgress = 0; App.jobMsg = 'preparing'; App.jobPhase = 'level';
     $('l-seed').textContent = App.cfg.seed.toString(16).toUpperCase().padStart(8, '0');
-    $('l-style').textContent = App.cfg.style + ' · ' + App.cfg.skyMood +
-      ' · ' + App.cfg.palette + ' · ' + App.cfg.levelLen + ' screens';
+    $('l-style').textContent = App.campaign
+      ? App.campaign.name(App.campaign.sector, App.cfg) + ' · ' + App.cfg.levelLen + ' screens'
+      : App.cfg.style + ' · ' + App.cfg.skyMood +
+        ' · ' + App.cfg.palette + ' · ' + App.cfg.levelLen + ' screens';
     $('l-tip').textContent = S.TIPS[(Math.random() * S.TIPS.length) | 0];
     App.job = {
       gen: window.WORLD.buildMission(App.cfg, App.merc,
-              Object.assign({}, App.opts, { scrap: App.scrap,
-                                            boss: App.boss, proto: App.proto })),
+              Object.assign({}, App.opts, App.sectorOpts || {},
+                            { scrap: App.scrap, boss: App.boss, proto: App.proto })),
       done: 0, seen: 0, t0: performance.now()
     };
+  }
+
+  /* ---------------- campaign ----------------
+     Start one, and bake whatever sector it is on. The operative is
+     rolled ONCE, here, and never again: a campaign that rerolled your
+     merc between sectors would be a playlist, not a descent. */
+  function startCampaign(seed) {
+    App.campaign = new window.CAMPAIGN.Campaign(seed, App.opts);
+    App.campaign.total = App.sectors;
+    App.autoRuns = 0;
+    loadSector();
+  }
+
+  function loadSector() {
+    const C2 = App.campaign;
+    const b = C2.build();
+    App.cfg = b.cfg;
+    App.crawler = b.crawler;
+    App.scrap = b.scrap;
+    App.boss = b.boss;
+    App.proto = b.proto;
+    App.sectorOpts = b.opts;
+    deploy();
   }
 
   /* The bake yields once per stage; there is no total up front, so
@@ -805,8 +843,15 @@
     const M = App.mission;
     if (M.state === 'dead') {
       if (M.lives > 0 && M.respawn()) return;
+      if (App.campaign) App.campaign.deaths++;
       debrief(false);
     } else if (M.state === 'won') {
+      /* A cleared sector is not the end of a campaign run — it is the
+         middle of one. Take the loadout and go down a floor. */
+      if (App.campaign && !App.campaign.done) {
+        App.campaign.take(M);
+        if (App.campaign.advance()) { loadSector(); return; }
+      }
       debrief(true);
     }
   }
@@ -825,6 +870,11 @@
   function autoNextRun() {
     cancelAutoNext();
     App.autoRuns++;
+    if (App.mode === 'campaign') {
+      // a finished campaign starts a new one rather than a loose level
+      startCampaign(rollSeed());
+      return;
+    }
     if (App.mode === 'random') {
       // a whole new run: level, operative, boss and gun
       applySeed(rollSeed());
@@ -844,19 +894,29 @@
   function debrief(won) {
     const st = App.mission.stats();
     const auto = !!App.mission.autopilot;
+    const C2 = App.campaign;
     App.lastStats = st;
     window.AUDIO.ambience(false);
     show('debrief');
-    $('db-title').textContent = won ? 'EXTRACTION CONFIRMED' : 'OPERATIVE LOST';
-    $('db-title').className = won ? 'won' : 'lost';
+    if (C2) {
+      const cleared = C2.won;
+      $('db-title').textContent = cleared ? 'CAMPAIGN COMPLETE'
+                                          : 'LOST IN ' + C2.name(C2.sector).split(' · ')[0];
+      $('db-title').className = cleared ? 'won' : 'lost';
+    } else {
+      $('db-title').textContent = won ? 'EXTRACTION CONFIRMED' : 'OPERATIVE LOST';
+      $('db-title').className = won ? 'won' : 'lost';
+    }
     const mm = Math.floor(st.time / 60), ss = Math.floor(st.time % 60);
     $('db-stats').innerHTML =
-      row('HOSTILES ELIMINATED', st.kills + ' / ' + st.total) +
+      (C2 ? row('SECTORS CLEARED', C2.log.length + ' / ' + C2.total) : '') +
+      row('HOSTILES ELIMINATED', C2 ? (C2.kills + st.kills) : st.kills + ' / ' + st.total) +
       row('TIME', mm + ':' + String(ss).padStart(2, '0')) +
-      row('COMBAT SCORE', st.score) +
-      (won ? row('TIME BONUS', st.timeBonus) + row('VITALS BONUS', st.healthBonus) : '') +
-      row('FINAL', st.final) +
-      row('BUILD', App.cfg.seed.toString(16).toUpperCase().padStart(8, '0')) +
+      row('COMBAT SCORE', C2 ? (C2.score + st.score) : st.score) +
+      (won && !C2 ? row('TIME BONUS', st.timeBonus) + row('VITALS BONUS', st.healthBonus) : '') +
+      (C2 ? '' : row('FINAL', st.final)) +
+      row(C2 ? 'CAMPAIGN' : 'BUILD',
+          (C2 ? C2.seed : App.cfg.seed).toString(16).toUpperCase().padStart(8, '0')) +
       (App.autoRuns ? row('AUTOPILOT RUNS', App.autoRuns + 1) : '');
     if (auto) {
       App.autoNext = AUTO_NEXT;
@@ -909,10 +969,15 @@
         M.update(STEP, input);
         input.jumpPressed = false;
         input.reloadPressed = false;
+        input.talkPressed = false;
         acc -= STEP;
         n++;
       }
-      if (n === 0) { input.jumpPressed = false; input.reloadPressed = false; }
+      if (n === 0) {
+        input.jumpPressed = false;
+        input.reloadPressed = false;
+        input.talkPressed = false;
+      }
       if (acc > STEP * 4) acc = 0;
 
       /* Autopilot clears its own run-end screens. "Without player
@@ -1103,7 +1168,19 @@
     $('tab-boss').onclick = () => setTab('boss');
     $('tab-proto').onclick = () => setTab('proto');
 
-    $('btn-deploy').onclick = deploy;
+    $('btn-deploy').onclick = () => {
+      if (App.mode === 'campaign') startCampaign(App.cfg.seed);
+      else { App.campaign = null; App.sectorOpts = null; deploy(); }
+    };
+    $('m-campaign').onclick = () => {
+      App.mode = 'campaign';
+      window.AUDIO.play('ui');
+      refreshSetup();
+    };
+    $('sectorField').oninput = e => {
+      App.sectors = Math.max(2, Math.min(12, +e.target.value || 8));
+      refreshSetup();
+    };
     $('btn-back').onclick = () => { window.AUDIO.play('ui'); show('title'); };
 
     $('btn-resume').onclick = () => pause(false);

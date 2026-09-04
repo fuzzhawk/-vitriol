@@ -46,14 +46,27 @@ window.ENTITIES = (function () {
     this.tint = tint || '#ffd8a0';
     this.dead = false;
     this.hitList = null;
-    /* Prototype behaviours. Zero on every stock weapon, so the extra
-       work in the bullet step costs nothing until a rolled gun asks
-       for it. */
+    /* Exotic behaviours. Zero on most weapons, so the extra work in
+       the bullet step costs nothing until a gun asks for it. */
     this.homing = weapon.homing || 0;
     this.bounce = weapon.bounce || 0;
     this.drop = weapon.drop || 0;
+    this.burn = weapon.burn || 0;
+    this.chain = weapon.chain || 0;
+    this.fork = weapon.fork || 0;
+    this.slow = weapon.slow || 0;
+    this.vamp = weapon.vamp || 0;
+    this.quake = weapon.quake || 0;
+    this.spiral = weapon.spiral || 0;
+    this.shield = weapon.shield || 0;
+    /* A forked round must not fork again, or one shot becomes a tree.
+       The flag rides on the bullet rather than the weapon because that
+       is where the distinction lives. */
+    this.forked = false;
+    this.spiralT = 0;
+    this.baseA = a;
     this.proto = !!weapon.proto;
-    this.trail = this.proto ? [] : null;
+    this.trail = (this.proto || this.spiral || this.chain) ? [] : null;
   }
 
   function Particle(x, y, vx, vy, life, col, grav) {
@@ -86,7 +99,49 @@ window.ENTITIES = (function () {
     this.hp = 1; this.maxHp = 1;
     this.flash = 0; this.dead = false;
     this.w = rig.w; this.h = rig.h;
+    /* Status. Everything alive can carry these, so a burning merc and
+       a burning boss are the same code path and the ally you thawed is
+       mired by the same round that mires you. */
+    this.burnT = 0; this.burnDps = 0; this.burnBy = null;
+    this.slowT = 0; this.slowMul = 1;
   }
+
+  /* Status, as a mixin rather than as Actor methods: a Crawler is not
+     an Actor — it has no legs to have a gait with — but it can
+     certainly be set on fire, and one implementation is the only way
+     the boss burns the same way a grunt does. */
+  const STATUS = {
+    /* Set alight. Refreshing an existing burn takes the fiercer of the
+       two rather than stacking, so standing in a torch stream does not
+       multiply into an instant kill. */
+    ignite(dps, secs, by) {
+      this.burnDps = Math.max(this.burnDps || 0, dps);
+      this.burnT = Math.max(this.burnT || 0, secs);
+      this.burnBy = by || this.burnBy || null;
+    },
+    mire(amount, secs) {
+      this.slowMul = Math.min(this.slowMul === undefined ? 1 : this.slowMul, 1 - amount);
+      this.slowT = Math.max(this.slowT || 0, secs);
+    },
+    /* Tick the statuses and return the damage burning did this frame,
+       so the caller can route it through its own hurt path — an
+       enemy's and the player's differ, and burn must not bypass
+       either. */
+    stepStatus(dt) {
+      let dmg = 0;
+      if (this.burnT > 0) {
+        this.burnT -= dt;
+        dmg = this.burnDps * dt;
+        if (this.burnT <= 0) { this.burnT = 0; this.burnDps = 0; this.burnBy = null; }
+      }
+      if (this.slowT > 0) {
+        this.slowT -= dt;
+        if (this.slowT <= 0) { this.slowT = 0; this.slowMul = 1; }
+      }
+      return dmg;
+    }
+  };
+  Object.assign(Actor.prototype, STATUS);
 
   Actor.prototype.animate = function (dt, crouching) {
     let st = 'idle';
@@ -118,7 +173,11 @@ window.ENTITIES = (function () {
     this.maxHp = 100; this.hp = 100;
     this.diff = diff;
     this.weapon = window.WEAPONS.make(rig.gun);
-    this.spare = { pistol: Infinity, smg: 0, rifle: 0, cannon: 0, beam: 0, proto: 0 };
+    /* One entry per weapon in the roster, built from the roster rather
+       than written out, so adding a gun cannot leave a hole here. */
+    this.spare = { proto: 0 };
+    for (const k of window.WEAPONS.ORDER) this.spare[k] = 0;
+    this.spare.pistol = Infinity;
     this.spare[rig.gun] = Infinity;   // your own sidearm never runs dry
     this.kick = 0; this.invuln = 0;
     this.checkpoint = { x, y };
@@ -127,6 +186,10 @@ window.ENTITIES = (function () {
     this.dropTimer = 0;
     this.airJumps = MOVE.airJumps;
     this.jumpPuff = null;
+    /* Power-up multipliers. They start neutral and only the shrines
+       move them, so a run with no shrines behaves exactly as before. */
+    this.buffs = { dmg: 1, rate: 1, reload: 1, speed: 1, mag: 1, armour: 1 };
+    this.ward = 0; this.wardMax = 0; this.wardT = 0;
   }
   Player.prototype = Object.create(Actor.prototype);
   Player.prototype.constructor = Player;
@@ -134,7 +197,8 @@ window.ENTITIES = (function () {
   Player.prototype.step = function (world, input, dt) {
     const crouch = input.down && this.ground;
     this.crouching = crouch;
-    const spd = crouch ? MOVE.crouchMul : 1;
+    const spd = (crouch ? MOVE.crouchMul : 1) *
+                (this.buffs ? this.buffs.speed : 1) * (this.slowMul || 1);
 
     const want = (input.right ? 1 : 0) - (input.left ? 1 : 0);
     this.vx += want * MOVE.accel * spd;
@@ -198,16 +262,44 @@ window.ENTITIES = (function () {
 
   Player.prototype.hurt = function (n) {
     if (this.invuln > 0 || this.dead) return false;
-    this.hp -= n * this.diff.dmgIn;
+    let amount = n * this.diff.dmgIn / (this.buffs ? this.buffs.armour : 1);
+    /* A ward eats damage before health does, and only what it can — the
+       overflow still lands, so a 5-point shell is not a free hit. */
+    if (this.ward > 0) {
+      const eaten = Math.min(this.ward, amount);
+      this.ward -= eaten; amount -= eaten;
+      this.wardT = 0.25;
+      window.AUDIO.play('hit');
+      if (amount <= 0.001) { this.flash = 0.2; return true; }
+    }
+    this.hp -= amount;
     this.invuln = 0.55; this.flash = 0.25;
     window.AUDIO.play(this.hp <= 0 ? 'die' : 'hurt');
     if (this.hp <= 0) { this.hp = 0; this.dead = true; }
     return true;
   };
 
+  /* Burn and mire bypass the invulnerability window on purpose: they
+     are the price of having been hit, not a fresh hit, and an i-frame
+     that also cancelled the fire would make incendiary useless. */
+  Player.prototype.burnTick = function (n) {
+    if (this.dead) return;
+    this.hp -= n / (this.buffs ? this.buffs.armour : 1);
+    if (this.hp <= 0) { this.hp = 0; this.dead = true; window.AUDIO.play('die'); }
+  };
+
+  Player.prototype.giveWard = function (n) {
+    this.wardMax = Math.max(this.wardMax, n);
+    this.ward = Math.min(this.wardMax, this.ward + n);
+    this.wardT = 0.4;
+  };
+
   Player.prototype.giveWeapon = function (kind) {
+    const def = window.WEAPONS.table[kind];
+    if (!def) return false;                  // nothing unarmed can hand you a gun
     this.weapon = window.WEAPONS.make(kind);
-    if (this.spare[kind] !== Infinity) this.spare[kind] = window.WEAPONS.table[kind].mag * 2;
+    if (this.spare[kind] !== Infinity) this.spare[kind] = def.mag * 2;
+    return true;
   };
 
   /* ---------------- enemy ---------------- */
@@ -254,7 +346,7 @@ window.ENTITIES = (function () {
   };
 
   Enemy.prototype.stepWalking = function (world, player, dt, dx, dist, sees, out) {
-    const spd = this.A.speed * this.diff.fireRate;
+    const spd = this.A.speed * this.diff.fireRate * (this.slowMul || 1);
 
     if (this.state === 'engage') {
       this.face = dx > 0 ? 1 : -1;
@@ -289,7 +381,7 @@ window.ENTITIES = (function () {
 
   Enemy.prototype.stepFlying = function (world, player, dt, dx, dy, dist, sees, out) {
     this.hover += dt * 2.2;
-    const spd = this.A.speed;
+    const spd = this.A.speed * (this.slowMul || 1);
     if (this.state === 'engage') {
       const want = 92;
       const ux = dx / (dist || 1), uy = dy / (dist || 1);
@@ -460,6 +552,8 @@ window.ENTITIES = (function () {
     this.anim = 'idle'; this.frame = 0; this.t = 0;
     this.flash = 0; this.dead = false; this.deathT = 0;
     this.alerted = false; this.state = 'patrol';
+    this.burnT = 0; this.burnDps = 0; this.burnBy = null;
+    this.slowT = 0; this.slowMul = 1;
     this.ground = true;          // "attached to something"
     this.slimeT = 0;
     this.strikeCool = 0.8 + (seed % 60) / 60;
@@ -487,6 +581,8 @@ window.ENTITIES = (function () {
     this.maxReach = rig.tent.length * 0.95;
     this.minReach = Math.max(rig.radiusMax * 2.0, rig.tent.length * 0.50);
   }
+
+  Object.assign(Crawler.prototype, STATUS);
 
   Crawler.prototype.gripped = function () {
     let n = 0;
@@ -922,8 +1018,51 @@ window.ENTITIES = (function () {
     if (!silent) out.onOverlordDeath(this);
   };
 
+  /* ============================================================
+     WARDEN — a standing figure who gives you something and says
+     something you will not understand.
+
+     Deliberately not an Actor subclass with a brain switched off: a
+     warden has no physics, no aim and no fight in it. It stands where
+     the level put it, breathing, until you walk into it. What it hands
+     over and what it says are decided when the level is built, so a
+     seed always meets the same wardens saying the same things.
+     ============================================================ */
+  function Warden(rig, x, y, gift, lines, seed) {
+    this.rig = rig;
+    this.x = x; this.y = y;
+    this.w = rig.w; this.h = rig.h;
+    this.kind = 'warden';
+    this.gift = gift;               // {kind, ...} — resolved by the mission
+    this.lines = lines;             // the pages of what it says
+    this.spent = false;             // has it handed its gift over
+    this.seen = 0;                  // how many times you have talked to it
+    this.face = -1;
+    this.anim = 'idle'; this.frame = 0;
+    // the bottom aim row: weapon lowered, hands at rest
+    this.local = Math.PI / 2;
+    this.cooldown = 0;
+    this.t = (seed % 1000) / 1000 * TAU;
+    this.glow = 0;
+    this.dead = false;
+  }
+
+  Warden.prototype.step = function (dt) {
+    this.t += dt;
+    // a slow idle breath, and a lantern pulse that says "come here"
+    this.frame = this.rig.frameOf('idle', this.t, 0);
+    this.glow = 0.55 + 0.45 * Math.sin(this.t * 1.7);
+  };
+
+  /* Close enough to talk to. Generous vertically because a warden on a
+     deck edge should still answer to someone standing under its feet. */
+  Warden.prototype.inReach = function (a) {
+    return Math.abs(a.x - this.x) < this.w * 0.5 + a.w * 0.5 + 10 &&
+           Math.abs(a.y - this.y) < this.h + 8;
+  };
+
   return {
-    Actor, Player, Ally, Enemy, Crawler, Overlord, Bullet, Particle, Pickup,
+    Actor, Player, Ally, Enemy, Crawler, Overlord, Warden, Bullet, Particle, Pickup,
     PICKUP_KINDS, MOVE, LIMB, OVER, foldAim, clamp
   };
 })();
