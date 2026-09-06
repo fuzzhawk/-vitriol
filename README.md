@@ -34,7 +34,8 @@ M              mute
 Fight east to the extraction pad. A heavy is always posted on it.
 
 Walk into a stasis pod on the way and the operative inside comes online and
-fights alongside you.
+fights alongside you. Walk into a warden and it talks — you keep the controls
+the whole time, and walking away ends the conversation.
 
 ## The three ways in
 
@@ -43,11 +44,12 @@ The launch screen leads to **BUILD**, which offers three:
 **RANDOMIZE** — one seed rolls the whole run: architecture, palette, sky mood,
 skyline, weather, level length, and the operative you play as. The roll is
 *coherent* rather than uniform: `STYLE_AFFINITY` in `src/game/config.js` pairs
-each of the 14 architectures with the sky moods, skylines and palettes it belongs
+each of the 21 architectures with the sky moods, skylines and palettes it belongs
 under, so a random level looks deliberate instead of like a slot machine.
 
 **CAMPAIGN** — a string of sectors from one seed, 2 to 12 of them, each deeper
-and harder than the last. **You** carry through: the operative, the gun in your
+and harder than the last, and dealt out across all three kinds of place (see
+below) so a run is never eight streets in a row. **You** carry through: the operative, the gun in your
 hands, its magazine, the spare ammo, everything the wardens grafted onto you.
 **The place** does not: every sector rerolls its architecture, palette, garrison,
 debris and boss. Difficulty rides on top of whatever you chose rather than
@@ -57,7 +59,7 @@ Autopilot flies a campaign the same way it flies a single level.
 **CUSTOM BUILD** — both generators opened up.
 
 - **LEVEL · GREEBLEWORKS** — ~60 controls across World, Surface, Sky, Skyline,
-  Decals and Terrain, including all 15 city presets.
+  Decals and Terrain, including all 15 city presets and all 21 architectures.
 - **OPERATIVE · MERC FORGE** — frame, gear, weapon, palette, motion and sheet
   controls with a live animated preview.
 - **CRAWLERS · CRAWLER FORGE** — body, meat and metal, flesh, surface, tentacles
@@ -160,7 +162,7 @@ Do not hand-edit `src/gen/*.js` — edit the tool and re-extract.
 
 ```bash
 npm install @napi-rs/canvas
-node tools/harness-game.js     # or: npm test — ~30,300 checks + contact sheets in out/
+node tools/harness-game.js     # or: npm test — ~30,600 checks + contact sheets in out/
 node tools/harness.js          # the original MERC FORGE validator
 ```
 
@@ -180,6 +182,7 @@ path in both directions, and writes contact sheets to `out/`:
 | `out_guns.png` | all fifteen weapons in one operative's hands |
 | `out_wardens.png` | approaching a warden, the prompt, and mid-sentence |
 | `out_warden_zoom.png` | one warden at 3x, for the lantern glow |
+| `out_kinds.png` | one frame each of a city, an interior and an air lane |
 | `out_crawler_surfaces.png` | one crawler seated on floor, both walls and ceiling |
 
 It also flies: two levels end to end on autopilot, a chain of three consecutive
@@ -292,6 +295,13 @@ key too fast is a bug wearing a design. A warden never takes the prototype off
 you either — that is the run's prize, and the rest of the code already refuses
 to fall back off it.
 
+The box takes **nothing** away. You can walk, jump and shoot through the whole
+conversation, and walking out of earshot ends it — a text box that takes the
+controls off you in a run-and-gun is a text box you resent, and one that follows
+you down the corridor after you have stopped listening is worse. The range that
+ends a conversation is deliberately wider than the range that starts one, so
+shuffling about while reading does not cut somebody off mid-word.
+
 What they say is generated from an opening, a middle and a turn, deterministic in
 the run's seed, so the same seed always meets the same warden saying the same
 thing and the hundredth run still says something you have not read.
@@ -312,6 +322,58 @@ and sector length all rise together, each separately clamped) and the carry.
 Autopilot handles it without knowing it is in one: a cleared sector is not the
 end of a run, it is the middle of one, so the app loop advances the campaign
 where it would otherwise have rolled a fresh build.
+
+## Three kinds of place
+
+An architecture is not just a palette — it decides what kind of level you are
+in. `STYLE_KIND` in GREEBLEWORKS classifies all 21 of them, and the difference
+runs the whole way through: what gets baked, how the layout is shaped, and what
+the compositor puts behind it.
+
+**CITY** — the original fourteen. Street level: a parallax sky, a skyline, a
+back wall of buildings against it, weather coming down.
+
+**INTERIOR** — BOILER TUNNEL, DATA FARM, OFFICE FLOOR, HAB CORRIDOR. No sky and
+no skyline. The back wall runs to the top of the frame and a baked ceiling
+closes it in — a structural deck with pipe runs, cable trays or suspended
+panels depending on the style, and the dark it casts into the top of the room.
+The floor is nearly unbroken and the layout leaves headroom the ceiling can
+occupy. It does not rain indoors.
+
+What makes four interiors look like four different places is that the facade
+bake's "windows" become whatever the room is full of: glowing rack faces in a
+data farm, office glazing, boiler inspection ports. That is why these needed no
+second generator — the same pipeline, pointed at a different `win` table and lit
+by the room's own ambient instead of a sky.
+
+**AIR** — SKY LANE, FREIGHT LANE, SPIRE AERIE. The level is somewhere above
+everything: shorter slabs with real air between them and more than twice as much
+to climb on. Nothing is behind them — the wall canvas is baked empty and no
+cables are strung across, because there is nothing in open air to string them
+from. Each ground slab gets an underside instead of a building: a keel, ribs and
+a running light, so it reads as a thing hanging in the air rather than a ledge
+with the bottom cropped off.
+
+Two backdrops. **`bg:'mode7'`** puts a ground plane under the level, rushing
+away to a horizon — a texture that lives in world space, projected onto the
+lower part of the frame. For a screen row `dy` below the horizon the camera is
+looking at distance `z = camH·T/dy`, and one texture tile covers `T·dy/camH`
+pixels of screen; that is the whole of the perspective and it needs no per-pixel
+work. It is drawn in log-spaced bands rather than scanlines, off a pre-tiled
+strip, which costs a few hundred blits a frame instead of a few thousand — 1.7ms
+at the median, measured in the browser. SKY LANE flies over city blocks, FREIGHT
+LANE over a cloud deck.
+
+**`bg:'skyline'`** keeps the ordinary parallax city but pushes it into the
+bottom third, squashes and hazes it, so the skyline reads as something a long
+way below rather than across the street.
+
+A campaign **deals** these out rather than rolling them. Over eight sectors a
+fair three-way roll produces a run of eight streets often enough to be the thing
+you remember about the campaign, so instead the kinds are laid into a cycle and
+the cycle is rotated by the campaign seed. Every campaign gets all three, no
+campaign runs three of a kind back to back, and sector one is always a street —
+it is the one everybody already knows how to read.
 
 ## The pilot
 
@@ -358,6 +420,30 @@ reactive pilot stops dead, each of which passed every unit test and lost the run
 
 None of these are visible in code review and all of them are obvious the moment
 you make the harness fly a whole level and fail if it does not arrive.
+
+## Resolution, and why the font got bigger
+
+The play resolution is **560x315** — 16:9, and exactly 1.25x the 448x252 this
+started at. Everything is authored, baked and drawn at that size and
+nearest-upscaled by the caller.
+
+Raising it does not, by itself, make anything more readable: a 7px font in a
+bigger frame is a *smaller* font on screen. The point of raising it is that it
+gives the HUD font room to be drawn with more pixels. So the HUD is authored in
+a fixed 448x252 design space and drawn through a scale onto whatever the play
+resolution is, with the font raised to 8px in that space — 10 real pixels, 43%
+more glyph than before, without every hard-coded panel corner having to be found
+and multiplied by hand. Design-space coordinates are snapped so glyph origins
+land on whole pixels of the real frame; a pixel font on a fractional origin is a
+blurred pixel font.
+
+The prompts over wardens and pods, and the crosshair, are *not* in that space —
+they point at things in the level, so they are in play pixels. A prompt over a
+warden's head that has been through the HUD scale is a prompt over somebody
+else's head.
+
+The larger frame costs nothing to bake: the expensive part of a level is the
+wall, decal and platform tiles, which are fixed-size.
 
 ## Design notes
 

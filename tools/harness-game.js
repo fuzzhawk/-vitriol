@@ -73,7 +73,31 @@ ok(typeof window.CRAWLERFORGE.forge === 'function', 'crawlerforge forge exported
 ok(typeof window.CRAWLERFORGE.drawTentacle === 'function', 'crawlerforge drawTentacle exported');
 ok(Object.keys(window.CRAWLERFORGE.PALETTES).length === 10, '10 crawler palettes');
 ok(window.CRAWLERFORGE.ORIENTS.length === 4, '4 surface orientations');
-ok(Object.keys(GW.STYLES).length === 14, '14 facade styles');
+ok(Object.keys(GW.STYLES).length === 21, '21 styles');
+ok(typeof GW.STYLE_KIND === 'function', 'the generator classifies its own styles');
+{
+  const byKind = {};
+  for (const k of Object.keys(GW.STYLES)) {
+    const kind = GW.STYLE_KIND(k);
+    (byKind[kind] || (byKind[kind] = [])).push(k);
+  }
+  ok(byKind.city && byKind.city.length === 14, '14 street-level styles');
+  ok(byKind.interior && byKind.interior.length === 4, '4 interior styles');
+  ok(byKind.air && byKind.air.length === 3, '3 air styles');
+  /* An interior needs a roof to hang and an air level needs to say
+     what goes behind it; without those the compositor has nothing to
+     branch on and the level silently draws as a city. */
+  for (const k of byKind.interior) {
+    ok(!!GW.STYLES[k].ceil, 'interior "' + k + '" says what hangs from its ceiling');
+    ok(!!GW.STYLES[k].amb, 'interior "' + k + '" has a light of its own');
+  }
+  for (const k of byKind.air) {
+    const bg = GW.STYLES[k].bg;
+    ok(bg === 'mode7' || bg === 'skyline', 'air "' + k + '" says what is behind it');
+    if (bg === 'mode7') ok(!!GW.STYLES[k].plane, 'a mode-7 air style names its ground');
+  }
+  console.log('  ' + Object.keys(byKind).map(k => k + ': ' + byKind[k].length).join(', '));
+}
 ok(Object.keys(GW.SKYMOODS).length === 15, '15 sky moods');
 ok(Object.keys(GW.CITY_PRESETS).length === 15, '15 city presets');
 for (const m of ['CONFIG', 'WEAPONS', 'SPRITE', 'PHYSICS', 'RIGID', 'PILOT', 'ENTITIES', 'WORLD', 'RENDER', 'SCREENS', 'AUDIO']) {
@@ -1751,23 +1775,52 @@ section('wardens and the dialog box');
     MW.dialog.close();
   }
 
-  /* the box holds the player still without stopping the world */
+  /* the box takes nothing away: you can walk, jump and shoot through it */
   {
     const W = MW.wardens[1];
     PW.x = W.x - 400;
     const gr = MW.world.groundUnder(PW.x, 0, true);
     if (gr) PW.y = gr.y;
-    MW.dialog.say(['HOLD STILL AND READ THIS LINE OF TEXT PLEASE.'], { speaker: 'TEST' });
+    PW.dead = false; PW.hp = PW.maxHp;
+    PW.weapon.ammo = PW.weapon.def.mag; PW.weapon.cool = 0;
+    MW.talker = null;                       // nobody's box, so nothing closes it
+    MW.dialog.say(['READ THIS WHILE YOU WORK. IT IS NOT AN INTERRUPTION.'],
+                  { speaker: 'TEST' });
     const x0 = PW.x, t0 = MW.time;
     const run = { left: false, right: true, up: false, down: false, fire: true,
                   jumpPressed: false, reloadPressed: false, talkPressed: false,
-                  cursorX: 224, cursorY: 126, aimX: 0, aimY: 0 };
+                  talkHeld: false, cursorX: 300, cursorY: 120, aimX: 0, aimY: 0 };
     const bullets0 = MW.bullets.length;
     for (let i = 0; i < 30; i++) MW.update(1 / 60, run);
-    ok(Math.abs(PW.x - x0) < 2, 'the player does not walk off mid-sentence');
-    ok(MW.bullets.length === bullets0, 'and does not fire through the box');
-    ok(MW.time > t0, 'but the mission keeps running behind it');
+    ok(PW.x > x0 + 4, 'the player can walk while a warden is talking');
+    ok(MW.bullets.length > bullets0, 'and can shoot through the box');
+    ok(MW.time > t0, 'and the mission keeps running behind it');
+    ok(MW.dialog.open, 'and the box stays up while nobody has walked away');
     MW.dialog.close();
+  }
+
+  /* walking away from the warden ends the conversation */
+  {
+    const W = MW.wardens[2] || MW.wardens[0];
+    /* Stand on the warden's own deck, not on whatever groundUnder finds
+       first from the top of the frame — there is usually a catwalk over
+       its head, and standing on that is not standing next to it. */
+    PW.x = W.x; PW.y = W.y;
+    PW.dead = false;
+    W.cooldown = 0;
+    MW.dialog.open = false;
+    MW.stepWardens(1 / 60);
+    ok(MW.dialog.open, 'standing on a warden opens its box');
+    ok(MW.talker === W, 'and the mission knows whose box it is');
+    // a step or two must NOT cut it off
+    PW.x = W.x + 18;
+    MW.stepWardens(1 / 60);
+    ok(MW.dialog.open, 'shuffling about while reading does not cut it off');
+    // leaving does
+    PW.x = W.x + 200;
+    MW.stepWardens(1 / 60);
+    ok(!MW.dialog.open, 'walking away ends the conversation');
+    ok(MW.talker === null, 'and the mission forgets whose it was');
   }
 
   /* generated lines have to actually vary */
@@ -2054,6 +2107,186 @@ section('pilot, allies and autopilot');
     dump('out_warden_zoom.png', zoom);
   }
   dump('out_wardens.png', cv);
+}
+
+section('level kinds');
+{
+  const GWk = window.GREEBLEWORKS;
+  const CK = window.CONFIG;
+
+  /* the roller has to be able to give you one of each on demand */
+  {
+    for (const want of ['city', 'interior', 'air']) {
+      const seen = new Set();
+      for (let i = 0; i < 60; i++) {
+        const c = CK.randomLevelCfg((i * 2654435761) >>> 0, want);
+        ok(GWk.STYLE_KIND(c.style) === want,
+           'asking for a ' + want + ' level gets one (' + c.style + ')');
+        seen.add(c.style);
+      }
+      ok(seen.size === CK.STYLES_BY_KIND[want].length,
+         'and every ' + want + ' style comes up (' + seen.size + ')');
+    }
+    // and without a preference it still rolls the whole roster
+    const any = new Set();
+    for (let i = 0; i < 400; i++) any.add(CK.randomLevelCfg((i * 40503) >>> 0).style);
+    ok(any.size === CK.STYLE_KEYS.length, 'an unpinned roll can still be anything');
+  }
+
+  /* the campaign deals the kinds out rather than rolling them */
+  {
+    const CA = window.CAMPAIGN;
+    ok(CA.kindFor(1, 12345) === 'city', 'a campaign always opens on a street');
+    let anyRepeat = 0;
+    const tally = { city: 0, interior: 0, air: 0 };
+    for (let sd = 0; sd < 64; sd++) {
+      const seed = (sd * 2654435761) >>> 0;
+      const kinds = [];
+      for (let n = 1; n <= 8; n++) kinds.push(CA.kindFor(n, seed));
+      for (const k of kinds) tally[k]++;
+      // never the same kind three deep, which is what a fair roll does
+      for (let n = 2; n < kinds.length; n++) {
+        if (kinds[n] === kinds[n - 1] && kinds[n] === kinds[n - 2]) anyRepeat++;
+      }
+      const set = new Set(kinds);
+      ok(set.size === 3, 'campaign seed ' + sd + ' visits all three kinds');
+    }
+    ok(anyRepeat === 0, 'no campaign runs three of a kind back to back');
+    const tot = tally.city + tally.interior + tally.air;
+    ok(tally.interior / tot > 0.2, 'interiors are a real share of a campaign (' +
+       (100 * tally.interior / tot).toFixed(0) + '%)');
+    ok(tally.air / tot > 0.15, 'and so are air lanes (' +
+       (100 * tally.air / tot).toFixed(0) + '%)');
+    console.log('  campaign kind mix: ' + Object.keys(tally)
+      .map(k => k + ' ' + (100 * tally[k] / tot).toFixed(0) + '%').join(', '));
+  }
+
+  /* --- build one of each and check what came out --- */
+  const built = {};
+  for (const want of ['interior', 'air']) {
+    let cfgK = null;
+    for (let t = 0; t < 200 && !cfgK; t++) {
+      const c = CK.randomLevelCfg((0x51A2 + t * 7919) >>> 0, want);
+      // an air level with a mode-7 ground is the interesting one to bake
+      if (want === 'city' || GWk.STYLES[c.style].bg !== 'skyline') cfgK = c;
+    }
+    cfgK.levelLen = 3;
+    const gk = window.WORLD.buildMission(cfgK, merc,
+      { difficulty: 'regular', enemyDens: 0.6, lives: 3, allies: 0, wardens: 1 });
+    let rk; while (!(rk = gk.next()).done);
+    const MK = rk.value;
+    built[want] = MK;
+    const L = MK.L;
+
+    ok(L.kind === want, 'the baked level knows it is a ' + want);
+    ok(L.plats.length > 6, 'and has something to stand on');
+    ok(MK.ground.length > 3, 'and a floor to walk along');
+    ok(MK.exit.x > MK.player.x + 200, 'and an exit downrange');
+
+    if (want === 'interior') {
+      ok(!!L.ceilTile, 'an interior bakes a ceiling');
+      ok(L.ceilTile.height > 20, 'and one deep enough to read (' + L.ceilTile.height + 'px)');
+      ok(L.ceilH > 0, 'and reserves headroom for it');
+      ok(L.wk === 'none', 'and it does not rain indoors');
+      ok(!L.plane, 'and has no ground plane under it');
+      /* the back wall has to reach the top of the frame: a room whose
+         wall stops short is a room with a hole in the roof */
+      const wc = L.wallC.getContext('2d');
+      const d = wc.getImageData(0, 0, Math.min(200, L.wallC.width), 3).data;
+      let lit = 0;
+      for (let i = 3; i < d.length; i += 4) if (d[i] > 8) lit++;
+      ok(lit > 200 * 3 * 0.9, 'the interior wall runs to the top of the frame');
+      // and the floors never climb into the ceiling
+      let intoCeiling = 0;
+      for (const p of L.plats) if (p.y < L.ceilH) intoCeiling++;
+      ok(intoCeiling === 0, 'nothing is placed inside the ceiling');
+    }
+
+    if (want === 'air') {
+      ok(!!L.plane, 'a mode-7 air level bakes its ground plane');
+      ok(L.plane.tile.width > 32, 'and the plane has a real texture');
+      ok(L.plane.wide.width === L.plane.tile.width * L.plane.REP,
+         'and a pre-tiled strip so the compositor is cheap');
+      /* nothing behind an air level: the wall canvas exists so the
+         rest of the pipeline keeps working, and is empty */
+      const wc = L.wallC.getContext('2d');
+      const d = wc.getImageData(0, 0, Math.min(300, L.wallC.width), Math.min(200, L.wallC.height)).data;
+      let lit = 0;
+      for (let i = 3; i < d.length; i += 4) if (d[i] > 8) lit++;
+      ok(lit === 0, 'an air level has nothing behind it');
+      ok(L.fg.length === 0, 'and nothing strung across it');
+      /* traversable: a slab you cannot leave is not a level. Every gap
+         between consecutive ground runs has to be inside a jump. */
+      const runs = L.plats.filter(p => p.ground).sort((a, b) => a.x - b.x);
+      let worst = 0;
+      for (let i = 1; i < runs.length; i++) {
+        worst = Math.max(worst, runs[i].x - (runs[i - 1].x + runs[i - 1].w));
+      }
+      ok(worst <= 40, 'every gap in an air lane is inside a jump (' + worst + 'px)');
+    }
+  }
+
+  /* the compositor has to draw all three without throwing, and put
+     something different on the screen for each */
+  {
+    const inkOf = c => {
+      const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+      let sum = 0;
+      for (let i = 0; i < d.length; i += 4) sum += d[i] + d[i + 1] + d[i + 2];
+      return sum;
+    };
+    const shot = MK => {
+      const cv = createCanvas(LV.W, LV.H);
+      const cx2 = cv.getContext('2d');
+      MK.state = 'play'; MK.player.dead = false;
+      MK.scroll = (MK.L.LW - LV.W) * 0.4; MK.time = 2.5;
+      MK.cursorX = 280; MK.cursorY = 150;
+      window.RENDER.frame(MK, cx2, cv);
+      return cv;
+    };
+    for (const want of ['interior', 'air']) {
+      const cv = shot(built[want]);
+      ok(inkOf(cv) > 0, 'a ' + want + ' level draws something');
+    }
+    /* the plane has to MOVE, or it is wallpaper */
+    const MA = built.air;
+    const a1 = shot(MA);
+    MA.time = 2.5;
+    const p1 = a1.getContext('2d').getImageData(0, LV.H - 40, LV.W, 30).data;
+    MA.time = 4.9;
+    const cv2 = createCanvas(LV.W, LV.H);
+    window.RENDER.frame(MA, cv2.getContext('2d'), cv2);
+    const p2 = cv2.getContext('2d').getImageData(0, LV.H - 40, LV.W, 30).data;
+    let diff = 0;
+    for (let i = 0; i < p1.length; i += 4) if (Math.abs(p1[i] - p2[i]) > 6) diff++;
+    ok(diff > 200, 'the ground plane rushes past rather than sitting still (' + diff + 'px)');
+  }
+
+  /* contact sheet: one frame of each kind, since "no sky" and "a
+     ground plane a long way down" are both things a PNG settles in a
+     second and a paragraph never does */
+  {
+    const cv = createCanvas(LV.W, LV.H * 3);
+    const cx2 = cv.getContext('2d');
+    const one = createCanvas(LV.W, LV.H);
+    const ox2 = one.getContext('2d');
+    const shots = [['city', M], ['interior', built.interior], ['air', built.air]];
+    shots.forEach(([label, MK], i) => {
+      MK.state = 'play'; MK.endT = 0; MK.player.dead = false; MK.player.hp = 78;
+      MK.scroll = (MK.L.LW - LV.W) * 0.4;
+      MK.time = 2.6; MK.cursorX = 300; MK.cursorY = 150;
+      let px = MK.scroll + 120, g2 = null;
+      for (let k = 0; k < 50 && !g2; k++) { px = MK.scroll + 70 + k * 8; g2 = MK.world.groundUnder(px, 0, true); }
+      MK.player.x = px; if (g2) MK.player.y = g2.y;
+      MK.player.anim = 'run'; MK.player.frame = 2; MK.player.local = -0.25; MK.player.face = 1;
+      window.RENDER.frame(MK, ox2, one);
+      cx2.drawImage(one, 0, i * LV.H);
+      cx2.font = '12px monospace';
+      cx2.fillStyle = '#fff';
+      cx2.fillText(label.toUpperCase() + '  ' + MK.cfg.style, 8, i * LV.H + LV.H - 8);
+    });
+    dump('out_kinds.png', cv);
+  }
 }
 
 section('flights (each in its own process)');

@@ -14,6 +14,13 @@ window.WORLD = (function () {
   const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
   const TAU = Math.PI * 2;
 
+  /* How far past a warden's reach you can drift before the conversation
+     ends. Deliberately wider than the reach that starts one: the box
+     opens when you touch a warden and closes when you have clearly
+     left, and the gap between the two is what stops it flickering as
+     you shuffle around on the same deck. */
+  const LEAVE_X = 46, LEAVE_Y = 34;
+
   /* ---------------- build ---------------- */
 
   /* Which hostiles this level fields, and how many of each. Longer
@@ -201,6 +208,7 @@ window.WORLD = (function () {
     this.wardenRigs = wardenRigs || [];
     this.dialog = new window.DIALOG.Dialog();
     this.talkPrompt = null;
+    this.talker = null;         // whose box is currently up
 
     if (overlordRig) this.placeOverlord();
     if (proto) this.placeProto();
@@ -284,10 +292,13 @@ window.WORLD = (function () {
       this.enemies.push(e);
     }
 
-    /* Something has to be guarding the way out. */
+    /* Something has to be guarding the way out. Stood back from the pad
+       but kept inside the run it is standing on: a fixed offset walks
+       it off the end of a short final deck and leaves it in the air. */
     const last = this.ground[this.ground.length - 1];
     if (last && this.rigs.heavy && this.rigs.heavy.length) {
-      const g = new E.Enemy(this.rigs.heavy[0], this.exit.x - 70, last.y, 'heavy',
+      const gx = clamp(this.exit.x - 70, last.x + 12, last.x + last.w - 12);
+      const g = new E.Enemy(this.rigs.heavy[0], gx, last.y, 'heavy',
                             window.CONFIG.ARCHETYPES.heavy, this.diff, (this.cfg.seed ^ 0xbeef) >>> 0);
       g.isGuard = true;
       this.enemies.push(g);
@@ -486,6 +497,18 @@ window.WORLD = (function () {
       this.talk(W);
       break;
     }
+    /* Walking away ends the conversation. You keep the controls
+       throughout, so leaving has to mean something — a box that follows
+       you down the corridor after you have stopped listening is worse
+       than one that took the controls in the first place. The range is
+       looser than the range that starts it, so drifting a step while
+       reading does not cut somebody off mid-word. */
+    if (this.dialog.open && this.talker) {
+      const W = this.talker;
+      const gone = Math.abs(P.x - W.x) > W.w * 0.5 + P.w * 0.5 + LEAVE_X ||
+                   Math.abs(P.y - W.y) > W.h + LEAVE_Y;
+      if (gone || P.dead) { this.dialog.close(); this.talker = null; }
+    }
     // step the ones we walked away from back off cooldown
     for (const W of this.wardens) {
       if (W.cooldown > 0 && !W.inReach(P)) W.cooldown = 0;
@@ -504,10 +527,12 @@ window.WORLD = (function () {
     W.cooldown = 1.0;
     const lines = first ? W.lines
       : window.DIALOG.lines(GW.makeRng((this.cfg.seed ^ (W.seen * 977)) >>> 0), W.gift, true);
+    this.talker = W;
     this.dialog.say(lines, {
       speaker: 'WARDEN',
       tint: W.rig.params.colVisor,
-      portrait: W.rig
+      portrait: W.rig,
+      onClose: () => { this.talker = null; }
     });
     window.AUDIO.play('extract');
   };
@@ -795,13 +820,14 @@ window.WORLD = (function () {
 
     const P = this.player;
 
-    /* A warden talking holds the player still but not the world: the
-       box runs over live gameplay, which is what makes it feel like
-       somebody stopped you rather than a screen appearing. */
+    /* A warden talks over live gameplay and holds nothing: you can
+       walk, jump and shoot through the whole conversation, and walking
+       out of earshot ends it. A text box that takes the controls away
+       in a run-and-gun is a text box you resent. */
     const talking = this.dialog.open;
     if (talking) {
-      const adv = this.autopilot ? true : !!(input.jumpPressed || input.talkPressed);
-      const held = this.autopilot ? true : !!(input.fire || input.up);
+      const adv = this.autopilot ? true : !!input.talkPressed;
+      const held = this.autopilot ? true : !!input.talkHeld;
       this.dialog.step(dt, adv, held);
     }
 
@@ -820,13 +846,7 @@ window.WORLD = (function () {
         input.aimX = input.cursorX + this.scroll;
         input.aimY = input.cursorY;
       }
-      if (talking) inUse = this.HELD || (this.HELD = {
-        left: false, right: false, up: false, down: false, fire: false,
-        jumpPressed: false, reloadPressed: false,
-        cursorX: 0, cursorY: 0, aimX: 0, aimY: 0
-      });
       this.autoInput = inUse;
-      if (talking) { inUse.aimX = P.x + P.face * 40; inUse.aimY = P.y - P.h * 0.5; }
       P.step(this.world, inUse, dt);
       if (P.y > this.world.floor) {           // pit
         P.hp = 0; P.dead = true;
@@ -1120,15 +1140,19 @@ window.WORLD = (function () {
           window.AUDIO.play('hit', null, this.distTo(b.x));
           this.bullets.splice(i, 1); removed = true; break;
         }
-        if (this.world.solidAt(b.x, b.y, true)) {
+        /* Terrain stops a round; a catwalk does not. A one-way deck you
+           can jump up through but cannot shoot through is the kind of
+           inconsistency that reads as a bug from both sides of it —
+           and it makes the upper decks cover that nothing can answer. */
+        if (this.world.solidAt(b.x, b.y, false)) {
           if (b.bounce > 0) {
             /* Ricochet. Back the bullet out, then reflect off whichever
                axis was actually blocked — testing each separately is
                what makes it skid along a floor instead of reversing. */
             b.bounce--;
             b.x -= b.vx / 2; b.y -= b.vy / 2;
-            if (this.world.solidAt(b.x + b.vx, b.y, true)) b.vx = -b.vx;
-            if (this.world.solidAt(b.x, b.y + b.vy, true)) b.vy = -b.vy;
+            if (this.world.solidAt(b.x + b.vx, b.y, false)) b.vx = -b.vx;
+            if (this.world.solidAt(b.x, b.y + b.vy, false)) b.vy = -b.vy;
             b.vx *= 0.86; b.vy *= 0.86;
             this.impact(b, -b.vx, -b.vy);
             window.AUDIO.play('hit', null, this.distTo(b.x));

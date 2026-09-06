@@ -48,6 +48,23 @@ window.CAMPAIGN = (function () {
   const DEPTH = ['SURFACE', 'UPPER', 'MIDLEVEL', 'SUBLEVEL', 'DEEP',
                  'UNDERCROFT', 'ABYSSAL', 'BASEMENT'];
 
+  /* Which kind of place each sector is.
+
+     Dealt out rather than rolled. Over eight sectors an even three-way
+     roll produces a run of eight streets often enough to be the thing
+     you remember about the campaign, so instead the kinds are laid
+     into a cycle and the cycle is rotated by the campaign seed. Every
+     campaign gets roughly a third of each, and no two in a row are the
+     same kind. Sector one is always a street: it is the one everybody
+     already knows how to read. */
+  const KIND_CYCLE = ['city', 'interior', 'city', 'air', 'interior', 'city', 'air', 'interior'];
+
+  function kindFor(n, seed) {
+    if (n <= 1) return 'city';
+    const rot = (seed >>> 3) % KIND_CYCLE.length;
+    return KIND_CYCLE[(n - 2 + rot) % KIND_CYCLE.length];
+  }
+
   function Campaign(seed, opts) {
     this.seed = seed >>> 0;
     this.sector = 1;
@@ -73,11 +90,21 @@ window.CAMPAIGN = (function () {
     return ((this.seed ^ (n * 0x9e3779b1)) * 0x85ebca6b + n * 0x165667b1) >>> 0;
   };
 
+  /* An air sector is not "deeper" than the one before it, so it gets
+     its own word. Anything else keeps descending. */
+  const AIR_DEPTH = ['LANE', 'HIGH LANE', 'UPPER LANE', 'STRATOS'];
+
   Campaign.prototype.name = function (n, cfg) {
-    /* Past the named depths a campaign just keeps going down, and
-       "BASEMENT" four times running reads as a bug. Number them. */
-    const d = n <= DEPTH.length ? DEPTH[n - 1]
-                                : DEPTH[DEPTH.length - 1] + ' ' + (n - DEPTH.length + 1);
+    const kind = kindFor(n, this.seed);
+    let d;
+    if (kind === 'air') {
+      d = AIR_DEPTH[Math.min(AIR_DEPTH.length - 1, Math.floor((n - 1) / 2))];
+    } else {
+      /* Past the named depths a campaign just keeps going down, and
+         "BASEMENT" four times running reads as a bug. Number them. */
+      d = n <= DEPTH.length ? DEPTH[n - 1]
+                            : DEPTH[DEPTH.length - 1] + ' ' + (n - DEPTH.length + 1);
+    }
     return 'SECTOR ' + String(n).padStart(2, '0') + ' · ' + d +
            (cfg ? ' ' + cfg.style.toUpperCase() : '');
   };
@@ -89,7 +116,7 @@ window.CAMPAIGN = (function () {
     const n = this.sector;
     const sd = this.seedFor(n);
     const sc = scaleFor(n, this.total);
-    const cfg = C.randomLevelCfg(sd);
+    const cfg = C.randomLevelCfg(sd, kindFor(n, this.seed));
     cfg.levelLen = sc.len;
     const opts = Object.assign({}, this.opts, {
       difficulty: this.baseDiff,
@@ -177,5 +204,5 @@ window.CAMPAIGN = (function () {
     };
   };
 
-  return { Campaign, scaleFor, SECTORS, DEPTH };
+  return { Campaign, scaleFor, kindFor, SECTORS, DEPTH, KIND_CYCLE };
 })();

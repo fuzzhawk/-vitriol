@@ -49,7 +49,7 @@
   const input = {
     left: false, right: false, up: false, down: false,
     fire: false, jumpPressed: false, reloadPressed: false,
-    talkPressed: false,
+    talkPressed: false, talkHeld: false,
     cursorX: LV.W / 2, cursorY: LV.H / 2, aimX: 0, aimY: 0
   };
 
@@ -108,7 +108,9 @@
         if (e.code === 'Space') e.preventDefault();
       }
       if (e.code === 'KeyR') input.reloadPressed = true;
-      if (e.code === 'KeyE' || e.code === 'Enter') input.talkPressed = true;
+      if (e.code === 'KeyE' || e.code === 'Enter') {
+        input.talkPressed = true; input.talkHeld = true;
+      }
       if (e.code === 'KeyM') toggleSound();
       if (e.code === 'KeyP' && App.mission &&
           (App.state === 'play' || App.state === 'paused')) {
@@ -127,9 +129,11 @@
     });
     window.addEventListener('keyup', e => {
       if (KEYMAP[e.code]) input[KEYMAP[e.code]] = false;
+      if (e.code === 'KeyE' || e.code === 'Enter') input.talkHeld = false;
     });
     window.addEventListener('blur', () => {
       input.left = input.right = input.up = input.down = input.fire = false;
+      input.talkHeld = false;
       if (App.state === 'play') pause(true);
     });
     const cv = App.canvas;

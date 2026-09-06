@@ -279,8 +279,116 @@ Object.assign(STYLES,{
     win:{lit:.5,boarded:.28,broken:.20,bars:.65,ac:.85},
     mul:{greeble:1.8,pipe:1.8,window:1.2,neon:1.6,grime:1.5,wear:1.35},
     floorH:[14,26], colW:[10,22], moss:1.0, graffiti:1.0
+  },
+
+  /* ================================================================
+     INTERIORS — kind:'interior'
+
+     No sky and no skyline: the back wall runs to the top of the frame
+     and a ceiling closes it in. The "windows" a facade bake draws
+     become whatever the room is full of — glowing rack faces, office
+     glazing, boiler inspection ports — which is why these read as
+     rooms without needing a second generator. `ceil` says what hangs
+     from the roof, and `amb` is the colour the room's own lights spill
+     into the air, since there is no sky to provide any.
+     ================================================================ */
+  boiler:{
+    label:"BOILER TUNNEL", kind:'interior',
+    concrete:["#4e4038","#3f342e","#5a4a3e"],
+    metal:["#6b5a48","#7a6650","#4e463c"],
+    accent:["#8a5a24","#6a3a20","#453a30"],
+    neon:["#ff8a2a","#ffc23d","#ff4f2a"],
+    glass:"#1a1210",
+    win:{lit:.30,boarded:.10,broken:.06,bars:.85,ac:.15},
+    mul:{greeble:1.5,pipe:2.0,window:0.30,neon:0.7,grime:1.5,wear:1.4},
+    floorH:[22,40], colW:[16,36], moss:.7, graffiti:.2,
+    ceil:'pipes', amb:"#40200c", lit:0.9
+  },
+  datafarm:{
+    label:"DATA FARM", kind:'interior',
+    concrete:["#2e343a","#262b31","#3a424a"],
+    metal:["#5c666e","#6c777f","#454e56"],
+    accent:["#1e3a4a","#2a4a52","#3a3f52"],
+    neon:["#3ee0ff","#5cff9a","#7d8cff","#ffffff"],
+    glass:"#08131a",
+    win:{lit:.92,boarded:.01,broken:.02,bars:.10,ac:.05},
+    mul:{greeble:1.2,pipe:0.7,window:1.6,neon:1.5,grime:0.45,wear:0.4},
+    floorH:[10,18], colW:[8,16], moss:.05, graffiti:.05,
+    ceil:'trays', amb:"#0a2230", lit:1.15
+  },
+  office:{
+    label:"OFFICE FLOOR", kind:'interior',
+    concrete:["#565a5c","#484c4e","#63686a"],
+    metal:["#7a8084","#888e92","#5e6468"],
+    accent:["#4a5258","#6a6a5c","#3f4a52"],
+    neon:["#ffe9b0","#cfe6ff","#8fe3b0"],
+    glass:"#151d22",
+    win:{lit:.62,boarded:.04,broken:.08,bars:.05,ac:.10},
+    mul:{greeble:0.7,pipe:0.35,window:1.35,neon:0.5,grime:0.6,wear:0.55},
+    floorH:[26,44], colW:[20,44], moss:.15, graffiti:.25,
+    ceil:'panels', amb:"#22262a", lit:1.05
+  },
+  residential:{
+    label:"HAB CORRIDOR", kind:'interior',
+    concrete:["#5a4e46","#4a403a","#665a4e"],
+    metal:["#6a6058","#786c60","#544e48"],
+    accent:["#6a4a3a","#4a5248","#7a6a4a"],
+    neon:["#ffb45a","#8fe3b0","#ff7a8a","#7fd8ff"],
+    glass:"#171418",
+    win:{lit:.70,boarded:.16,broken:.10,bars:.30,ac:.55},
+    mul:{greeble:1.1,pipe:0.8,window:1.25,neon:0.9,grime:1.1,wear:1.0},
+    floorH:[16,28], colW:[12,26], moss:.5, graffiti:.8,
+    ceil:'panels', amb:"#2a1f18", lit:0.95
+  },
+
+  /* ================================================================
+     AIR — kind:'air'
+
+     The level is somewhere above everything. `bg:'mode7'` puts a
+     ground plane under it, rushing away to a horizon; `bg:'skyline'`
+     keeps the ordinary parallax city but pushed down and back, as if
+     seen from much higher up. Nothing here has a back wall: what is
+     behind the platforms is open air.
+     ================================================================ */
+  skylane:{
+    label:"SKY LANE", kind:'air', bg:'mode7', plane:'grid',
+    concrete:["#5e6468","#4e5458","#6e767a"],
+    metal:["#8a9298","#9aa2a8","#6a7278"],
+    accent:["#3a5a6a","#5a6a72","#7a6a3a"],
+    neon:["#5ce1ff","#ffd24a","#ff5a3d","#ffffff"],
+    glass:"#0e1a22",
+    win:{lit:.40,boarded:.02,broken:.04,bars:.10,ac:.15},
+    mul:{greeble:1.1,pipe:0.9,window:0.6,neon:0.9,grime:0.5,wear:0.6},
+    floorH:[20,36], colW:[16,34], moss:.05, graffiti:.15
+  },
+  freightlane:{
+    label:"FREIGHT LANE", kind:'air', bg:'mode7', plane:'cloud',
+    concrete:["#5a544a","#4a453d","#6a6256"],
+    metal:["#7a7268","#8a8276","#5e584e"],
+    accent:["#8a6a2a","#6a4a24","#44504a"],
+    neon:["#ffb020","#ff5a2a","#8fe36a"],
+    glass:"#161a18",
+    win:{lit:.25,boarded:.10,broken:.08,bars:.45,ac:.20},
+    mul:{greeble:1.4,pipe:1.3,window:0.4,neon:0.6,grime:1.0,wear:1.0},
+    floorH:[26,48], colW:[20,44], moss:.2, graffiti:.3
+  },
+  aerie:{
+    label:"SPIRE AERIE", kind:'air', bg:'skyline',
+    concrete:["#3c4348","#333a3f","#49525a"],
+    metal:["#767d83","#868d94","#5d666d"],
+    accent:["#2c3d4a","#54606a","#7d6a3a"],
+    neon:["#5ce1ff","#ffffff","#7d8cff","#ff3d6e"],
+    glass:"#0d151c",
+    win:{lit:.50,boarded:.02,broken:.03,bars:.05,ac:.10},
+    mul:{greeble:0.9,pipe:0.7,window:0.9,neon:1.1,grime:0.5,wear:0.5},
+    floorH:[24,46], colW:[20,44], moss:.05, graffiti:.10
   }
 });
+
+/* What kind of place a style is. Everything without a `kind` is the
+   original street-level city, which is most of them. */
+const STYLE_KIND = k => (STYLES[k] && STYLES[k].kind) || 'city';
+
 /* ================================================================
    SHARED PIPELINE — lighting from the height buffer, then the crush
    ================================================================ */
@@ -3264,7 +3372,12 @@ function* bakeSky(cfg){
 /* ================================================================
    LEVEL GENERATOR — parallax side-scroller built from the tiles
    ================================================================ */
-const LV={W:448,H:252};
+/* The play resolution. Everything is authored, baked and drawn at this
+   size and nearest-upscaled by the caller, so it is the one number that
+   decides how much detail a pixel is allowed to carry — including how
+   many pixels a letter of the HUD font gets. 560x315 is 16:9 and
+   exactly 1.25x the 448x252 this started at. */
+const LV={W:560,H:315};
 
 /* how much overhead cabling each style carries: density, strands, sag, drops */
 const WIRE_STYLE={
@@ -3302,15 +3415,174 @@ function tileInto(x,src,x0,y0,w,h,alpha){
   x.restore();
 }
 
+/* ================================================================
+   CEILING — the thing that makes a room a room.
+
+   An interior with a back wall but no roof still reads as outdoors at
+   night. This bakes a tiling strip that hangs off the top of the frame:
+   a structural deck, then whatever the style runs along it. Same
+   pipeline as everything else — draw into albedo and height, light off
+   the height, crush — so it sits in the same material world as the
+   walls it meets.
+   ================================================================ */
+function* bakeCeiling(cfg){
+  const {outW,outH,SS}=cfg;
+  const W=outW*SS, H=outH*SS, u=SS;
+  const S=STYLES[cfg.style]||STYLES.slum;
+  const rng=makeRng((cfg.seed^0x1cee)>>>0);
+  const A=mkCanvas(W,H), a=A.getContext('2d',{willReadFrequently:true});
+  const Hc=mkCanvas(W,H), h=Hc.getContext('2d',{willReadFrequently:true});
+  const E=mkCanvas(W,H), e=E.getContext('2d',{willReadFrequently:true});
+  a.imageSmoothingEnabled=h.imageSmoothingEnabled=e.imageSmoothingEnabled=false;
+  h.fillStyle="#000"; h.fillRect(0,0,W,H);
+  e.fillStyle="#000"; e.fillRect(0,0,W,H);
+
+  const conc=hex2rgb(S.concrete[0]), met=hex2rgb(S.metal[0]);
+  const box=(c,ht,x,y,w,hh)=>{
+    a.fillStyle=rgbStr(c[0],c[1],c[2],1); a.fillRect(x,y,w,hh);
+    h.fillStyle=`rgb(${ht},${ht},${ht})`; h.fillRect(x,y,w,hh);
+  };
+  const glow=(c,x,y,w,hh,k)=>{
+    a.fillStyle=rgbStr(c[0],c[1],c[2],1); a.fillRect(x,y,w,hh);
+    e.fillStyle=rgbStr(255,255,255,k===undefined?0.9:k); e.fillRect(x,y,w,hh);
+  };
+
+  yield "ceiling — deck";
+  // the slab itself, hanging off the top
+  box(shadeC(conc,0.72),150,0,0,W,Math.round(H*0.38));
+  box(shadeC(conc,0.56),120,0,Math.round(H*0.34),W,Math.round(H*0.06));
+  for(let x=0;x<W;x+=Math.round(u*rng.int(14,26)))
+    box(shadeC(conc,0.44),96,x,0,Math.max(u,u*1),Math.round(H*0.38));
+
+  yield "ceiling — fittings";
+  const kind=S.ceil||'panels';
+  if(kind==='pipes'){
+    // runs of lagged pipe along the roof, with hangers
+    let y=Math.round(H*0.40);
+    for(let k=0;k<3&&y<H-u*3;k++){
+      const r=u*rng.int(2,4);
+      box(shadeC(met,rng.range(0.6,0.9)),170,0,y,W,r*2);
+      box(shadeC(met,1.25),210,0,y,W,u);
+      for(let x=rng.int(0,20)*u;x<W;x+=u*rng.int(18,34)) box(shadeC(met,1.3),220,x,y-u,u*2,r*2+u*2);
+      for(let x=rng.int(0,14)*u;x<W;x+=u*rng.int(22,40)) box(shadeC(met,0.5),120,x,Math.round(H*0.36),u,y-Math.round(H*0.36));
+      y+=r*2+u*rng.int(2,5);
+    }
+    // the odd steam valve, lit
+    for(let x=rng.int(0,30)*u;x<W;x+=u*rng.int(40,80)){
+      const c=hex2rgb(rng.pick(S.neon));
+      glow(c,x,Math.round(H*0.42),u*2,u*2,0.8);
+    }
+  } else if(kind==='trays'){
+    // cable trays and rows of cold strip light
+    let y=Math.round(H*0.42);
+    for(let k=0;k<2&&y<H-u*3;k++){
+      box(shadeC(met,0.66),150,0,y,W,u*3);
+      for(let x=0;x<W;x+=u*3) box(shadeC(met,rng.range(0.9,1.3)),190,x,y,u,u*3);
+      y+=u*rng.int(5,8);
+    }
+    const c=hex2rgb(S.neon[0]);
+    for(let x=u*2;x<W;x+=u*rng.int(20,30)) glow(c,x,H-u*2,u*rng.int(8,14),u*1.5,0.95);
+  } else {
+    // suspended panels with recessed lights between them
+    const pw=u*rng.int(10,16);
+    for(let x=0;x<W;x+=pw){
+      box(shadeC(conc,rng.range(0.86,1.06)),160,x+u,Math.round(H*0.42),pw-u*2,u*3);
+    }
+    const c=hex2rgb(S.neon[0]);
+    for(let x=Math.round(pw*0.4);x<W;x+=pw*2) glow(c,x,Math.round(H*0.44),pw*0.5,u*1.4,0.85);
+  }
+
+  yield "ceiling — light";
+  const lit=lightPass(A,Hc,E,W,H,cfg,u);
+  yield "ceiling — crush";
+  const finalC=crush(lit,outW,outH,cfg,'clip');
+  return {final:finalC};
+}
+
+/* ================================================================
+   THE PLANE — a mode-7 ground for the air levels.
+
+   Baked as one tiling square in world space. drawLevelFrame projects
+   it per band at draw time, so what is stored here is simply "what the
+   world looks like from directly above", and all the perspective lives
+   in the compositor where the camera is.
+   ================================================================ */
+function bakePlane(cfg){
+  const S=STYLES[cfg.style]||STYLES.slum;
+  const rng=makeRng((cfg.seed^0x9147)>>>0);
+  const T=128, c=mkCanvas(T,T), x=c.getContext('2d',{willReadFrequently:true});
+  x.imageSmoothingEnabled=false;
+  const kind=S.plane||'grid';
+  const base=hex2rgb(S.concrete[1]);
+  if(kind==='cloud'){
+    /* A cloud deck. Big soft forms, not detail: at this range the eye
+       reads SHAPE as distance, and a fine-grained noise projected into
+       perspective is just static. Two octaves off a coarse lattice,
+       then a hard-ish threshold so there are actual cloud tops with
+       gaps between them rather than an even fur. */
+    const M=SKYMOODS[cfg.skyMood]||SKYMOODS.ashfall;
+    const dark=shadeC(hex2rgb(M.cloud),0.85);
+    const cl=shadeC(hex2rgb(M.cloud),1.5), lit2=shadeC(hex2rgb(M.cloudLit),1.5);
+    const lat=lattice(rng,6);
+    for(let py=0;py<T;py++)for(let px=0;px<T;px++){
+      let v=0,amp=1,f=1,tot=0;
+      for(let o=0;o<3;o++){ v+=amp*sampleLattice(lat,6,px/T*f,py/T*f); tot+=amp; amp*=0.45; f*=2.4; }
+      v/=tot;
+      const k=clamp((v-0.44)*4.2,0,1);
+      // below the threshold is the gap you see through; above it, cloud
+      const col=k<=0.02?dark:mixC(cl,lit2,clamp(k*1.3,0,1));
+      x.fillStyle=rgbStr(col[0],col[1],col[2],1); x.fillRect(px,py,1,1);
+    }
+  } else {
+    // city blocks seen from above: roofs, streets, and lit windows
+    x.fillStyle=rgbStr(...shadeC(base,0.42)); x.fillRect(0,0,T,T);
+    const road=shadeC(base,0.22);
+    for(let g=0;g<T;g+=32){
+      x.fillStyle=rgbStr(road[0],road[1],road[2],1);
+      x.fillRect(g,0,5,T); x.fillRect(0,g,T,5);
+    }
+    for(let by=0;by<T;by+=32)for(let bx=0;bx<T;bx+=32){
+      const n=rng.int(1,3);
+      for(let k=0;k<n;k++){
+        const w=rng.int(7,20), hh=rng.int(7,20);
+        const ox=bx+6+rng.int(0,Math.max(1,24-w)), oy=by+6+rng.int(0,Math.max(1,24-hh));
+        const c2=shadeC(base,rng.range(0.85,1.5));
+        x.fillStyle=rgbStr(c2[0],c2[1],c2[2],1); x.fillRect(ox,oy,w,hh);
+        x.fillStyle=rgbStr(...shadeC(c2,0.6)); x.fillRect(ox,oy+hh-1,w,1);
+        if(rng.chance(0.5)){
+          const nc=hex2rgb(rng.pick(S.neon));
+          x.fillStyle=rgbStr(nc[0],nc[1],nc[2],0.9);
+          x.fillRect(ox+rng.int(0,Math.max(0,w-2)),oy+rng.int(0,Math.max(0,hh-2)),1,1);
+        }
+      }
+    }
+  }
+  // one pre-tiled strip, so the compositor draws a band in a few calls
+  // instead of a few dozen
+  const REP=12, wide=mkCanvas(T*REP,T), wx2=wide.getContext('2d');
+  wx2.imageSmoothingEnabled=false;
+  for(let i=0;i<REP;i++) wx2.drawImage(c,i*T,0);
+  return {tile:c,wide,T,REP};
+}
+
 function* buildLevel(cfg){
   const rng=makeRng((cfg.seed^0x5eed)>>>0);
   const S=STYLES[cfg.style]||STYLES.slum;
   const sub=o=>Object.assign({},cfg,o);
+  /* Three kinds of place, and the differences run all the way through:
+     what gets baked, how the layout is shaped, and what the compositor
+     puts behind it. 'city' is the original street level. */
+  const KIND=STYLE_KIND(cfg.style);
+  const INDOORS=KIND==='interior', AIR=KIND==='air';
 
   /* ---- bake the ingredients ---- */
   let r, g_r;
-  const skyG=bakeSky(sub({outW:LV.W,outH:LV.H,SS:2,seed:(cfg.seed^0x11)>>>0}));
-  while(!(r=skyG.next()).done) yield "sky \u2014 "+r.value;
+  /* An interior has no sky. It is still baked, at a fraction of the
+     size, because the mood's horizon colour is what the fog and the
+     haze are mixed from and half the pipeline reads it. */
+  const skyG=bakeSky(sub({outW:INDOORS?64:LV.W,outH:INDOORS?36:LV.H,SS:2,
+                          seed:(cfg.seed^0x11)>>>0}));
+  while(!(r=skyG.next()).done) yield (INDOORS?"air handling \u2014 ":"sky \u2014 ")+r.value;
   const SK=r.value;
 
   const NWALL=8, walls=[];
@@ -3344,6 +3616,18 @@ function* buildLevel(cfg){
     while(!(g_r=g.next()).done) yield "roofline "+(i+1)+"/"+NROOF+" \u2014 "+g_r.value;
     roofs.push(g_r.value);
   }
+
+  /* interiors get a roof over them; air levels get a ground under them */
+  let ceilTile=null, plane=null;
+  if(INDOORS){
+    const g=bakeCeiling(sub({outW:64,outH:44,SS:4,seed:(cfg.seed^0x1cee)>>>0}));
+    while(!(g_r=g.next()).done) yield g_r.value;
+    ceilTile=g_r.value.final;
+  }
+  if(AIR&&S.bg==='mode7'){
+    yield "the ground, a long way down";
+    plane=bakePlane(cfg);
+  }
   const wallDarks=walls.map(w=>tintCanvas(w,"rgba(26,30,34,0.55)","multiply"));
   const wallFars=walls.map(w=>tintCanvas(w,"rgba(70,84,96,0.5)","multiply"));
   const wpick=()=>rng.int(0,NWALL-1);
@@ -3369,23 +3653,43 @@ function* buildLevel(cfg){
     }
   }
 
-  /* ---- layout ---- */
+  /* ---- layout ----
+     Three shapes, one loop. A city street is long runs with the odd
+     gap; a corridor is nearly unbroken floor with a low roof over it;
+     a sky lane is short slabs with real air between them and a lot
+     more to climb on, because falling has to be the thing you are
+     thinking about up there. */
   const G=8;
   const LW=Math.round(LV.W*clamp(cfg.levelLen,2,16));
   const PH=platTile.height, TH=thinTile.height;
   const plats=[], props=[], lights=[], fg=[], propLedges=[];
-  let baseY=Math.round(LV.H*0.72/G)*G, x=0;
+  /* Runs have to be long enough to build speed on and gaps short
+     enough to clear from them. A sky lane of 24px slabs with 64px of
+     air between them is not a hard level, it is an unfinishable one:
+     you cannot reach running speed in three strides. */
+  const SHAPE=AIR
+    ? {run:[6,14], gapChance:0.9, gap:[2,4], step:2, lo:0.46, hi:0.80, start:0.68, float:2.2}
+    : INDOORS
+      ? {run:[9,26], gapChance:0.30, gap:[2,4], step:1, lo:0.62, hi:0.86, start:0.78, float:0.75}
+      : {run:[7,24], gapChance:0.52, gap:[3,7], step:2, lo:0.50, hi:0.86, start:0.72, float:1.0};
+  /* Interiors need headroom for the ceiling, so the floor never climbs
+     into it and the floating decks stop short of it. */
+  const CEIL_H=INDOORS?44:0;
+  let baseY=Math.round(LV.H*SHAPE.start/G)*G, x=0;
   while(x<LW){
-    const runW=Math.min(rng.int(7,24)*G,LW-x);
+    const runW=Math.min(rng.int(SHAPE.run[0],SHAPE.run[1])*G,LW-x);
     plats.push({x,y:baseY,w:runW,ground:true});
     x+=runW;
-    if(rng.chance(0.52)) x+=rng.int(3,7)*G;
-    baseY=clamp(baseY+rng.int(-2,2)*G,Math.round(LV.H*0.50),Math.round(LV.H*0.86));
+    if(rng.chance(SHAPE.gapChance)) x+=rng.int(SHAPE.gap[0],SHAPE.gap[1])*G;
+    baseY=clamp(baseY+rng.int(-SHAPE.step,SHAPE.step)*G,
+                Math.round(LV.H*SHAPE.lo),Math.round(LV.H*SHAPE.hi));
   }
-  const nFloat=Math.round(LW/150*clamp(cfg.floatDens,0,2));
+  const nFloat=Math.round(LW/150*clamp(cfg.floatDens,0,2)*SHAPE.float);
+  const floatLo=(INDOORS?0.30:0.24)*LV.H+CEIL_H;
+  const floatHi=(AIR?0.66:0.60)*LV.H;
   for(let i=0;i<nFloat;i++){
     const w=rng.int(4,14)*G;
-    const px=rng.range(0,LW-w), py=Math.round(rng.range(LV.H*0.24,LV.H*0.60)/G)*G;
+    const px=rng.range(0,LW-w), py=Math.round(rng.range(floatLo,floatHi)/G)*G;
     plats.push({x:px,y:py,w,ground:false,thin:rng.chance(0.55)});
   }
   plats.sort((a,b)=>a.y-b.y);
@@ -3396,7 +3700,46 @@ function* buildLevel(cfg){
   const wallC=mkCanvas(wallW,LV.H), wc=wallC.getContext('2d');
   wc.imageSmoothingEnabled=false;
   const wallSegs=[];
-  {
+  if(AIR){
+    /* Nothing behind an air level but air. The wall canvas still
+       exists so everything downstream can keep drawing it; it is
+       simply empty. */
+  } else if(INDOORS){
+    /* A room, not a skyline: the wall runs to the top of the frame and
+       keeps going, and the breaks in it are bays and bulkheads rather
+       than buildings of different heights. */
+    let wx=0;
+    while(wx<wallW){
+      const bw=rng.int(2,6)*64, vi=wpick();
+      const far=rng.chance(0.30);
+      tileInto(wc,far?wallFars[vi]:walls[vi],wx,0,Math.min(bw,wallW-wx),LV.H);
+      // a structural bulkhead between bays, floor to ceiling
+      wc.fillStyle="rgba(8,10,12,.55)";
+      wc.fillRect(wx,0,Math.max(2,Math.round(rng.int(3,7))),LV.H);
+      wallSegs.push({x:wx,w:Math.min(bw,wallW-wx),top:0});
+      wx+=bw;
+    }
+    if(decals.length){
+      const nW=Math.round(wallSegs.length*decDens*0.6);
+      for(let i=0;i<nW;i++){
+        const sg=wallSegs[rng.int(0,wallSegs.length-1)];
+        if(!sg||sg.w<150) continue;
+        const d=decals[rng.int(0,decals.length-1)];
+        pasteDecal(wc,d,Math.round(sg.x+rng.range(6,sg.w-134)),
+                   Math.round(rng.range(10,Math.max(11,LV.H-100))));
+      }
+    }
+    /* The room's own light, since there is no sky to provide any: warm
+       from the top where the fittings are, dark at the floor. */
+    const am=hex2rgb(S.amb||"#20242a");
+    wc.save(); wc.globalCompositeOperation='source-atop';
+    const g=wc.createLinearGradient(0,0,0,LV.H);
+    g.addColorStop(0,rgbStr(am[0],am[1],am[2],0.40));
+    g.addColorStop(0.45,rgbStr(am[0],am[1],am[2],0.16));
+    g.addColorStop(1,"rgba(6,8,10,.46)");
+    wc.fillStyle=g; wc.fillRect(0,0,wallW,LV.H);
+    wc.restore();
+  } else {
     let wx=0;
     while(wx<wallW){
       const bw=rng.int(2,7)*64;
@@ -3536,6 +3879,30 @@ function* buildLevel(cfg){
   for(const p of plats){
     if(!p.ground) continue;
     const y0=p.y+PH;
+    if(AIR){
+      /* An air platform is a slab with nothing under it. Instead of a
+         wall of building it gets an underside: a keel, a few ribs and
+         the odd running light, so it reads as a thing hanging in the
+         air rather than a ledge with the bottom cropped off. */
+      const dep=rng.int(7,14);
+      pc.fillStyle=rgbStr(...snapC(shadeC(met,0.42),cfg));
+      pc.fillRect(p.x+2,y0,p.w-4,dep);
+      pc.fillStyle=rgbStr(...snapC(shadeC(met,0.26),cfg));
+      pc.fillRect(p.x+5,y0+dep,p.w-10,Math.round(dep*0.45));
+      pc.fillStyle="rgba(6,8,10,.5)"; pc.fillRect(p.x+2,y0+dep-1,p.w-4,1);
+      for(let rx=p.x+rng.int(6,18);rx<p.x+p.w-6;rx+=rng.int(16,34)){
+        pc.fillStyle=rgbStr(...snapC(shadeC(met,0.60),cfg));
+        pc.fillRect(rx,y0,2,dep+Math.round(dep*0.4));
+      }
+      if(rng.chance(0.7)){
+        const nc=hex2rgb(rng.pick(S.neon));
+        const lx=p.x+Math.round(p.w*rng.range(0.2,0.8));
+        pc.fillStyle=rgbStr(nc[0],nc[1],nc[2],0.95);
+        pc.fillRect(lx,y0+dep,2,2);
+        addLight(lx+1,y0+dep+1,rng.range(14,26),nc,0.6);
+      }
+      continue;
+    }
     let bx2=p.x;
     while(bx2<p.x+p.w){
       const bw2=Math.min(rng.int(1,3)*64,p.x+p.w-bx2);
@@ -3574,8 +3941,9 @@ function* buildLevel(cfg){
     pc.fillStyle="rgba(8,10,12,.6)"; pc.fillRect(p.x,p.y,1,T.height); pc.fillRect(p.x+p.w-1,p.y,1,T.height);
     pc.fillStyle="rgba(220,220,210,.18)"; pc.fillRect(p.x,p.y,p.w,1);
     pLedge(p.x,p.y+T.height,p.w,rng.chance(0.5));
-    if(!p.ground){
-      // hangers up to the ceiling
+    if(!p.ground&&!AIR){
+      // hangers up to the ceiling — there is nothing to hang from in
+      // open air, so an air deck simply floats
       const n=Math.max(2,Math.round(p.w/40));
       for(let k=0;k<n;k++){
         const hx=Math.round(p.x+(k+0.5)*p.w/n);
@@ -3692,26 +4060,118 @@ function* buildLevel(cfg){
     const tie=rng.chance(0.55)?{t:rng.range(0.3,0.7),r:rng.range(4,9)}:null;
     return {k:'cable',x:cx,strands,tie};
   }
-  const nClusters=wDens<=0.01?0:Math.max(1,Math.round(LW/280*wDens));
+  /* Cables and pipes are strung BETWEEN things. In open air there is
+     nothing to string them from, so an air level gets none of it and
+     keeps its empty sky. */
+  const nClusters=(AIR||wDens<=0.01)?0:Math.max(1,Math.round(LW/280*wDens));
   for(let i=0;i<nClusters;i++) fg.push(cableCluster(rng.range(0,LW)));
-  for(let i=0;i<Math.round(LW/300);i++){
-    if(rng.chance(0.6)) fg.push({k:'pipe',x:rng.range(0,LW),w:rng.int(6,16)});
-    else fg.push({k:'rail',x:rng.range(0,LW),w:rng.int(60,160),y:rng.range(LV.H*0.8,LV.H*0.95)});
+  if(!AIR){
+    for(let i=0;i<Math.round(LW/300);i++){
+      if(rng.chance(0.6)) fg.push({k:'pipe',x:rng.range(0,LW),w:rng.int(6,16)});
+      else fg.push({k:'rail',x:rng.range(0,LW),w:rng.int(60,160),y:rng.range(LV.H*0.8,LV.H*0.95)});
+    }
   }
 
   /* ---- weather particles ---- */
   const M=SKYMOODS[cfg.skyMood]||SKYMOODS.ashfall;
   const parts=[];
-  const wk=cfg.weather==='auto'?(M.rain>0.5?'rain':'ash'):cfg.weather;
+  /* No weather indoors. Rain falling through a boiler room is the
+     single fastest way to stop believing in a ceiling. */
+  const wk=INDOORS?'none':(cfg.weather==='auto'?(M.rain>0.5?'rain':'ash'):cfg.weather);
   const nP=wk==='none'?0:Math.round((wk==='rain'?320:150)*clamp(cfg.weatherAmt,0,2));
   for(let i=0;i<nP;i++) parts.push({x:rng.range(0,LV.W),y:rng.range(0,LV.H),v:rng.range(0.5,1.6),s:rng.range(0.4,1.3),p:rng.range(0,6.28)});
 
   yield "atmosphere";
   return {sky:SK.sky,cityLayers:SK.layers,far:SK.far,near:SK.near,wallC,playC,LW,plats,props,
-          lights,fg,parts,wk,M,platTile,thinTile,wallTile,walls,roofs,decals,mood:M};
+          lights,fg,parts,wk,M,platTile,thinTile,wallTile,walls,roofs,decals,mood:M,
+          kind:KIND,ceilTile,plane,ceilH:CEIL_H,style:S};
 }
 
 /* ---- per-frame compositor ---- */
+/* ================================================================
+   MODE 7 — the ground under an air level.
+
+   A texture that lives in world space, projected onto the lower part
+   of the frame. For a screen row `dy` below the horizon the camera is
+   looking at distance z = camH*F/dy, and the width one texture tile
+   covers on screen is texW*dy/camH — which is all the perspective
+   there is, and it needs no per-pixel work.
+
+   Drawn in bands rather than scanlines. Log-spaced bands land where
+   the perspective changes fastest and cost a few hundred blits a
+   frame instead of a few thousand, and at this pixel size the seams
+   between them are invisible.
+   ================================================================ */
+/* camH is the camera's height above the plane in TEXTURE units, and it
+   is the number that decides how much ground you can see: too low and
+   one tile spans the whole screen, which reads as a flat wash rather
+   than a plane. speed is how fast that ground comes at you. */
+const M7={bands:64, camH:90, horizon:0.40, speed:520, drift:1.4};
+
+function drawPlane(L,ctx,scroll,time){
+  const W=LV.W,H=LV.H;
+  const P=L.plane; if(!P) return;
+  const hy=Math.round(H*M7.horizon);
+  const T=P.T, wide=P.wide, REP=P.REP;
+  const bottom=H;
+  const rows=bottom-hy;
+  if(rows<8) return;
+
+  const hz=hex2rgb(L.M.horizon);
+
+  const camZ=time*M7.speed;
+  const camX=scroll*M7.drift;
+  ctx.save();
+  ctx.beginPath(); ctx.rect(0,hy,W,rows); ctx.clip();
+  for(let b=0;b<M7.bands;b++){
+    /* Log spacing: dy grows geometrically, so every band covers a
+       similar slice of DEPTH rather than a similar slice of screen. */
+    const t0=b/M7.bands, t1=(b+1)/M7.bands;
+    const dy0=Math.max(1,Math.pow(rows,t0)), dy1=Math.pow(rows,t1);
+    const y0=Math.floor(hy+dy0), y1=Math.ceil(hy+dy1);
+    if(y1<=y0) continue;
+    const dyMid=(dy0+dy1)*0.5;
+    const dw=T*dyMid/M7.camH;                       // one tile, on screen
+    if(dw<1.2) continue;
+    const z0=M7.camH*T/dy1, z1=M7.camH*T/dy0;       // near and far edge, world
+    const v0=(camZ-z1), v1=(camZ-z0);
+    const stripW=dw*REP;
+    let x0=-((((camX*dyMid/M7.camH)%stripW)+stripW)%stripW);
+    // source rows for this band, wrapped into the tile
+    const sv=((v0%T)+T)%T;
+    const sh=Math.max(1,Math.min(T,v1-v0));
+    for(let x=x0;x<W;x+=stripW){
+      if(sv+sh<=T){
+        ctx.drawImage(wide,0,sv,wide.width,sh,Math.round(x),y0,Math.ceil(stripW),y1-y0);
+      } else {
+        // the slice straddles the seam: two draws rather than a wrap
+        const a=T-sv, fa=a/sh;
+        const ya=Math.round(y0+(y1-y0)*(1-fa));
+        ctx.drawImage(wide,0,sv,wide.width,a,Math.round(x),y0,Math.ceil(stripW),Math.max(1,ya-y0));
+        ctx.drawImage(wide,0,0,wide.width,sh-a,Math.round(x),ya,Math.ceil(stripW),Math.max(1,y1-ya));
+      }
+    }
+    /* Haze with depth. Without it the far bands are as sharp as the
+       near ones and the plane reads as wallpaper; with too much, the
+       near ground goes too and there is nothing to read the motion
+       against. It has to bite hard at the horizon and let go fast. */
+    const k=1-dyMid/rows;
+    ctx.fillStyle=rgbStr(hz[0],hz[1],hz[2],0.94*k*k);
+    ctx.fillRect(0,y0,W,y1-y0);
+  }
+  ctx.restore();
+
+  /* The horizon itself: the plane has to dissolve into the sky rather
+     than end at a line, and a band of the sky's own colour laid over
+     the join is what sells the distance. */
+  const band=Math.round(H*0.13);
+  const hg=ctx.createLinearGradient(0,hy-band,0,hy+band);
+  hg.addColorStop(0,rgbStr(hz[0],hz[1],hz[2],0));
+  hg.addColorStop(0.5,rgbStr(hz[0],hz[1],hz[2],0.92));
+  hg.addColorStop(1,rgbStr(hz[0],hz[1],hz[2],0));
+  ctx.fillStyle=hg; ctx.fillRect(0,hy-band,W,band*2);
+}
+
 function drawLevelFrame(L,cfg,ctx,scroll,time,entityPass){
   const W=LV.W,H=LV.H;
   ctx.imageSmoothingEnabled=false;
@@ -3720,18 +4180,58 @@ function drawLevelFrame(L,cfg,ctx,scroll,time,entityPass){
     const off=-(((scroll*f)%img.width)+img.width)%img.width;
     for(let x=off;x<W;x+=img.width) ctx.drawImage(img,Math.round(x),0);
   };
-  tile(L.sky,0.04);
-  const nCL=L.cityLayers?L.cityLayers.length:0;
-  for(let i=0;i<nCL;i++) tile(L.cityLayers[i],0.08+0.20*(nCL===1?1:i/(nCL-1)));
+  const KIND=L.kind||'city';
+  const INDOORS=KIND==='interior', AIR=KIND==='air';
+  const SKY=L.style&&L.style.bg;
 
-  const wx=clamp(scroll*0.45,0,Math.max(0,L.wallC.width-W));
-  ctx.drawImage(L.wallC,Math.round(wx),0,W,H,0,0,W,H);
+  if(INDOORS){
+    /* No sky and no skyline. The room's own ambient fills the frame
+       first so the gaps between bays are dark air rather than a hole
+       through to nothing. */
+    const am=hex2rgb((L.style&&L.style.amb)||"#1a1e22");
+    ctx.fillStyle=rgbStr(am[0],am[1],am[2],1);
+    ctx.fillRect(0,0,W,H);
+  } else {
+    tile(L.sky,0.04);
+    if(AIR&&SKY==='mode7'){
+      drawPlane(L,ctx,scroll,time);
+    } else {
+      const nCL=L.cityLayers?L.cityLayers.length:0;
+      /* An aerie looks DOWN on the city: the same parallax layers,
+         pushed into the bottom third and hazed, so the skyline reads
+         as something a long way below rather than across the street. */
+      const push=AIR&&SKY==='skyline'?Math.round(H*0.30):0;
+      const squash=AIR&&SKY==='skyline'?0.62:1;
+      for(let i=0;i<nCL;i++){
+        const img=L.cityLayers[i];
+        const f=(AIR?0.03:0.08)+(AIR?0.07:0.20)*(nCL===1?1:i/(nCL-1));
+        const off=-(((scroll*f)%img.width)+img.width)%img.width;
+        for(let x=off;x<W;x+=img.width){
+          ctx.drawImage(img,0,0,img.width,img.height,
+                        Math.round(x),push,img.width,Math.round(img.height*squash));
+        }
+      }
+      if(AIR&&SKY==='skyline'){
+        const hz2=hex2rgb(L.M.horizon);
+        const g2=ctx.createLinearGradient(0,push-6,0,H);
+        g2.addColorStop(0,rgbStr(hz2[0],hz2[1],hz2[2],0.62));
+        g2.addColorStop(0.5,rgbStr(hz2[0],hz2[1],hz2[2],0.30));
+        g2.addColorStop(1,rgbStr(hz2[0],hz2[1],hz2[2],0.42));
+        ctx.fillStyle=g2; ctx.fillRect(0,Math.max(0,push-6),W,H-Math.max(0,push-6));
+      }
+    }
+  }
+
+  if(!AIR){
+    const wx=clamp(scroll*0.45,0,Math.max(0,L.wallC.width-W));
+    ctx.drawImage(L.wallC,Math.round(wx),0,W,H,0,0,W,H);
+  }
 
   // distance fog between wall and action
   const hz=hex2rgb(L.M.horizon);
   let g=ctx.createLinearGradient(0,0,0,H);
-  g.addColorStop(0,rgbStr(hz[0],hz[1],hz[2],0.10*clamp(cfg.fog,0,2)));
-  g.addColorStop(1,rgbStr(hz[0],hz[1],hz[2],0.30*clamp(cfg.fog,0,2)));
+  g.addColorStop(0,rgbStr(hz[0],hz[1],hz[2],(INDOORS?0.04:0.10)*clamp(cfg.fog,0,2)));
+  g.addColorStop(1,rgbStr(hz[0],hz[1],hz[2],(INDOORS?0.10:0.30)*clamp(cfg.fog,0,2)));
   ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
 
   ctx.drawImage(L.playC,Math.round(clamp(scroll,0,L.LW-W)),0,W,H,0,0,W,H);
@@ -3770,6 +4270,22 @@ function drawLevelFrame(L,cfg,ctx,scroll,time,entityPass){
       ctx.fillStyle=em?"rgba(255,150,60,.9)":`rgba(200,196,180,${0.10+p.s*0.22})`;
       ctx.fillRect(x|0,y|0,Math.max(1,p.s|0),Math.max(1,p.s|0));
     }
+  }
+
+  /* The ceiling. Over the play layer rather than under it, because a
+     roof is in front of the far wall and the frame has to be closed
+     at the top or the room leaks. Parallaxed with the wall, not with
+     the floor: it is at the back of the room too. */
+  if(INDOORS&&L.ceilTile){
+    const cw=L.ceilTile.width, chh=L.ceilTile.height;
+    const off=-(((scroll*0.45)%cw)+cw)%cw;
+    for(let x=off;x<W;x+=cw) ctx.drawImage(L.ceilTile,Math.round(x),0);
+    // and the dark it casts into the top of the room
+    const am=hex2rgb((L.style&&L.style.amb)||"#1a1e22");
+    const cg=ctx.createLinearGradient(0,chh-2,0,chh+Math.round(H*0.14));
+    cg.addColorStop(0,rgbStr(am[0],am[1],am[2],0.55));
+    cg.addColorStop(1,rgbStr(am[0],am[1],am[2],0));
+    ctx.fillStyle=cg; ctx.fillRect(0,chh-2,W,Math.round(H*0.14)+2);
   }
 
   // foreground
@@ -3847,5 +4363,5 @@ function drawLevelFrame(L,cfg,ctx,scroll,time,entityPass){
 }
 function rng2(v){ const x=Math.sin(v*127.1)*43758.5453; return x-Math.floor(x); }
 
-return { LV, PALETTES, PAL_RGB, STYLES, SKYMOODS, CITY_PRESETS, DECAL_KINDS, DECAL_CATS, WIRE_STYLE, buildLevel, drawLevelFrame, bakeFacade, bakePlatform, bakeRoof, bakeDecal, bakeSky, makeRng, clamp, hex2rgb, rgbStr, mkCanvas, snapLayer };
+return { LV, PALETTES, PAL_RGB, STYLES, SKYMOODS, CITY_PRESETS, DECAL_KINDS, DECAL_CATS, WIRE_STYLE, buildLevel, drawLevelFrame, bakeFacade, bakePlatform, bakeRoof, bakeDecal, bakeSky, bakeCeiling, bakePlane, drawPlane, STYLE_KIND, makeRng, clamp, hex2rgb, rgbStr, mkCanvas, snapLayer };
 })();

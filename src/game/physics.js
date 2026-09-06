@@ -53,8 +53,11 @@ window.PHYSICS = (function () {
 
   const thickOf = p => p.ground ? (LV.H + 64 - p.y) : (p.thin ? THIN_H : DECK_H);
 
-  /* Is this point inside solid mass? Used for spawn validation and
-     bullet collision. One-way decks count as solid for bullets. */
+  /* Is this point inside solid mass? `includeDecks` decides whether a
+     one-way catwalk counts. Gibs and spawn validation say yes — a chunk
+     should come to rest on a walkway. Bullets say no: a deck you can
+     jump up through but cannot shoot through reads as a bug from both
+     sides, and it hands the upper decks cover nothing can answer. */
   World.prototype.solidAt = function (x, y, includeDecks) {
     for (const p of this.near(x, x)) {
       if (!p.ground && !includeDecks) continue;

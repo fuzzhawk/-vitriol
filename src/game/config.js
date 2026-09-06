@@ -17,7 +17,7 @@ window.CONFIG = (function () {
      Mirrors the tool's neutral slider positions. Sliders are 0-200
      in the DOM and divided by 100, so 1.0 is neutral here. */
   const LEVEL_DEFAULTS = {
-    mode: 'level', outW: 448, outH: 252, SS: 2, tileX: true, tileY: false,
+    mode: 'level', outW: 560, outH: 315, SS: 2, tileX: true, tileY: false,
     seed: 1337,
     style: 'slum', palette: 'sodium', dither: 0.45,
 
@@ -79,10 +79,32 @@ window.CONFIG = (function () {
     megacorp:   { moods: ['magnetar', 'aurora', 'eclipse', 'coldrain'],     cities: ['megaplex', 'spireforest', 'corpwall'],    pals: ['neonoir', 'chrome', 'arctic'] },
     arcology:   { moods: ['aurora', 'toxicdusk', 'magnetar', 'voidnight'],   cities: ['arcologyc', 'spireforest', 'skywaylattice'], pals: ['chrome', 'arctic', 'neonoir'] },
     spaceport:  { moods: ['dustveil', 'frostfall', 'aurora', 'eclipse'],   cities: ['scaffold', 'spireforest', 'megaplex'],    pals: ['chrome', 'sandstorm', 'bunker'] },
-    server:     { moods: ['voidnight', 'magnetar', 'aurora', 'eclipse'],   cities: ['ghostgrid', 'corpwall', 'skywaylattice'], pals: ['crtp4', 'crthot', 'mono5', 'toxic'] }
+    server:     { moods: ['voidnight', 'magnetar', 'aurora', 'eclipse'],   cities: ['ghostgrid', 'corpwall', 'skywaylattice'], pals: ['crtp4', 'crthot', 'mono5', 'toxic'] },
+
+    /* --- interiors ---
+       There is no sky over these and no skyline behind them, but the
+       mood is still what the fog, the haze and the room's own ambient
+       are mixed from, so they pick one anyway. The city preset is
+       never drawn; it is chosen so a config always round-trips. */
+    boiler:      { moods: ['emberstorm', 'toxicdusk', 'ashfall'],           cities: ['lowindustrial'], pals: ['rust', 'copper', 'amber', 'sodium'] },
+    datafarm:    { moods: ['voidnight', 'magnetar', 'aurora'],              cities: ['ghostgrid'],     pals: ['crtp4', 'crthot', 'chrome', 'arctic'] },
+    office:      { moods: ['coldrain', 'eclipse', 'smog'],                  cities: ['corpwall'],      pals: ['mono3', 'ashen', 'chrome', 'arctic'] },
+    residential: { moods: ['smog', 'coldrain', 'ashfall'],                  cities: ['hiveterrace'],   pals: ['sodium', 'ashen', 'amber', 'sewer'] },
+
+    /* --- air --- */
+    skylane:     { moods: ['aurora', 'magnetar', 'eclipse', 'frostfall'],   cities: ['spireforest', 'megaplex'],   pals: ['chrome', 'arctic', 'neonoir'] },
+    freightlane: { moods: ['ashfall', 'dustveil', 'emberstorm', 'smog'],    cities: ['scaffold', 'lowindustrial'], pals: ['rust', 'sandstorm', 'copper', 'amber'] },
+    aerie:       { moods: ['aurora', 'magnetar', 'eclipse', 'voidnight'],   cities: ['spireforest', 'megaplex', 'arcologyc'], pals: ['neonoir', 'chrome', 'arctic'] }
   };
 
   const STYLE_KEYS = Object.keys(STYLE_AFFINITY);
+
+  /* Which of the three kinds of place a style is. Asked of the
+     generator rather than answered here, so a style added to
+     GREEBLEWORKS is classified by the thing that knows. */
+  const kindOf = k => GW.STYLE_KIND(k);
+  const STYLES_BY_KIND = { city: [], interior: [], air: [] };
+  for (const k of STYLE_KEYS) (STYLES_BY_KIND[kindOf(k)] || STYLES_BY_KIND.city).push(k);
 
   /* Palettes that crush the image down to a handful of colours. Great
      to look at, punishing to fight in — the enemy silhouette stops
@@ -106,11 +128,17 @@ window.CONFIG = (function () {
     return cfg;
   }
 
-  function randomLevelCfg(seed) {
+  /* Roll a level config. `want` pins the kind of place — the campaign
+     uses it to deal out interiors and air lanes evenly instead of
+     leaving it to chance, which over eight sectors reliably produces
+     runs of eight streets. */
+  function randomLevelCfg(seed, want) {
     const R = GW.makeRng(seed >>> 0);
     const cfg = Object.assign({}, LEVEL_DEFAULTS, { seed: seed >>> 0 });
 
-    const style = R.pick(STYLE_KEYS);
+    const pool = (want && STYLES_BY_KIND[want] && STYLES_BY_KIND[want].length)
+      ? STYLES_BY_KIND[want] : STYLE_KEYS;
+    const style = R.pick(pool);
     const aff = STYLE_AFFINITY[style];
     cfg.style = style;
     cfg.skyMood = R.pick(aff.moods);
@@ -137,7 +165,10 @@ window.CONFIG = (function () {
     cfg.cloudTurb = R.range(0.15, 0.85);
     cfg.cloudHeight = R.range(0.45, 1.00);
 
-    cfg.levelLen  = R.int(5, 9);
+    /* An interior is a corridor and an air lane is a chain of slabs;
+       neither wants the length a street does. */
+    const kind = kindOf(style);
+    cfg.levelLen  = kind === 'city' ? R.int(5, 9) : R.int(4, 7);
     cfg.floatDens = R.range(0.70, 1.35);
     cfg.propDens  = R.range(0.65, 1.30);
     cfg.fog       = R.range(0.55, 1.35);
@@ -508,7 +539,7 @@ window.CONFIG = (function () {
 
   return {
     LEVEL_DEFAULTS, RUN_DEFAULTS, DIFFICULTY,
-    STYLE_AFFINITY, STYLE_KEYS, HARSH_PALETTES,
+    STYLE_AFFINITY, STYLE_KEYS, HARSH_PALETTES, STYLES_BY_KIND, kindOf,
     ARCHETYPES, archetypeParams, CORRUPT_RATE, defaultMerc, randomMerc, allyParams,
     wardenParams, wardenGift, POWERUPS, POWERUP_KEYS,
     CRAWLER_PALETTES, crawlerParams, overlordParams, defaultCrawler,

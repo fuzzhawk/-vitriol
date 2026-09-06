@@ -21,7 +21,6 @@ window.PILOT = (function () {
   const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 
   const CFG = {
-    probe: 22,           // how far ahead to look for pits and walls
     gapJump: 34,         // a gap wider than this wants the second jump
     arrive: 14,          // close enough to a waypoint
     engageRange: 200,    // will shoot at this
@@ -39,7 +38,7 @@ window.PILOT = (function () {
     backMax: 1.1,        // the most time to spend giving ground
     pushFor: 2.2,        // ...then close regardless, for this long
     climbNear: 80,       // only climb toward a goal we are nearly under
-    stepUp: 44,          // a rise this small is a step, not a hole
+    stepUp: 20,          // a rise this small is a step, not a hole
     dropNear: 140,       // only drop off a deck when nearly over the goal
     dropDrop: 130,       // ...and only onto floor no further down than this
     faceBand: 34,        // a threat within this much height is in our face
@@ -71,6 +70,7 @@ window.PILOT = (function () {
     this.pushT = 0;      // ...and how long we are refusing to
     this.probeX = actor.x;
     this.probeT = 0;
+    this.launchY = actor.y;    // the height we last had ground under us
   }
 
   /* ---------------- perception ---------------- */
@@ -125,13 +125,23 @@ window.PILOT = (function () {
 
   /* ---------------- terrain probing ---------------- */
 
-  /* Is there floor under a point we could stand on? Deliberately looks
-     a little ABOVE the feet as well: a deck one step up is somewhere
-     you can walk on, and treating it as a hole makes the pilot
-     bunny-hop the length of every terraced level and fling itself into
-     the pits it was trying to clear. */
+  /* Is there floor under a point we could stand on?
+
+     Two different questions, because the terrain answers them
+     differently. SOLID GROUND counts even a little above the feet: a
+     terrace one step up is somewhere the body can hop onto, and
+     treating it as a hole makes the pilot bunny-hop the length of every
+     terraced level and fling itself into the pits it was clearing.
+
+     A ONE-WAY DECK only counts at or below the feet, because that is
+     the only way you can ever land on one. A catwalk over your head is
+     not floor — walking off a ledge beside a higher catwalk drops you
+     straight past it, and reading it as floor is how the pilot strolled
+     into a pit with the far side in plain sight. */
   Pilot.prototype.floorAt = function (M, x, y) {
-    const g = M.world.groundUnder(x, y - CFG.stepUp, true);
+    const up = M.world.groundUnder(x, y - CFG.stepUp, false);
+    const deck = M.world.groundUnder(x, y, true);
+    const g = (up && (!deck || up.y < deck.y)) ? up : deck;
     return g && g.y < y + 90 ? g : null;
   };
 
@@ -195,17 +205,6 @@ window.PILOT = (function () {
     input.reloadPressed = false;
     input.fire = false;
     if (a.dead) return input;
-
-    /* A box is up: hold still and read it. The mission advances the
-       page off the pilot's behalf, so all this has to do is stop
-       walking away mid-sentence. */
-    if (M.dialog && M.dialog.open) {
-      input.aimX = a.x + (a.face || 1) * 60;
-      input.aimY = a.y - a.h * 0.5;
-      input.cursorX = clamp(input.aimX - M.scroll, 0, LV.W);
-      input.cursorY = clamp(input.aimY, 0, LV.H);
-      return input;
-    }
 
     this.react -= dt;
     this.retarget -= dt;
@@ -280,6 +279,7 @@ window.PILOT = (function () {
       this.probeX = a.x; this.probeT = 0;
     }
     this.lastX = a.x;
+    if (a.ground) this.launchY = a.y;
     if (this.stuck > CFG.stuckTime && this.unstickT <= 0) {
       // shove sideways and jump, and stop giving ground for a moment:
       // almost everything that traps a body here is either a lip it can
@@ -302,7 +302,6 @@ window.PILOT = (function () {
        was trying to reach. */
     if (this.unstickT <= 0) {
       const gap = dir !== 0 ? this.gapAhead(M, dir) : 0;
-      const probe = dir || (a.face || 1);
       const wall = dir !== 0 && M.world.solidAt(a.x + dir * (a.w * 0.5 + 4), a.y - 8, false);
       const stepUp = dir !== 0 && M.world.solidAt(a.x + dir * (a.w * 0.5 + 4), a.y - 3, false);
 
@@ -320,7 +319,6 @@ window.PILOT = (function () {
         }
       } else if (!a.ground && a.airJumps > 0) {
         const below = this.floorAt(M, a.x, a.y);
-        const ahead = this.floorAt(M, a.x + probe * 14, a.y);
         if (a.vy > 0.4 && a.hitWall) {
           // Sliding down the face of a ledge we undershot. Spend the
           // air jump NOW — deliberately ignoring the cooldown, because
@@ -330,8 +328,17 @@ window.PILOT = (function () {
           input.jumpPressed = true; this.jumpCool = 0.3;
         } else if (this.jumpCool > 0) {
           /* still on cooldown for the non-urgent cases */
-        } else if (a.vy > 0.6 && !below && (!ahead || gap > CFG.gapJump)) {
-          // falling into a pit: spend the air jump to clear it
+        } else if (a.vy > 0.6 && !below && a.y > this.launchY - 4) {
+          /* Falling, with nothing under us, having come back down to
+             the height we jumped from. That last part is the whole
+             rule. A body at the top of its arc is still above
+             everything it might land on, so "is there floor under me"
+             says no even when it is sailing comfortably towards a
+             ledge; spending the air jump there buys height it does not
+             need and carries it clean over the ledge into the NEXT
+             pit. Launch height is the first moment the question has an
+             answer, and waiting costs nothing — the jump is still
+             there, and by then it has travelled further. */
           input.jumpPressed = true; this.jumpCool = 0.3;
         } else if (wantUp && a.vy > -1.4 && (a.y - this.goal.y) > 30) {
           // rising has run out and we are still short of the deck
