@@ -949,7 +949,15 @@
         App.mission = r.value;
         App.job = null;
         App.jobProgress = 1;
-        window.AUDIO.ambience(true, App.cfg.skyMood);
+        /* The bed the place should have, not just its weather: a
+           fungal bloom and a data farm used to sound identical. */
+        window.AUDIO.ambience(true, {
+          mood: App.cfg.skyMood,
+          kind: GW.STYLE_KIND(App.cfg.style),
+          style: App.cfg.style,
+          hue: App.sectorOpts && App.sectorOpts.faction
+             ? App.sectorOpts.faction.hue : null
+        });
         startPlay();
         return;
       }
@@ -1192,6 +1200,24 @@
         input.talkPressed = false;
       }
       if (acc > STEP * 4) acc = 0;
+
+      /* Lean on the ambient bed by how much of the room has noticed
+         you. Recomputed a few times a second rather than every frame:
+         it is a slow ramp at the other end, and counting the garrison
+         sixty times a second to drive a 0.9s ramp is work nobody
+         hears. */
+      App.tensionT = (App.tensionT || 0) + dt;
+      if (App.tensionT > 0.3) {
+        App.tensionT = 0;
+        let hot = 0, tot = 0;
+        for (const e of M.enemies) {
+          if (e.dead) continue;
+          tot++;
+          if (e.alerted && Math.abs(e.x - M.player.x) < 420) hot++;
+        }
+        const boss = M.overlord && !M.overlord.dead && M.overlord.alerted ? 0.45 : 0;
+        window.AUDIO.tension(Math.min(1, (tot ? hot / Math.max(3, tot) : 0) + boss));
+      }
 
       /* Autopilot clears its own run-end screens. "Without player
          control" has to include the death screen and the extraction

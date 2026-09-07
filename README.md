@@ -512,6 +512,37 @@ brightness and most of its own saturation, so a white sign stays white. That
 last part is what stops it reading as a filter. You notice the lights before you
 notice the troops, and by then you already know who is home.
 
+### What a place sounds like
+
+One industrial drone for every level is the same mistake as one parallax layer
+for every level: a fungal bloom, a data farm, a sky lane and an ash forge are
+four places and used to be one noise.
+
+`bedFor` describes an ambient bed as **data** — layers, filter, movement, and
+what occasionally happens in it — and `ambience` builds oscillators out of that
+description. Split for the same reason the story screens are: the harness has no
+WebAudio at all, so a bed written straight into oscillators cannot be checked,
+and "does a wood sound different from a corridor" is exactly the kind of claim
+that rots silently.
+
+A street is a wide low drone. A room sits higher, with a narrow band of air
+handling over it and something in the ducts every so often. Open air is wind
+through a slowly sweeping bandpass over a pressure rumble, and nothing clanks up
+there because there is nothing to hit. A wood breathes rather than hums, and
+what happens in it is irregular — a wood that ticks on a schedule is a machine
+with leaves on. Sky mood transposes the whole bed; the owning faction's hue
+picks the interval its upper voice sits at, so two levels under the same people
+are in the same key without either becoming a jingle, and the root never moves
+because that would be a different place rather than the same place under new
+management.
+
+Nothing is sampled. A drip is a sine with a fast pitch drop, wind is noise
+through a sweeping bandpass, a room tone is the same noise through a narrow one
+— the same six primitives every gunshot is made of. And `AUDIO.tension` leans on
+the bed by how much of the garrison has noticed you: the cheapest possible
+score, no second track and no crossfade, just the bed that is already running
+being pushed on.
+
 ### The people in the alcoves
 
 A warden in a rolled level is a figure who has been standing in the dark for a

@@ -4049,6 +4049,134 @@ section('the story screens');
   }
 }
 
+section('the sound of a place');
+{
+  const A = window.AUDIO;
+  ok(typeof A.bedFor === 'function', 'a bed can be described without a speaker');
+  ok(A.KIND_KEYS.length === 4, 'one for each kind of place (' + A.KIND_KEYS.length + ')');
+  /* the four kinds of level all have a bed, and the level generator's
+     classification is the one that decides */
+  for (const k of Object.keys(window.CONFIG.STYLES_BY_KIND)) {
+    ok(A.KIND_BED[k], 'level kind "' + k + '" has a bed of its own');
+  }
+
+  /* --- purity: it is a description, not a side effect --- */
+  {
+    const a = A.bedFor({ kind: 'interior', mood: 'voidnight', hue: 200 });
+    const b = A.bedFor({ kind: 'interior', mood: 'voidnight', hue: 200 });
+    ok(JSON.stringify(a) === JSON.stringify(b), 'the same place describes the same bed');
+    ok(!A.ready, 'and describing one starts no audio');
+  }
+
+  /* --- four places, four beds --- */
+  {
+    const sigs = new Set(), bases = new Set(), evs = new Set();
+    for (const k of A.KIND_KEYS) {
+      const b = A.bedFor({ kind: k, mood: 'ashfall' });
+      ok(b.kind === k, k + ' knows what it is');
+      ok(b.layers.length >= 2, k + ' has a bed with body in it');
+      ok(b.gain > 0 && b.gain < 0.2, k + ' sits under the effects (' + b.gain + ')');
+      ok(b.cut >= 90 && b.cut <= 900, k + ' filters somewhere sane (' + b.cut + ')');
+      for (const L of b.layers) {
+        ok(L.hz >= 18 && L.hz <= 900, k + ' has no layer out of range (' + L.hz + ')');
+        ok(L.gain > 0 && L.gain <= 1, 'and none of them is silent or clipping');
+        ok(['sine', 'square', 'sawtooth', 'triangle'].indexOf(L.type) >= 0,
+           'and every voice is a real waveform');
+      }
+      ok(b.sweep && b.sweep.rate > 0 && b.sweep.rate < 1,
+         k + ' breathes rather than droning flat');
+      ok(b.events.length > 0, k + ' has something happen in it');
+      for (const e of b.events) {
+        ok(!!A.BED_EVENTS[e.k], k + ' only asks for sounds that exist (' + e.k + ')');
+        ok(e.every[0] > 0 && e.every[1] > e.every[0],
+           'on a clock with slack in it (' + e.every.join('-') + ')');
+        evs.add(e.k);
+      }
+      sigs.add(JSON.stringify([b.base, b.cut, b.layers.map(l => l.type + l.gain),
+                               !!b.air, b.events.map(e => e.k)]));
+      bases.add(Math.round(b.base));
+    }
+    ok(sigs.size === A.KIND_KEYS.length, 'no two kinds of place sound the same');
+    ok(bases.size >= 3, 'and they do not all sit at the same pitch');
+    ok(evs.size >= 3, 'with different things happening in them (' +
+       Array.from(evs).join(', ') + ')');
+    /* the specific claims the beds were written to make */
+    ok(A.bedFor({ kind: 'interior' }).base > A.bedFor({ kind: 'city' }).base,
+       'a room reads closer than a street');
+    ok(A.bedFor({ kind: 'air' }).base < A.bedFor({ kind: 'city' }).base,
+       'and open air reads emptier');
+    ok(!!A.bedFor({ kind: 'air' }).air, 'the sky has wind in it');
+    ok(!!A.bedFor({ kind: 'nature' }).air, 'and so does a wood');
+    ok(!A.bedFor({ kind: 'city' }).air, 'a street is a drone, not a draught');
+    ok(A.bedFor({ kind: 'air' }).events.every(e => e.k !== 'clank'),
+       'and nothing clanks in open air — there is nothing up there to hit');
+    ok(A.bedFor({ kind: 'nature' }).events.some(e => e.k === 'call'),
+       'while something in a wood is alive');
+  }
+
+  /* --- weather moves the whole bed --- */
+  {
+    const flat = A.bedFor({ kind: 'city', mood: 'ashfall' });
+    const dead = A.bedFor({ kind: 'city', mood: 'voidnight' });
+    const hot = A.bedFor({ kind: 'city', mood: 'emberstorm' });
+    ok(dead.base < flat.base, 'a dead sky sits lower (' + dead.base.toFixed(1) + ')');
+    ok(hot.base > flat.base, 'and a burning one sits higher (' + hot.base.toFixed(1) + ')');
+    ok(dead.cut < flat.cut, 'and takes the top off it too');
+    /* every mood the generator has must be survivable */
+    for (const m of Object.keys(GW.SKYMOODS)) {
+      const b = A.bedFor({ kind: 'city', mood: m });
+      ok(b.base >= 24 && b.base <= 180, 'mood "' + m + '" keeps the bed in range');
+      for (const L of b.layers) ok(L.hz >= 18 && L.hz <= 900, 'and its voices too');
+    }
+  }
+
+  /* --- a faction's holdings are in a key --- */
+  {
+    const none = A.bedFor({ kind: 'city' });
+    ok(none.interval === null, 'a place nobody holds is in no particular key');
+    const seen = new Set();
+    for (let h = 0; h < 360; h += 15) {
+      const b = A.bedFor({ kind: 'city', hue: h });
+      ok(b.interval > 1 && b.interval < 2, 'an owned place is (' + b.interval + ')');
+      ok(b.base === none.base, 'and its root is the same place it always was');
+      seen.add(b.interval);
+    }
+    ok(seen.size >= 4, 'and different owners are in different keys (' + seen.size + ')');
+    /* the same faction sounds the same wherever you meet them */
+    ok(A.bedFor({ kind: 'city', hue: 200 }).interval ===
+       A.bedFor({ kind: 'interior', hue: 200 }).interval,
+       'and one faction is in one key wherever you meet them');
+    /* only the upper voice moves */
+    {
+      const owned = A.bedFor({ kind: 'city', hue: 200 });
+      ok(owned.layers[0].hz === none.layers[0].hz,
+         'ownership does not transpose the level');
+      ok(owned.layers[owned.layers.length - 1].hz !== none.layers[none.layers.length - 1].hz,
+         'but it is audible in what sits over it');
+    }
+  }
+
+  /* --- the old call still works --- */
+  {
+    const s1 = A.bedFor('voidnight');
+    ok(s1.kind === 'city', 'a bare mood still gets a bed');
+    ok(!A.bedFor(undefined).kind || A.bedFor(undefined).kind === 'city',
+       'and so does nothing at all');
+    ok(A.bedFor({ kind: 'not-a-kind' }).kind === 'city',
+       'a kind that does not exist falls back to the street');
+  }
+
+  /* --- and it is silent headless --- */
+  {
+    ok(A.init() === false, 'there is no audio in a harness');
+    A.ambience(true, { kind: 'nature', mood: 'smog', hue: 90 });
+    A.tension(0.8);
+    A.play('shot', { f: 400, drop: 0.5, len: 0.1, noise: 0.5, type: 'square' }, 0);
+    A.ambience(false);
+    ok(true, 'and asking for it anyway is not fatal');
+  }
+}
+
 section('whose floor this is (sigils)');
 {
   const ST2 = window.STORY, LR2 = window.LORE;

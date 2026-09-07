@@ -148,6 +148,9 @@ time.
       mark, one charge per doctrine — stencilled on the back wall and on the
       ground you run along, and `styleFor` pulling every light in the level
       toward the owner's hue without turning it into a filter.
+- [x] **12 — The sound of a place.** `bedFor` describes an ambient bed as data
+      — one per level kind, transposed by sky mood, keyed by the owner's hue —
+      and `tension` leans on it as the room notices you.
 
 ---
 

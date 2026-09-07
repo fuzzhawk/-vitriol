@@ -143,43 +143,235 @@ window.AUDIO = (function () {
     try { SFX[name] && SFX[name](arg, dist || 0); } catch (e) { /* audio is never fatal */ }
   }
 
-  /* Low industrial bed — two detuned saws through a lowpass, plus a
-     slow LFO. Cheap, and it makes the levels feel like a place. */
-  function ambience(on, mood) {
+  /* ============================================================
+     THE SOUND OF A PLACE.
+
+     One industrial drone for every level is the same mistake as one
+     parallax layer for every level: a fungal bloom, a data farm, a sky
+     lane and an ash forge are four places and used to be one noise.
+
+     `bedFor` describes the bed as data — layers, filter, movement,
+     and what occasionally happens in it — and `ambience` builds nodes
+     out of that description. Split for the same reason the story
+     screens are: the harness has no WebAudio at all, so a bed written
+     straight into oscillators cannot be checked, and "does a wood
+     sound different from a corridor" is exactly the kind of claim that
+     rots silently.
+
+     Nothing here is sampled. A drip is a sine with a fast pitch drop;
+     wind is noise through a sweeping bandpass; a room tone is the same
+     noise through a narrow one. It is all the same six primitives the
+     effects are made of.
+     ============================================================ */
+  const KIND_BED = {
+    city: {
+      /* Wide, low and mechanical: the stack, heard from inside it. */
+      base: 55, cut: 220, q: 3, gain: 0.055,
+      layers: [{ type: 'sawtooth', mul: 1, gain: 0.5 },
+               { type: 'sawtooth', mul: 1.005, gain: 0.5 },
+               { type: 'sine', mul: 1.5, gain: 0.25 }],
+      sweep: { rate: 0.055, depth: 70 },
+      air: null,
+      events: [{ k: 'clank', every: [9, 22], gain: 0.05 }]
+    },
+    interior: {
+      /* A room, not a city. Higher fundamental so it reads as close
+         walls, a narrow band of air handling over the top, and
+         something in the ducts every so often. */
+      base: 78, cut: 340, q: 5, gain: 0.05,
+      layers: [{ type: 'sawtooth', mul: 1, gain: 0.42 },
+               { type: 'square', mul: 2.002, gain: 0.14 },
+               { type: 'sine', mul: 0.5, gain: 0.34 }],
+      sweep: { rate: 0.09, depth: 40 },
+      air: { hz: 620, q: 1.6, gain: 0.030 },
+      events: [{ k: 'clank', every: [5, 14], gain: 0.07 },
+               { k: 'drip', every: [7, 19], gain: 0.05 }]
+    },
+    air: {
+      /* Nothing under you and a long way to fall. Broadband wind with
+         a slow sweep, a pressure rumble beneath it, and no clank —
+         there is nothing up here to hit. */
+      base: 34, cut: 160, q: 1.4, gain: 0.042,
+      layers: [{ type: 'sine', mul: 1, gain: 0.6 },
+               { type: 'sine', mul: 1.007, gain: 0.4 }],
+      sweep: { rate: 0.031, depth: 26 },
+      air: { hz: 900, q: 0.7, gain: 0.055, sweep: { rate: 0.07, depth: 520 } },
+      events: [{ k: 'gust', every: [6, 15], gain: 0.05 }]
+    },
+    nature: {
+      /* Alive. The bed breathes rather than hums, and the things that
+         happen in it are irregular — a wood that ticks on a schedule
+         is a machine with leaves on. */
+      base: 46, cut: 200, q: 2, gain: 0.040,
+      layers: [{ type: 'sine', mul: 1, gain: 0.45 },
+               { type: 'triangle', mul: 2.01, gain: 0.16 }],
+      sweep: { rate: 0.043, depth: 55 },
+      air: { hz: 430, q: 0.9, gain: 0.040, sweep: { rate: 0.05, depth: 260 } },
+      events: [{ k: 'drip', every: [3, 9], gain: 0.06 },
+               { k: 'call', every: [8, 24], gain: 0.045 }]
+    }
+  };
+  const KIND_KEYS = Object.keys(KIND_BED);
+
+  /* Sky moods that pull the whole bed down. A level under a dead sky
+     should sit lower than one under an ember storm. */
+  const MOOD_DROP = { voidnight: 0.72, eclipse: 0.78, nuclearwinter: 0.84,
+                      frostfall: 0.88, emberstorm: 1.10, magnetar: 1.14,
+                      aurora: 1.06 };
+
+  const clampN = (v, a, b) => v < a ? a : v > b ? b : v;
+
+  /* The bed a place should have. Pure: same arguments, same answer,
+     and no WebAudio anywhere in it. */
+  function bedFor(opts) {
+    const o = opts || {};
+    const kind = KIND_BED[o.kind] ? o.kind : 'city';
+    const K = KIND_BED[kind];
+    const drop = MOOD_DROP[o.mood] || 1;
+    /* A faction's holdings have a tone of their own: the owner's hue
+       picks the interval the bed's upper voice sits at, so two levels
+       under the same people are in the same key without either of them
+       becoming a jingle. */
+    const INTERVALS = [1.5, 1.335, 1.26, 1.5, 1.6, 1.78, 1.5, 1.335];
+    const hue = o.hue === undefined || o.hue === null ? null
+              : ((o.hue % 360) + 360) % 360;
+    const interval = hue === null ? null
+                   : INTERVALS[Math.floor(hue / 360 * INTERVALS.length) % INTERVALS.length];
+    const base = clampN(K.base * drop, 24, 180);
+
+    const layers = K.layers.map(L => ({
+      type: L.type,
+      /* Only the voice ABOVE the fundamental takes the faction's
+         interval. Moving the root would transpose the level, which is
+         a different place rather than the same place under new
+         management. */
+      hz: clampN(base * (interval !== null && L.mul > 1.2 ? interval : L.mul), 18, 900),
+      gain: L.gain
+    }));
+
+    return {
+      kind: kind, base: base,
+      cut: clampN(K.cut * drop, 90, 900), q: K.q,
+      gain: K.gain,
+      layers: layers,
+      sweep: K.sweep,
+      air: K.air ? Object.assign({}, K.air) : null,
+      events: K.events.map(e => Object.assign({}, e)),
+      interval: interval
+    };
+  }
+
+  /* What happens in a bed, once. Built out of the same primitives as
+     everything else, so a drip and a shot are the same machine. */
+  const BED_EVENTS = {
+    clank: (t, g) => { tone(t, 'square', 180, 60, 0.16, g * 0.5);
+                       noise(t, 0.10, g, 900, 6); },
+    drip:  (t, g) => { tone(t, 'sine', 1400, 320, 0.13, g); },
+    gust:  (t, g) => { noise(t, 1.1, g, 780, 0.6); },
+    call:  (t, g) => { tone(t, 'triangle', 520, 760, 0.10, g);
+                       tone(t + 0.13, 'triangle', 760, 610, 0.09, g * 0.7); }
+  };
+
+  let ambTimer = null, ambBed = null;
+
+  /* Start or stop the bed. `opts` may be a sky-mood string, as it was
+     when there was only one bed, or the description of a place. */
+  function ambience(on, opts) {
     if (!ready) return;
     if (!on) {
       ambNodes.forEach(n => { try { n.stop(); } catch (e) {} });
       ambNodes = [];
+      if (ambTimer) { clearTimeout(ambTimer); ambTimer = null; }
       if (ambGain) { try { ambGain.disconnect(); } catch (e) {} ambGain = null; }
+      ambBed = null;
       return;
     }
     if (ambGain) return;
     resume();
+    const bed = ambBed = bedFor(typeof opts === 'string' ? { mood: opts } : opts);
+
     ambGain = ctx.createGain();
     ambGain.gain.value = 0.0;
-    ambGain.gain.linearRampToValueAtTime(0.055, ctx.currentTime + 3);
+    ambGain.gain.linearRampToValueAtTime(bed.gain, ctx.currentTime + 3);
+    ambGain.connect(master);
+
     const lp = ctx.createBiquadFilter();
-    lp.type = 'lowpass'; lp.frequency.value = 220; lp.Q.value = 3;
-    lp.connect(ambGain); ambGain.connect(master);
-    const base = mood === 'voidnight' || mood === 'eclipse' ? 42 : 55;
-    [base, base * 1.005, base * 1.5].forEach((f, i) => {
+    lp.type = 'lowpass'; lp.frequency.value = bed.cut; lp.Q.value = bed.q;
+    lp.connect(ambGain);
+
+    for (const L of bed.layers) {
       const o = ctx.createOscillator();
-      o.type = i === 2 ? 'sine' : 'sawtooth';
-      o.frequency.value = f;
+      o.type = L.type;
+      o.frequency.value = L.hz;
       const g = ctx.createGain();
-      g.gain.value = i === 2 ? 0.25 : 0.5;
+      g.gain.value = L.gain;
       o.connect(g); g.connect(lp);
       o.start(); ambNodes.push(o);
-    });
+    }
     // Slow filter sweep so the bed breathes instead of droning flat.
-    const lfo = ctx.createOscillator(), lfoG = ctx.createGain();
-    lfo.frequency.value = 0.055; lfoG.gain.value = 70;
-    lfo.connect(lfoG); lfoG.connect(lp.frequency);
-    lfo.start(); ambNodes.push(lfo);
+    if (bed.sweep) {
+      const lfo = ctx.createOscillator(), lfoG = ctx.createGain();
+      lfo.frequency.value = bed.sweep.rate; lfoG.gain.value = bed.sweep.depth;
+      lfo.connect(lfoG); lfoG.connect(lp.frequency);
+      lfo.start(); ambNodes.push(lfo);
+    }
+    /* Air: a band of noise over the drone. It is what separates a room
+       from a chord — the drone says how big the space is and the air
+       says what is moving through it. */
+    if (bed.air) {
+      const src = ctx.createBufferSource();
+      src.buffer = noiseBuf; src.loop = true;
+      const bp = ctx.createBiquadFilter();
+      bp.type = 'bandpass'; bp.frequency.value = bed.air.hz; bp.Q.value = bed.air.q;
+      const ag = ctx.createGain(); ag.gain.value = bed.air.gain;
+      src.connect(bp); bp.connect(ag); ag.connect(ambGain);
+      src.start(); ambNodes.push(src);
+      if (bed.air.sweep) {
+        const alfo = ctx.createOscillator(), alfoG = ctx.createGain();
+        alfo.frequency.value = bed.air.sweep.rate;
+        alfoG.gain.value = bed.air.sweep.depth;
+        alfo.connect(alfoG); alfoG.connect(bp.frequency);
+        alfo.start(); ambNodes.push(alfo);
+      }
+    }
+    /* And the things that happen in it, on their own irregular clocks. */
+    if (bed.events.length) {
+      const tick = () => {
+        if (!ambGain || !ambBed) return;
+        const e = ambBed.events[Math.floor(Math.random() * ambBed.events.length)];
+        const fn = BED_EVENTS[e.k];
+        if (fn && enabled) { try { fn(ctx.currentTime + 0.01, e.gain); } catch (err) {} }
+        const wait = (e.every[0] + Math.random() * (e.every[1] - e.every[0])) * 1000;
+        ambTimer = setTimeout(tick, wait);
+      };
+      ambTimer = setTimeout(tick, 2500 + Math.random() * 4000);
+    }
+  }
+
+  /* How loud the room is, 0..1. The bed lifts and opens up when the
+     level notices you, and settles again when it stops. It is the
+     cheapest possible score: no second track, no crossfade, just the
+     bed that is already running being leaned on.
+
+     Ramped rather than set, because a bed that jumps is a bug you can
+     hear. */
+  let ambTension = 0;
+  function tension(x) {
+    ambTension = clampN(x || 0, 0, 1);
+    if (!ready || !ambGain || !ambBed) return;
+    const t = ctx.currentTime;
+    try {
+      ambGain.gain.cancelScheduledValues(t);
+      ambGain.gain.setValueAtTime(ambGain.gain.value, t);
+      ambGain.gain.linearRampToValueAtTime(
+        ambBed.gain * (1 + ambTension * 1.35), t + 0.9);
+    } catch (e) { /* audio is never fatal */ }
   }
 
   return {
-    init, play, ambience, resume,
+    init, play, ambience, bedFor, tension, resume,
+    get tensionAt() { return ambTension; },
+    KIND_BED, KIND_KEYS, MOOD_DROP, BED_EVENTS,
     get enabled() { return enabled; },
     set enabled(v) {
       enabled = v;
