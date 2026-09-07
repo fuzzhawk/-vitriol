@@ -43,7 +43,7 @@ const FILES = [
   'src/gen/scrapforge.js',
   'src/game/config.js', 'src/game/audio.js', 'src/game/weapons.js',
   'src/game/sprite.js', 'src/game/physics.js', 'src/game/rigid.js',
-  'src/game/dialog.js', 'src/game/campaign.js',
+  'src/game/dialog.js', 'src/game/lore.js', 'src/game/campaign.js',
   'src/game/pilot.js', 'src/game/entities.js',
   'src/game/world.js', 'src/game/render.js', 'src/game/screens.js'
 ];
@@ -2109,6 +2109,155 @@ section('pilot, allies and autopilot');
   dump('out_wardens.png', cv);
 }
 
+section('the world (lore)');
+{
+  const LR = window.LORE;
+
+  /* determinism, first: a world you cannot reproduce is a world you
+     cannot debug, and the whole run hangs off this */
+  {
+    const a = LR.makeWorld(0xC0FFEE), b = LR.makeWorld(0xC0FFEE);
+    ok(LR.describe(a) === LR.describe(b), 'the same seed makes the same world');
+    const c = LR.makeWorld(0xC0FFEF);
+    ok(LR.describe(a) !== LR.describe(c), 'a different seed makes a different one');
+  }
+
+  /* --- internal consistency, over many worlds --- */
+  const facNames = new Set(), castNames = new Set(), placeNames = new Set();
+  const arts = new Set(), secrets = new Set(), doctrines = new Set();
+  const N = 120;
+  for (let i = 0; i < N; i++) {
+    const W = LR.makeWorld((i * 2654435761) >>> 0);
+
+    ok(W.factions.length >= 3 && W.factions.length <= 8,
+       'a world has a handful of factions (' + W.factions.length + ')');
+    ok(W.places.length >= 4, 'and places to fight over');
+
+    for (const f of W.factions) {
+      facNames.add(f.name);
+      doctrines.add(f.doctrine);
+      ok(!!LR.DOCTRINES[f.doctrine], 'faction doctrine is a real one');
+      ok(f.holdings.length > 0, 'every faction holds somewhere');
+      ok(!!f.leader && f.leader.faction === f.id, 'and is led by one of its own');
+      ok(f.hue >= 0 && f.hue < 360, 'and has a colour of its own');
+      ok(!!f.secret && typeof f.secret.line === 'string', 'and keeps a secret');
+      /* a faction cannot be at war with itself, and the matrix has to
+         be symmetric or two factions disagree about whether there is
+         a war on */
+      ok(W.relation(f.id, f.id) >= 0, 'nobody is at war with themselves');
+      for (const g of W.factions) {
+        ok(W.relation(f.id, g.id) === W.relation(g.id, f.id),
+           'relations are mutual');
+      }
+      /* every holding actually points back */
+      for (const id of f.holdings) {
+        ok(W.places[id] && W.places[id].owner === f.id,
+           'a holding is held by the faction that claims it');
+      }
+    }
+    /* every place has exactly one owner and that owner lists it */
+    for (const p of W.places) {
+      placeNames.add(p.name);
+      const owner = W.facById(p.owner);
+      ok(!!owner, 'every place has an owner');
+      ok(owner.holdings.indexOf(p.id) >= 0, 'and the owner knows it');
+      ok(typeof p.history === 'string' && p.history.length > 20,
+         'and a history worth reading');
+      ok(p.history.indexOf('%') < 0, 'with every slot filled in');
+      ok(!!window.GREEBLEWORKS.STYLES[p.style], 'and a real architecture');
+    }
+    /* the world is not evenly split between two people and nobody */
+    {
+      const counts = W.factions.map(f => f.holdings.length);
+      const most = Math.max.apply(null, counts), least = Math.min.apply(null, counts);
+      ok(most - least <= Math.ceil(W.places.length / W.factions.length) + 1,
+         'the map is not one faction and a rump (' + least + '-' + most + ')');
+    }
+    /* there is a war on and there is an alliance, or there is no story */
+    {
+      let wars = 0, pacts = 0;
+      for (let a = 0; a < W.factions.length; a++)
+        for (let b2 = a + 1; b2 < W.factions.length; b2++) {
+          const r = W.relation(a, b2);
+          if (r <= -2) wars++;
+          if (r >= 2) pacts++;
+        }
+      ok(wars > 0, 'somebody is at war with somebody');
+      ok(pacts > 0, 'and somebody is allied to somebody');
+    }
+
+    /* the cast */
+    for (const c of W.cast) {
+      castNames.add(c.name);
+      ok(typeof c.name === 'string' && c.name.indexOf(' ') > 0, 'a character has a name');
+      ok(!!LR.VOICES[c.voice], 'and a voice to say things in');
+      ok(!!c.want && !!c.wound && !!c.flaw, 'and something to want, regret and get wrong');
+      ok(!!c.face && typeof c.face.height === 'number', 'and a face that can be drawn');
+      ok(c.faction === null || !!W.facById(c.faction), 'and works for somebody who exists');
+    }
+    /* the five you actually deal with must be tellable apart */
+    {
+      const main = [W.you, W.handler, W.rival, W.oracle, W.antagonist];
+      const seen = { name: new Set(), sur: new Set(), want: new Set(), wound: new Set() };
+      for (const c of main) {
+        ok(!seen.name.has(c.name), 'no two of the cast share a name');
+        seen.name.add(c.name);
+        const sur = c.name.split(' ').pop();
+        ok(!seen.sur.has(sur), 'or a surname (' + sur + ')');
+        seen.sur.add(sur);
+        ok(!seen.want.has(c.want), 'or a motive');
+        seen.want.add(c.want);
+        ok(!seen.wound.has(c.wound), 'or a wound');
+        seen.wound.add(c.wound);
+      }
+      ok(W.you.origin !== undefined && !!W.facById(W.you.origin),
+         'you came from somewhere');
+      ok(W.oracle.faction === null, 'the oracle works for nobody');
+    }
+
+    /* the artifact and the twist */
+    arts.add(W.artifact.name);
+    secrets.add(W.secret.k);
+    ok(W.artifact.name.indexOf('THE ') === 0, 'the artifact has a name');
+    ok(!!W.facById(W.artifact.heldBy), 'somebody is holding it');
+    ok(!!W.facById(W.artifact.wantedBy), 'and somebody wants it');
+    ok(typeof W.secret.line === 'string' && !!W.secret.target,
+       'the twist names who the end is against');
+  }
+
+  console.log('  ' + N + ' worlds: ' + facNames.size + ' faction names, ' +
+              castNames.size + ' people, ' + placeNames.size + ' places, ' +
+              arts.size + ' artifacts');
+  /* Generated text has to actually vary. A name list that repeats
+     inside one session is a name list the player stops reading. */
+  ok(facNames.size > N * 3, 'faction names do not repeat (' + facNames.size + ')');
+  ok(castNames.size > N * 4, 'nor do the people (' + castNames.size + ')');
+  ok(placeNames.size > 200, 'nor the places (' + placeNames.size + ')');
+  ok(arts.size > 60, 'nor the artifact (' + arts.size + ')');
+  ok(doctrines.size === LR.DOCTRINE_KEYS.length, 'every doctrine comes up');
+  ok(secrets.size === LR.SECRETS.length, 'and every twist');
+
+  /* doctrines are mechanical, not decorative */
+  for (const k of LR.DOCTRINE_KEYS) {
+    const D = LR.DOCTRINES[k];
+    ok(typeof D.creed === 'string' && D.creed.length > 10, k + ' believes something');
+    ok(D.mod && D.mod.count > 0 && D.mod.hp > 0, k + ' changes the troops it fields');
+    ok(D.guns.every(g => !!window.WEAPONS.table[g]), k + ' arms them with real weapons');
+    ok(D.kinds.every(x => ['city', 'interior', 'air', 'natural'].indexOf(x) >= 0),
+       k + ' lives in real kinds of place');
+  }
+
+  /* the dossier has to be readable, because it is the codex */
+  {
+    const W = LR.makeWorld(0xBEEF);
+    const txt = LR.describe(W);
+    ok(txt.length > 1200, 'the dossier is a real document (' + txt.length + ' chars)');
+    ok(txt.indexOf('undefined') < 0, 'with nothing missing from it');
+    ok(txt.indexOf('%') < 0, 'and no unfilled slots');
+    for (const f of W.factions) ok(txt.indexOf(f.name) >= 0, 'every faction is in it');
+  }
+}
+
 section('level kinds');
 {
   const GWk = window.GREEBLEWORKS;
@@ -2354,7 +2503,8 @@ section('flights (each in its own process)');
       ok(sct.knowsSector, 'and which sector it is');
       ok(sct.wardens > 0, 'every sector has someone standing in it');
       ok(sct.densRose, 'each sector deploys at least as many');
-      ok(sct.sameOperative, 'the same operative walks into every sector');
+      ok(sct.operativeSeed === F.sectors[0].operativeSeed,
+         'the same operative walks into every sector');
       if (sct.carriedWeaponIn) {
         ok(sct.weaponIn === sct.carriedWeaponIn,
            'the weapon carried into sector ' + sct.n + ' (' + sct.carriedWeaponIn + ')');

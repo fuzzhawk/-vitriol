@@ -41,7 +41,7 @@ for (const f of [
   'src/gen/scrapforge.js',
   'src/game/config.js', 'src/game/audio.js', 'src/game/weapons.js',
   'src/game/sprite.js', 'src/game/physics.js', 'src/game/rigid.js',
-  'src/game/dialog.js', 'src/game/campaign.js',
+  'src/game/dialog.js', 'src/game/lore.js', 'src/game/campaign.js',
   'src/game/pilot.js', 'src/game/entities.js',
   'src/game/world.js', 'src/game/render.js'
 ]) require(path.join(ROOT, f));
@@ -132,11 +132,11 @@ const SCENARIOS = {
       difficulty: 'recruit', enemyDens: 0.45, lives: 9, allies: 0, autopilot: true
     });
     camp.total = 3;
-    /* Rolled ONCE. If a campaign ever rerolled the operative, the rig
-       identity below is the thing that would notice. */
+    /* Rolled ONCE. If a campaign ever rerolled the operative, the merc
+       seed reported below is the thing that would notice. */
     const merc = window.CONFIG.randomMerc(0xC0FFEE);
     const sectors = [];
-    let firstRig = null, carriedWeapon = null, prevDens = 0;
+    let carriedWeapon = null, prevDens = 0;
 
     for (let i = 0; i < camp.total; i++) {
       const b = camp.build();
@@ -144,8 +144,6 @@ const SCENARIOS = {
       b.opts.wardens = 1;
       const M = bake(b.cfg, merc, Object.assign({}, b.opts,
         { scrap: b.scrap, boss: b.boss, proto: b.proto }));
-      if (!firstRig) firstRig = M.player.rig;
-
       const rec = {
         n: camp.sector,
         style: b.cfg.style,
@@ -153,9 +151,11 @@ const SCENARIOS = {
         knowsSector: M.sector === camp.sector,
         wardens: M.wardens.length,
         densRose: b.opts.enemyDens >= prevDens - 1e-9,
-        /* The rig only legitimately differs once a prototype has been
-           picked up — that swaps the sprite to one holding it. */
-        sameOperative: M.player.rig === firstRig || M.player.weapon.kind === 'proto',
+        /* Not object identity: picking the prototype up legitimately
+           swaps the sprite for one holding it, and that rig is a
+           different object. What must never change is WHO it is, and
+           that is the merc seed the sheet was forged from. */
+        operativeSeed: M.player.rig.params.seed,
         carriedWeaponIn: carriedWeapon,
         weaponIn: M.player.weapon.kind,
         buffsIn: JSON.stringify(M.player.buffs),
