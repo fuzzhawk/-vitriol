@@ -139,9 +139,11 @@ time.
 - [x] **9 — A spine that varies.** Optional beats with `odds`, asides off the
       spine, and CONSEQUENCES welded on mid-run by what you actually did. 8–13
       missions; 115 of 120 runs a distinct shape.
-- [ ] **10 — People, not fixtures.** Story wardens are somebody: a defector, a
-      survivor, a creditor, with lines built out of the world rather than the
-      generic warden grammar. The rival turns up as a hostile you have met.
+- [x] **10 — People, not fixtures.** Five kinds of person to meet — defector,
+      survivor, creditor, archivist, the aggrieved — each with their own face,
+      name and grammar, chosen by where you are and what you have done. The
+      codex records who you actually spoke to. A named hunt target wears their
+      own face.
 - [ ] **11 — The faction in the level.** Whose floor you are on, visible in the
       architecture: their colour on the neon, their mark on the walls.
 

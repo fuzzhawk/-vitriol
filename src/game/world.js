@@ -203,10 +203,21 @@ window.WORLD = (function () {
     const wardenCount = Math.max(0, Math.min(4,
       opts.wardens === undefined ? (rng.chance(0.65) ? 1 : 0) : opts.wardens));
     const wardenRigs = [];
+    /* In a story run these are PEOPLE — a defector out of the garrison
+       upstairs, a survivor of a floor you have already walked — and the
+       run has already decided who. Their face comes from the same
+       builder the dossier's does, so the figure in the alcove looks
+       like an entry in the codex rather than like a warden. */
+    const wardenPeople = (opts.story && opts.beat && opts.story.wardensFor)
+      ? opts.story.wardensFor(opts.beat, wardenCount) : [];
     for (let v = 0; v < wardenCount; v++) {
-      yield { phase: 'rigs', weight: 0.05, msg: 'someone is already standing here' };
-      wardenRigs.push(new window.SPRITE.Rig(
-        window.CONFIG.wardenParams((cfg.seed + v * 0x5bd1) >>> 0, cfg)));
+      const who = wardenPeople[v] || null;
+      yield { phase: 'rigs', weight: 0.05,
+              msg: who ? who.name + ' is already standing here'
+                       : 'someone is already standing here' };
+      wardenRigs.push(new window.SPRITE.Rig(who && who.face
+        ? who.face
+        : window.CONFIG.wardenParams((cfg.seed + v * 0x5bd1) >>> 0, cfg)));
     }
 
     /* ---- 6. the boss ---- */
@@ -216,13 +227,15 @@ window.WORLD = (function () {
 
     yield { phase: 'deploy', msg: 'deploying hostiles', weight: 0.02 };
     const M = new Mission(L, cfg, playerRig, rigs, mix, diff, opts, rng, scrap,
-                          overlordRig, proto, protoRig, allyRigs, allyCount, wardenRigs);
+                          overlordRig, proto, protoRig, allyRigs, allyCount, wardenRigs,
+                          wardenPeople);
     return M;
   }
 
   /* ---------------- mission ---------------- */
   function Mission(L, cfg, playerRig, rigs, mix, diff, opts, rng, scrap,
-                   overlordRig, proto, protoRig, allyRigs, allyCount, wardenRigs) {
+                   overlordRig, proto, protoRig, allyRigs, allyCount, wardenRigs,
+                   wardenPeople) {
     this.L = L; this.cfg = cfg; this.diff = diff; this.opts = opts;
     this.world = new window.PHYSICS.World(L.plats);
     this.rigs = rigs;
@@ -305,6 +318,7 @@ window.WORLD = (function () {
     /* --- wardens and the box they talk through --- */
     this.wardens = [];
     this.wardenRigs = wardenRigs || [];
+    this.wardenPeople = wardenPeople || [];
     this.dialog = new window.DIALOG.Dialog();
     this.talkPrompt = null;
     this.talker = null;         // whose box is currently up
@@ -603,9 +617,16 @@ window.WORLD = (function () {
          with have been leaving lying about. Without an ally it is the
          whole roster, as it always was. */
       const gift = window.CONFIG.wardenGift(rng, this.sector || 1, this.opts.giftPool);
-      const lines = window.DIALOG.lines(rng, gift, false);
+      /* And in a story run they are somebody, so what they say comes
+         out of who they are and where you have been rather than out of
+         the same bag of portents. */
+      const who = this.wardenPeople[i] || null;
+      const lines = who
+        ? window.DIALOG.storyLines(rng, who.role, who.ctx, gift, false)
+        : window.DIALOG.lines(rng, gift, false);
       const W = new E.Warden(rig, best.x, best.y, gift, lines,
                              (this.cfg.seed + i * 7717) >>> 0);
+      W.who = who;
       W.face = -1;
       this.wardens.push(W);
     }
@@ -648,14 +669,21 @@ window.WORLD = (function () {
   Mission.prototype.talk = function (W) {
     const first = !W.spent;
     if (first) this.giveGift(W.gift, W);
+    /* Met, not merely seen. The codex is a record of conversations. */
+    if (first && this.story && W.who && this.story.meet) this.story.meet(W.who);
     W.spent = true;
     W.seen++;
     W.cooldown = 1.0;
+    const again = GW.makeRng((this.cfg.seed ^ (W.seen * 977)) >>> 0);
     const lines = first ? W.lines
-      : window.DIALOG.lines(GW.makeRng((this.cfg.seed ^ (W.seen * 977)) >>> 0), W.gift, true);
+      : W.who ? window.DIALOG.storyLines(again, W.who.role, W.who.ctx, W.gift, true)
+              : window.DIALOG.lines(again, W.gift, true);
     this.talker = W;
     this.dialog.say(lines, {
-      speaker: 'WARDEN',
+      /* Somebody's name, when there is somebody. A figure you have a
+         name for is a person you met; one labelled WARDEN is a vending
+         machine with a lantern. */
+      speaker: W.who ? W.who.name + ' · ' + W.who.label : 'WARDEN',
       tint: W.rig.params.colVisor,
       portrait: W.rig,
       onClose: () => { this.talker = null; }
@@ -760,6 +788,23 @@ window.WORLD = (function () {
         pick.maxHp = Math.round(pick.maxHp * 2.6);
         pick.hp = pick.maxHp;
         pick.targetName = this.opts.targetName || 'THE TARGET';
+        /* A named target wears their own face. The rival you have been
+           trading lines with all run turning out to be one more grunt
+           with a bigger health bar is the moment the story layer stops
+           being believed — so when the run says who this is, the body
+           is built from that person's own rig. It keeps the archetype
+           it was promoted out of, because what changes is who it is,
+           not what it does. */
+        if (this.opts.targetFace && !pick.boss) {
+          try {
+            const face = Object.assign({}, this.opts.targetFace,
+                                       { aimRows: 5, runFrames: 8 });
+            const rig = new window.SPRITE.Rig(face);
+            pick.rig = rig;
+            pick.w = rig.w; pick.h = rig.h;
+            pick.weapon = window.WEAPONS.table[rig.gun] || pick.weapon;
+          } catch (e) { /* a face that will not forge is not worth a crash */ }
+        }
         this.obj.target = pick;
       } else this.obj.done = true;
 

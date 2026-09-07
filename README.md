@@ -491,6 +491,24 @@ with a pool of openings and a pool of closes, and the speaker's voice register
 shapes what comes out of it. Over forty runs that is 745 distinct lines from a
 thousand staged shots.
 
+### The people in the alcoves
+
+A warden in a rolled level is a figure who has been standing in the dark for a
+century and is nobody in particular. In a story run the figure is **somebody**,
+and which somebody depends on where you are and what you have done: a defector
+out of the garrison upstairs, a survivor of a floor you have already walked, a
+creditor sent by people you did a favour for, an archivist who has been
+cataloguing the artifact since before it had a name, an aggrieved party from a
+faction you have cost. Each has a face built the way the dossier's faces are, a
+name, and a grammar of their own with slots in it, so what they say is about
+this world and this run rather than about the dark. The creditor only turns up
+for somebody with friends and the aggrieved only for somebody with enemies.
+
+The codex records who you actually stopped and talked to — a person you walked
+past is not somebody you know. And a named hunt target wears their own face: the
+rival you have been trading lines with all run turning out to be one more grunt
+with a bigger health bar is the moment the story layer stops being believed.
+
 ### Reputation, cashed out
 
 A number that only ever appears on a debrief screen is not a system. Standing

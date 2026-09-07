@@ -3768,6 +3768,129 @@ section('the story screens');
     }
   }
 
+  /* --- the people you meet on the way ---
+     A warden in a rolled level is a figure. In a story run it is
+     somebody, and who it is depends on where you are and what you have
+     done. */
+  {
+    const D = window.DIALOG;
+    ok(D.ROLE_KEYS.length >= 4, 'there are kinds of person to meet');
+    for (const k of D.ROLE_KEYS) {
+      const R = D.ROLES[k];
+      ok(typeof R.label === 'string' && R.label.length > 2, k + ' has a label');
+      ok(R.open.length >= 4 && R.turn.length >= 4, k + ' has things to say');
+      /* every clause has to be about this world rather than about the
+         dark, which is the whole difference from the warden pool */
+      const slotted = R.open.filter(t => /%[FPXY]/.test(t)).length;
+      ok(slotted >= 2, k + ' says something about where you are (' + slotted + ')');
+      for (const t of R.open.concat(R.turn)) {
+        ok(t === t.toUpperCase(), k + ' speaks in the register of the game');
+        ok(t.length > 18, 'and says something worth reading');
+      }
+    }
+    /* the slots get filled */
+    {
+      const ctx = { faction: 'THE LEDGER', place: 'THE ASH FORGE',
+                    artifact: 'THE BURNT INSTRUMENT', you: 'ORREL CHASM' };
+      const seen = new Set();
+      for (const k of D.ROLE_KEYS) {
+        for (let i = 0; i < 40; i++) {
+          const L = D.storyLines(GW.makeRng((i * 7919) >>> 0), k, ctx,
+                                 { line: 'TAKE IT.' }, false);
+          ok(L.length === 3, k + ' says three pages');
+          for (const page of L) {
+            ok(page.indexOf('%') < 0, 'with nothing unfilled: ' + JSON.stringify(page));
+          }
+          seen.add(L[0]);
+        }
+        const spent = D.storyLines(GW.makeRng(1), k, ctx, null, true);
+        ok(spent.length === 3, k + ' still says something once it is empty-handed');
+        ok(spent.join(' ').indexOf('%') < 0, 'and fills that too');
+      }
+      ok(seen.size > D.ROLE_KEYS.length * 3,
+         'and does not say the same thing every time (' + seen.size + ')');
+      /* an unknown role must not throw — it falls back to somebody */
+      const fb = D.storyLines(GW.makeRng(2), 'not-a-role', ctx, null, false);
+      ok(fb.length === 3, 'an unknown role still says something');
+    }
+
+    /* who the run puts in front of you */
+    {
+      const roles = new Set();
+      let anyCreditor = false, anyGrudge = false, anySurvivor = false;
+      for (let i = 0; i < 40; i++) {
+        const W = LR.makeWorld((0x11A5 + i * 40503) >>> 0);
+        const S = ST.makeStory(W);
+        let g = 0;
+        while (!S.done && S.current() && g++ < 90) {
+          const b = S.current();
+          if (b.type === 'mission') {
+            const who = S.wardensFor(b, 2);
+            ok(who.length === 2, 'a mission knows who is standing in it');
+            /* asked twice, answered the same: the mission bakes their
+               faces from one call and reads their lines from another */
+            const again = S.wardensFor(b, 2);
+            ok(again === who || JSON.stringify(again) === JSON.stringify(who),
+               'and does not reinvent them on the second look');
+            for (const p of who) {
+              ok(!!D.ROLES[p.role], 'each is a kind of person that exists');
+              ok(!!p.name && p.name.indexOf('%') < 0, 'with a name');
+              ok(!!p.face && p.face.height > 20, 'and a face to put on the rig');
+              ok(p.face.aimRows === 3, 'built to stand with the gun down');
+              ok(!!p.ctx.faction && !!p.ctx.place && !!p.ctx.artifact,
+                 'and enough context to say something');
+              roles.add(p.role);
+              if (p.role === 'creditor') anyCreditor = true;
+              if (p.role === 'grudge') anyGrudge = true;
+              if (p.role === 'survivor') anySurvivor = true;
+            }
+            /* nobody they could be is somebody who is not in this world */
+            for (const p of who) {
+              if (p.faction === null) continue;
+              ok(!!W.facById(p.faction), 'and belongs to a faction that exists');
+            }
+            ok(S.wardensFor(b, 0).length === 0, 'and a level with no alcoves has nobody in it');
+            S.finishMission({ won: true, score: 200, kills: 5, total: 5,
+                              time: 40, deaths: i % 3 });
+          } else if (b.type === 'choice') {
+            const o = S.choiceAt(b).options;
+            S.choose(o[i % o.length].id);
+          } else S.seen();
+        }
+      }
+      ok(roles.size >= 4, 'the run puts different kinds of person in front of you (' +
+         Array.from(roles).join(', ') + ')');
+      ok(anySurvivor, 'including somebody who was where you have been');
+      ok(anyCreditor, 'somebody sent by people who owe you');
+      ok(anyGrudge, 'and somebody from people you have cost');
+      /* a scene beat has nobody standing in it */
+      const W2 = LR.makeWorld(0x1234);
+      const S2 = ST.makeStory(W2);
+      ok(S2.wardensFor(S2.beats.find(b => b.type === 'scene'), 2).length === 0,
+         'and a scene has no alcove to stand in');
+    }
+
+    /* met, not merely seen */
+    {
+      const W = LR.makeWorld(0x9A11);
+      const S = ST.makeStory(W);
+      ok(S.people.length === 0, 'you start knowing nobody');
+      const b = S.beats.find(x => x.type === 'mission');
+      const who = S.wardensFor(b, 2);
+      ok(S.people.length === 0, 'and merely walking past does not count');
+      ok(S.meet(who[0]), 'talking to somebody does');
+      ok(!S.meet(who[0]), 'and only once');
+      ok(S.meet(who[1]), 'and the other one is another person');
+      ok(S.people.length === 2, 'so you know two people (' + S.people.length + ')');
+      ok(!S.meet(null) && !S.meet({}), 'and nobody is not somebody');
+      const cx = UI.codex(S);
+      const rows = cx.sections.find(x => x.h === 'PEOPLE').rows;
+      ok(rows.some(r => r.k === who[0].name), 'and the codex remembers them');
+      ok(rows.some(r => String(r.note).indexOf('MET IN THE FIELD') >= 0),
+         'and says how you know them');
+    }
+  }
+
   /* --- the codex only lists what you have met --- */
   {
     const W = LR.makeWorld(0xC0DE);

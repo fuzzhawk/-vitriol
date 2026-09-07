@@ -585,6 +585,10 @@ window.STORY = (function () {
         seconds: beat.seconds,
         charges: beat.charges,
         targetName: beat.target ? W.charById(beat.target).name : null,
+        /* and the face to put on them, so a hunt for somebody you have
+           met is a hunt for somebody you recognise */
+        targetFace: beat.target && W.charById(beat.target)
+                  ? W.charById(beat.target).face : null,
         bossTarget: !!beat.boss,
         carry: story.carry || null,
         /* the garrison is this faction's, and looks like it */
@@ -674,6 +678,124 @@ window.STORY = (function () {
       const scale = by > 0 ? story.mods().rep : 1;
       story.rep[facId] = clamp(story.rep[facId] + by * scale, -6, 6);
       W.factions[facId].rep = story.rep[facId];
+    };
+
+    /* ------------------------------------------------------------
+       WHO IS STANDING IN THE ALCOVE.
+
+       A warden in a rolled level is a figure who has been there a
+       century and is nobody in particular. In a story run the figure
+       is somebody, and which somebody depends on where you are and
+       what you have done: a defector out of the garrison upstairs, a
+       survivor of a floor you have already walked, a creditor sent by
+       people you did a favour for, an aggrieved party from a faction
+       you have cost.
+
+       Returns one descriptor per warden the mission should place. The
+       mission layer bakes their face and hands their lines to the
+       dialog box; nothing here knows how either of those works.
+       ------------------------------------------------------------ */
+    const WARDEN_CACHE = {};
+    /* Everyone you have actually spoken to, in the order you met them.
+       The codex reads this: a person you walked past is not somebody
+       you know. */
+    story.people = [];
+    story.meet = function (who) {
+      if (!who || !who.name) return false;
+      if (story.people.some(p => p.name === who.name)) return false;
+      story.people.push({ name: who.name, role: who.role, label: who.label,
+                          faction: who.faction, factionName: who.factionName,
+                          at: story.at });
+      return true;
+    };
+
+    story.wardensFor = function (beat, n) {
+      const b = beat || story.current();
+      if (!b || b.type !== 'mission') return [];
+      const want = Math.max(0, n === undefined ? 2 : n);
+      if (!want) return [];
+      const key = b.i + ':' + want;
+      if (WARDEN_CACHE[key]) return WARDEN_CACHE[key];
+
+      const foe = W.facById(b.foe);
+      const place = W.placeById(b.place);
+      const R2 = GW.makeRng((W.seed ^ (b.i * 0x9e3779b1) ^ 0xa1de) >>> 0);
+
+      /* Who is plausibly here. Weighted, because the interesting ones
+         should be the ones the run has earned: a creditor only turns
+         up for somebody with friends, and the aggrieved only for
+         somebody with enemies. */
+      const walked = [];
+      for (const e of story.log) {
+        if (e.kind !== 'mission' || e.place === undefined) continue;
+        if (e.place !== b.place) walked.push(e.place);
+      }
+      let bestFriend = -1, worstEnemy = -1;
+      for (let i = 0; i < story.rep.length; i++) {
+        if (story.rep[i] >= 3 && (bestFriend < 0 || story.rep[i] > story.rep[bestFriend])) bestFriend = i;
+        if (story.rep[i] <= -3 && (worstEnemy < 0 || story.rep[i] < story.rep[worstEnemy])) worstEnemy = i;
+      }
+
+      const pool = [];
+      pool.push({ role: 'defector', w: 2.2, faction: foe.id,
+                  ctx: { faction: foe.name } });
+      pool.push({ role: 'archivist', w: 1.4, faction: null,
+                  ctx: { artifact: W.artifact.name } });
+      if (walked.length) {
+        const pid = walked[R2.int(0, walked.length - 1)];
+        pool.push({ role: 'survivor', w: 2.0, faction: null,
+                    ctx: { place: W.placeById(pid).name } });
+      } else {
+        pool.push({ role: 'survivor', w: 1.2, faction: null,
+                    ctx: { place: place.name } });
+      }
+      if (bestFriend >= 0) {
+        pool.push({ role: 'creditor', w: 2.6, faction: bestFriend,
+                    ctx: { faction: W.facById(bestFriend).name } });
+      }
+      if (worstEnemy >= 0) {
+        pool.push({ role: 'grudge', w: 2.2, faction: worstEnemy,
+                    ctx: { faction: W.facById(worstEnemy).name, place: place.name } });
+      }
+
+      const out = [];
+      const used = {};
+      for (let i = 0; i < want && pool.length; i++) {
+        let tot = 0;
+        for (const p of pool) tot += used[p.role] ? p.w * 0.15 : p.w;
+        let t = R2.rnd() * tot, choice = pool[pool.length - 1];
+        for (const p of pool) {
+          t -= used[p.role] ? p.w * 0.15 : p.w;
+          if (t <= 0) { choice = p; break; }
+        }
+        used[choice.role] = true;
+        const fac = choice.faction === null || choice.faction === undefined
+                  ? null : W.facById(choice.faction);
+        /* A body of their own, built the way any other character in
+           this world is, so the person you talk to has a face in the
+           same style as the one in the dossier. */
+        const person = window.LORE.makeCharacter(R2, {
+          id: 'warden' + b.i + '_' + i, role: choice.role,
+          faction: fac, deal: null,
+          name: LR.personName(R2),
+          voice: choice.role === 'archivist' ? 'cryptic'
+               : choice.role === 'creditor' ? 'venal'
+               : choice.role === 'grudge' ? 'feral' : 'weary'
+        });
+        out.push({
+          role: choice.role,
+          label: window.DIALOG.ROLES[choice.role].label,
+          name: person.name,
+          face: person.face,
+          faction: fac ? fac.id : null,
+          factionName: fac ? fac.name : null,
+          ctx: Object.assign({ faction: foe.name, place: place.name,
+                               artifact: W.artifact.name, you: W.you.name },
+                             choice.ctx)
+        });
+      }
+      WARDEN_CACHE[key] = out;
+      return out;
     };
 
     /* ------------------------------------------------------------
@@ -844,6 +966,7 @@ window.STORY = (function () {
         traits: story.traits.slice(),
         flags: Object.keys(story.flags),
         rep: story.rep.slice(),
+        people: story.people.length,
         done: story.done, won: story.won
       };
     };

@@ -227,17 +227,27 @@ window.STORYUI = (function () {
     }
 
     const sections = [];
-    sections.push({
-      h: 'PEOPLE',
-      rows: W.cast.filter(c => met.has(c.id) || c.role === 'leader' && knownFac(c))
-        .map(c => ({
-          k: nameOf(c),
-          v: c.faction === null || c.faction === undefined ? 'UNALIGNED'
-             : W.facById(c.faction).name,
-          note: cap(c.want),
-          hue: c.faction === null || c.faction === undefined ? null : W.facById(c.faction).hue
-        }))
-    });
+    const people = W.cast.filter(c => met.has(c.id) || c.role === 'leader' && knownFac(c))
+      .map(c => ({
+        k: nameOf(c),
+        v: c.faction === null || c.faction === undefined ? 'UNALIGNED'
+           : W.facById(c.faction).name,
+        note: cap(c.want),
+        hue: c.faction === null || c.faction === undefined ? null : W.facById(c.faction).hue
+      }));
+    /* And everyone you actually stopped and talked to on the way. They
+       are not cast — they are people who happened to be standing there
+       — but a codex that lists the five principals and none of the
+       eleven strangers who told you something is a cast list. */
+    for (const p of (story.people || [])) {
+      people.push({
+        k: p.name, v: p.label,
+        note: p.factionName ? 'MET IN THE FIELD · ' + p.factionName : 'MET IN THE FIELD',
+        hue: p.faction === null || p.faction === undefined
+             ? null : W.facById(p.faction).hue
+      });
+    }
+    sections.push({ h: 'PEOPLE', rows: people });
     sections.push({
       h: 'GROUND WALKED',
       rows: W.places.filter(p => visited.has(p.id)).map(p => ({

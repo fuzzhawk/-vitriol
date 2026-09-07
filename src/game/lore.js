@@ -349,6 +349,10 @@ window.LORE = (function () {
      which — when the surname list is thirty long and the draw is
      independent — is exactly what it is. */
   function personName(R, usedFull, usedSur) {
+    /* Callers outside the world build — the story layer naming a
+       warden it met on the way past — have no register of names to
+       keep distinct from, and should not have to invent one. */
+    usedFull = usedFull || new Set();
     for (let t = 0; t < 80; t++) {
       const g = R.pick(GIVEN), sur = R.pick(SURNAME);
       const n = g + ' ' + sur;
@@ -680,7 +684,7 @@ window.LORE = (function () {
   }
 
   return {
-    makeWorld, describe, makeCharacter, faceFor,
+    makeWorld, describe, makeCharacter, faceFor, personName,
     DOCTRINES, DOCTRINE_KEYS, VOICES, VOICE_KEYS,
     SECRETS, FAC_SECRETS, ART_KIND, HISTORY,
     WANTS, WOUNDS, FLAWS, PLACE_NOUN, RELATION_WORD
