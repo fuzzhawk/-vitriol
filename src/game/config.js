@@ -586,7 +586,7 @@ window.CONFIG = (function () {
   /* Roll what one warden is holding. Weapons are commoner than
      power-ups early and rarer later, because by sector six a gun is a
      sidegrade and a permanent multiplier is not. */
-  function wardenGift(rng, sector) {
+  function wardenGift(rng, sector, giftPool) {
     const n = sector || 1;
     const wantPower = rng.rnd() < GW.clamp(0.35 + n * 0.06, 0.3, 0.75);
     if (wantPower) {
@@ -595,8 +595,12 @@ window.CONFIG = (function () {
       return { kind: 'power', power: k, label: P.label, line: P.line, col: P.col };
     }
     /* Never the pistol: being handed your own sidearm by a figure who
-       has been standing in the dark for a century is a bathos. */
-    const pool = window.WEAPONS.ORDER.filter(k => k !== 'pistol');
+       has been standing in the dark for a century is a bathos. A
+       caller with friends in this sector may narrow the pool to what
+       those friends make. */
+    const supplied = (giftPool || []).filter(k => k !== 'pistol' && window.WEAPONS.table[k]);
+    const pool = supplied.length ? supplied
+                                 : window.WEAPONS.ORDER.filter(k => k !== 'pistol');
     const k = rng.pick(pool);
     const def = window.WEAPONS.table[k];
     return { kind: 'weapon', weapon: k, label: def.label,

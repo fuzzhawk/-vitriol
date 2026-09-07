@@ -329,6 +329,7 @@ window.ENTITIES = (function () {
     this.cloak = 1;         // stalker: 1 solid, low is nearly gone
     this.auraT = 0;         // zealot: time to the next pulse
     this.auraPulse = 0;     // ...and the visible ring from the last one
+    this.holdT = 0;         // reputation: how long before it decides about you
   }
   Enemy.prototype = Object.create(Actor.prototype);
   Enemy.prototype.constructor = Enemy;
@@ -342,9 +343,14 @@ window.ENTITIES = (function () {
     const sees = dist < range && !player.dead &&
       world.canSee(this.x, this.y - this.h * 0.6, player.x, player.y - player.h * 0.6);
 
-    if (sees && !this.alerted) { this.alerted = true; this.state = 'engage'; }
+    /* A body that has not made its mind up about you yet. Set by the
+       mission out of your standing with the people who hold the place:
+       it walks its patrol and looks straight through you until the
+       clock runs out or somebody shoots. */
+    const holding = this.holdT > 0 && !this.alerted;
+    if (sees && !holding && !this.alerted) { this.alerted = true; this.state = 'engage'; }
     if (this.alerted && dist > range * 1.6) this.state = 'patrol';
-    else if (sees) this.state = 'engage';
+    else if (sees && !holding) this.state = 'engage';
 
     /* A lit sapper is no longer an enemy that shoots at you: it is a
        countdown with legs, and nothing else it might have done

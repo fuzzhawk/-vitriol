@@ -316,6 +316,42 @@ section('flights (each in its own process)');
         .map(k => k + '×' + g.mix[k]).join(',')).join('  '));
   }
 
+  /* --- reputation, on the ground --- */
+  {
+    const F = flight('reputation');
+    const R = F.reputation;
+    ok(R.arsenal.join(',') === R.wanted.join(','),
+       'a garrison carries the arsenal its doctrine says it does');
+    ok(R.armed > 2, 'and its troops are armed (' + R.armed + ')');
+    ok(R.grace0 === 0, 'a run with no standing gets no grace');
+    ok(R.giftsAtStart === 0, 'and nothing left out for it');
+    ok(R.drops > 20, 'a garrison drops weapons (' + R.drops + ')');
+    ok(R.badDrops === 0, 'and never one that does not exist');
+    ok(R.ownDrops > R.drops * 0.4,
+       'and often its own (' + R.ownDrops + '/' + R.drops + ')');
+    ok(R.tribute.weapon === 1, 'a tribute puts the weapon on the floor');
+    ok(R.tribute.health === 1 && R.tribute.ammo === 1,
+       'with something to drink and something to load');
+    ok(R.tribute.downrange, 'downrange, so it has to be walked to');
+    ok(R.tribute.remembered, 'and the mission remembers where it put it');
+    ok(R.graceAfter1s > 3 && R.graceAfter1s < 5,
+       'grace runs down in real time (' + R.graceAfter1s + ')');
+    ok(R.heldDuring > 0, 'with the room still deciding about you (' + R.heldDuring + ')');
+    ok(R.graceAfter7s === 0, 'and it does not last');
+    ok(R.heldAfter < R.heldDuring, 'after which the room notices (' +
+       R.heldAfter + ' still holding, was ' + R.heldDuring + ')');
+    /* And it is still a level you can get through. A rate rather than
+       a win, because the pilot is stochastic and this particular room
+       — four stalkers and three snipers — is the hardest garrison the
+       doctrine table can field; one unlucky afternoon in it is not a
+       regression. */
+    ok(R.state === 'won' || R.progress > 0.6,
+       'and it is still a level you can fight through (' + R.state +
+       ' @' + (R.progress * 100).toFixed(0) + '%)');
+    console.log('    ' + R.arsenal.join('/') + ' | ' + R.ownDrops + '/' + R.drops +
+                ' own drops | grace held ' + R.heldDuring + ' → ' + R.heldAfter);
+  }
+
   /* --- a story, played --- */
   {
     const F = flight('story');
@@ -974,6 +1010,63 @@ for (const k of window.WEAPONS.ORDER) {
   ok(!!d.tone, k + ' has a sound spec');
   const w = window.WEAPONS.make(k);
   ok(w.ammo === d.mag, k + ' starts loaded');
+  /* Every weapon has to be drawable. A gun the forge has never heard
+     of silently falls back to the rifle silhouette, which is how a
+     roster of twenty turns into a roster of nineteen and one liar. */
+  ok(!!window.MERCFORGE.gunSpec, 'the forge can spec a gun');
+}
+{
+  /* --- the arsenals --- */
+  const WP = window.WEAPONS;
+  ok(WP.ORDER.length === 20, 'twenty weapons (' + WP.ORDER.length + ')');
+  ok(WP.ORDER.length === Object.keys(WP.table).length,
+     'and the order lists all of them');
+  const arsenalGuns = new Set();
+  for (const d in WP.ARSENALS) {
+    const A = WP.ARSENALS[d];
+    ok(A.length >= 3, 'doctrine "' + d + '" has an arsenal (' + A.length + ')');
+    ok(new Set(A).size === A.length, 'and lists nothing twice');
+    for (const g of A) {
+      ok(!!WP.table[g], 'arsenal "' + d + '" carries a real weapon (' + g + ')');
+      arsenalGuns.add(g);
+    }
+    ok(WP.arsenalOf(d).length === A.length, 'and arsenalOf agrees with it');
+    /* a copy, not the table itself: a caller that shuffles a faction's
+       arsenal must not reorder every faction's */
+    const c = WP.arsenalOf(d); c.push('junk');
+    ok(WP.ARSENALS[d].length === A.length, 'and hands back a copy');
+  }
+  ok(WP.arsenalOf('not-a-doctrine').length > 0, 'an unknown doctrine still gets guns');
+  /* the five new ones each belong to somebody, and each is somebody's
+     signature rather than a spare in three lists */
+  const NEW = ['censer', 'harrow', 'tithe', 'bloom', 'ratchet'];
+  for (const g of NEW) {
+    ok(!!WP.table[g], g + ' exists');
+    ok(!!WP.table[g].arsenal, g + ' says whose it is');
+    ok(!!WP.ARSENALS[WP.table[g].arsenal], 'and that doctrine exists');
+    ok(WP.ARSENALS[WP.table[g].arsenal].indexOf(g) >= 0, 'and carries it');
+    const owners = Object.keys(WP.ARSENALS).filter(d => WP.ARSENALS[d].indexOf(g) >= 0);
+    ok(owners.length <= 3, g + ' is not in everybody\'s hands (' + owners.length + ')');
+    /* each is built around one exotic rather than being a better rifle */
+    const d = WP.table[g];
+    const exotic = ['pierce', 'splash', 'burn', 'chain', 'fork', 'slow', 'vamp',
+                    'bounce', 'drop', 'count'].filter(k => d[k]);
+    ok(exotic.length > 0, g + ' is built around something (' + exotic.join(',') + ')');
+    ok(d.dmg <= WP.table.rail.dmg, g + ' is not simply the best gun');
+  }
+  /* and no two doctrines field the same four */
+  {
+    const sigs = new Set();
+    for (const d in WP.ARSENALS) sigs.add(WP.ARSENALS[d].slice().sort().join(','));
+    ok(sigs.size === Object.keys(WP.ARSENALS).length,
+       'no two doctrines carry the same arsenal');
+  }
+  /* the lore reads its guns out of here rather than repeating them */
+  for (const k of window.LORE.DOCTRINE_KEYS) {
+    const D = window.LORE.DOCTRINES[k];
+    ok(D.guns.join(',') === WP.arsenalOf(k).join(','),
+       'doctrine "' + k + '" carries the arsenal weapons.js says it does');
+  }
 }
 
 /* ---------------- physics ---------------- */
@@ -2985,6 +3078,132 @@ section('the run (story)');
     for (let k = 0; k < 40; k++) S.shiftRep(beat.foe, +3);
     ok(S.rep[beat.foe] <= 6, 'and a ceiling');
   }
+}
+
+section('reputation, cashed out');
+{
+  const LR = window.LORE, ST = window.STORY, WP = window.WEAPONS;
+
+  /* --- the shape of the effects --- */
+  {
+    const W = LR.makeWorld(0xBEEF);
+    const S = ST.makeStory(W);
+    const beat = S.beats.find(b => b.type === 'mission');
+    const foe = beat.foe;
+
+    const neutral = S.repEffects(foe);
+    ok(neutral.grace === 0 && neutral.bounty === 0,
+       'a run where you took no side plays as it always did');
+    ok(!neutral.tribute, 'and nobody leaves you anything');
+
+    /* friends buy time */
+    const grace = [];
+    for (let r = 0; r <= 6; r++) {
+      S.rep[foe] = r;
+      grace.push(S.repEffects(foe).grace);
+    }
+    ok(grace[0] === 0 && grace[1] === 0, 'being merely tolerated buys nothing');
+    ok(grace[6] > grace[3] && grace[3] > 0, 'and standing buys more of it');
+    ok(grace[6] <= 8, 'but never more than a few seconds (' + grace[6] + ')');
+    for (let i = 1; i < grace.length; i++) {
+      ok(grace[i] >= grace[i - 1], 'grace never goes backwards');
+    }
+
+    /* enemies send company */
+    const bounty = [];
+    for (let r = 0; r >= -6; r--) {
+      S.rep[foe] = r;
+      bounty.push(S.repEffects(foe).bounty);
+    }
+    ok(bounty[0] === 0 && bounty[1] === 0 && bounty[2] === 0,
+       'being disliked is not yet a bounty');
+    ok(bounty[6] > 0, 'being hated is (' + bounty[6] + ')');
+    ok(bounty[6] <= 4, 'and it is bounded');
+    for (let i = 1; i < bounty.length; i++) {
+      ok(bounty[i] >= bounty[i - 1], 'a bounty never shrinks as you get worse');
+    }
+    /* and the two never happen at once */
+    for (let r = -6; r <= 6; r++) {
+      S.rep[foe] = r;
+      const e = S.repEffects(foe);
+      ok(!(e.grace > 0 && e.bounty > 0), 'never in credit and hunted at once');
+    }
+    S.rep[foe] = 0;
+
+    /* tribute comes from a friend who is not the garrison */
+    {
+      const other = W.factions.find(f => f.id !== foe).id;
+      S.rep[other] = 2;
+      const mid = S.repEffects(foe);
+      ok(mid.ally === other, 'the friend is the one you are furthest in credit with');
+      ok(!!mid.giftPool && mid.giftPool.length > 0, 'and the wardens carry their guns');
+      ok(!mid.tribute, 'but a nodding acquaintance leaves no crate');
+      S.rep[other] = 6;
+      const high = S.repEffects(foe);
+      ok(!!high.tribute, 'a real friend does');
+      ok(high.tribute.from === other, 'and it is from them');
+      ok(!!WP.table[high.tribute.weapon], 'and it is a real weapon');
+      ok(W.facById(other).guns.indexOf(high.tribute.weapon) >= 0,
+         'out of their own arsenal');
+      /* the garrison is never the friend, however well you get on */
+      S.rep[foe] = 6;
+      const both = S.repEffects(foe);
+      ok(both.ally === other, 'the people shooting at you are not your friends');
+      S.rep[foe] = 0; S.rep[other] = 0;
+    }
+  }
+
+  /* --- and they reach the build --- */
+  {
+    const W = LR.makeWorld(0x5EED);
+    const S = ST.makeStory(W);
+    while (S.current() && S.current().type !== 'mission') {
+      if (S.current().type === 'choice') S.choose(S.choiceAt(S.current()).options[0].id);
+      else S.seen();
+    }
+    const beat = S.current();
+    const other = W.factions.find(f => f.id !== beat.foe).id;
+
+    S.rep = S.rep.map(() => 0);
+    const plain = S.build();
+    S.rep[beat.foe] = 5;
+    const liked = S.build();
+    S.rep[beat.foe] = -6; S.rep[other] = 6;
+    const hated = S.build();
+
+    ok(plain.opts.grace === 0, 'a neutral build asks for no grace');
+    ok(liked.opts.grace > 0, 'a build against friends does (' +
+       liked.opts.grace.toFixed(1) + 's)');
+    ok(hated.opts.enemyDens > plain.opts.enemyDens,
+       'and a build against people who hate you is busier (' +
+       hated.opts.enemyDens.toFixed(2) + ' vs ' + plain.opts.enemyDens.toFixed(2) + ')');
+    ok(!!hated.opts.tribute, 'with a crate from the friend you made instead');
+    ok(!!hated.opts.giftPool && hated.opts.giftPool.length > 0,
+       'and wardens handing out their guns');
+    ok(!!hated.opts.faction && hated.opts.faction.id === beat.foe,
+       'the garrison still belongs to whoever holds the place');
+    S.rep = S.rep.map(() => 0);
+  }
+
+  /* --- a warden narrowed to an ally's arsenal hands out their guns --- */
+  {
+    const pool = ['harrow', 'rail'];
+    const seen = new Set();
+    for (let i = 0; i < 200; i++) {
+      const g = window.CONFIG.wardenGift(GW.makeRng((i * 7919) >>> 0), 1, pool);
+      if (g.kind === 'weapon') seen.add(g.weapon);
+    }
+    ok(seen.size > 0, 'a narrowed warden still hands out weapons');
+    for (const k of seen) ok(pool.indexOf(k) >= 0, 'and only the ally\'s (' + k + ')');
+    const wide = new Set();
+    for (let i = 0; i < 300; i++) {
+      const g = window.CONFIG.wardenGift(GW.makeRng((i * 40503) >>> 0), 1);
+      if (g.kind === 'weapon') wide.add(g.weapon);
+    }
+    ok(wide.size > pool.length, 'an unnarrowed one still hands out anything');
+    ok(!wide.has('pistol'), 'and never your own sidearm');
+  }
+
 }
 
 section('the scenes (cutscenes)');

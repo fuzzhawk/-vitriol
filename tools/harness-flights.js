@@ -281,6 +281,80 @@ const SCENARIOS = {
     return { garrison: out };
   },
 
+  /* Reputation, on the ground. What a garrison carries, what it drops,
+     what a friend leaves out for you, and whether a room you are
+     square with really does take a moment to notice you. In its own
+     process because it needs a baked mission and the parent already
+     holds as many as it can. */
+  reputation() {
+    const WP = window.WEAPONS;
+    const fac = { id: 0, doctrine: 'quiet', hue: 210, name: 'THE QUIET' };
+    const cfg = window.CONFIG.randomLevelCfg(0x4A11);
+    cfg.levelLen = 3;
+    const M = bake(cfg, window.CONFIG.randomMerc(5), {
+      difficulty: 'recruit', enemyDens: 1.2, lives: 9, allies: 0,
+      autopilot: true, faction: fac
+    });
+
+    const out = {
+      arsenal: M.arsenal, wanted: WP.arsenalOf('quiet'),
+      grace0: M.grace,
+      /* nothing on the floor but the prototype on its pedestal */
+      giftsAtStart: M.pickups.filter(p => !p.shrine).length,
+      armed: M.enemies.filter(e => e.rig && e.rig.gun && WP.table[e.rig.gun]).length
+    };
+
+    /* what it drops */
+    {
+      const keep = M.pickups.slice();
+      let drops = 0, bad = 0, own = 0;
+      for (let i = 0; i < 500; i++) {
+        M.pickups.length = 0;
+        M.maybeDrop(M.enemies[i % M.enemies.length]);
+        for (const p of M.pickups) {
+          if (p.kind !== 'weapon') continue;
+          drops++;
+          if (!WP.table[p.payload]) bad++;
+          else if (M.arsenal.indexOf(p.payload) >= 0) own++;
+        }
+      }
+      out.drops = drops; out.badDrops = bad; out.ownDrops = own;
+      M.pickups.length = 0;
+      for (const p of keep) M.pickups.push(p);
+    }
+
+    /* what a friend leaves out */
+    {
+      const before = M.pickups.length;
+      M.placeTribute({ from: 1, weapon: 'censer', health: 40, ammo: true },
+                     window.GREEBLEWORKS.makeRng(0x1111));
+      const added = M.pickups.slice(before);
+      out.tribute = {
+        weapon: added.filter(p => p.kind === 'weapon' && p.payload === 'censer').length,
+        health: added.filter(p => p.kind === 'health').length,
+        ammo: added.filter(p => p.kind === 'ammo').length,
+        downrange: added.every(p => p.x > M.player.x),
+        remembered: !!M.tributeAt
+      };
+      M.pickups.length = before;
+    }
+
+    /* and whether grace holds the room */
+    {
+      M.grace = 5;
+      for (let k = 0; k < 60; k++) M.update(1 / 60, IDLE);
+      out.graceAfter1s = +M.grace.toFixed(2);
+      out.heldDuring = M.enemies.filter(e => !e.dead && !e.alerted).length;
+      for (let k = 0; k < 60 * 6; k++) M.update(1 / 60, IDLE);
+      out.graceAfter7s = +Math.max(0, M.grace).toFixed(2);
+      out.heldAfter = M.enemies.filter(e => !e.dead && !e.alerted).length;
+    }
+
+    /* it still has to be a level you can finish */
+    Object.assign(out, fly(M, 170));
+    return { reputation: out };
+  },
+
   /* A story, played. Only the first few missions — what is under test
      is that a beat becomes a level, the objective is enforced, and the
      loadout and traits carry across a beat boundary. */

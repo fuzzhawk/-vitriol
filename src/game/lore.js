@@ -81,70 +81,70 @@ window.LORE = (function () {
       creed: 'There is always another shift.',
       /* many, cheap, and they do not stop coming */
       mod: { count: 1.35, hp: 0.85, dmg: 0.9, speed: 1.0, corrupt: 0.9 },
-      guns: ['pistol', 'smg', 'nail'], kinds: ['city', 'interior'],
+      guns: window.WEAPONS.arsenalOf('attrition'), kinds: ['city', 'interior'],
       colour: [22, 46, 38], hostility: 0.5
     },
     purity: {
       label: 'PURITY',
       creed: 'What is wrong must be burned out of what is left.',
       mod: { count: 0.9, hp: 1.1, dmg: 1.25, speed: 1.0, corrupt: 0.15 },
-      guns: ['torch', 'rifle', 'flak'], kinds: ['interior', 'nature'],
+      guns: window.WEAPONS.arsenalOf('purity'), kinds: ['interior', 'nature'],
       colour: [40, 70, 58], hostility: 1.3
     },
     salvage: {
       label: 'SALVAGE',
       creed: 'Everything here was somebody else’s first.',
       mod: { count: 1.1, hp: 0.95, dmg: 1.0, speed: 1.1, corrupt: 1.1 },
-      guns: ['scatter', 'nail', 'mortar'], kinds: ['city', 'air'],
+      guns: window.WEAPONS.arsenalOf('salvage'), kinds: ['city', 'air'],
       colour: [34, 54, 46], hostility: 0.8
     },
     augury: {
       label: 'AUGURY',
       creed: 'The signal was here before the walls were.',
       mod: { count: 0.85, hp: 1.0, dmg: 1.1, speed: 0.95, corrupt: 1.8 },
-      guns: ['beam', 'pulse', 'coil'], kinds: ['interior', 'nature'],
+      guns: window.WEAPONS.arsenalOf('augury'), kinds: ['interior', 'nature'],
       colour: [188, 76, 56], hostility: 1.0
     },
     order: {
       label: 'ORDER',
       creed: 'A ledger with a name in it is a name that can be settled.',
       mod: { count: 1.0, hp: 1.2, dmg: 1.05, speed: 0.9, corrupt: 0.3 },
-      guns: ['rifle', 'rail', 'cannon'], kinds: ['city', 'interior'],
+      guns: window.WEAPONS.arsenalOf('order'), kinds: ['city', 'interior'],
       colour: [210, 30, 62], hostility: 0.9
     },
     rapture: {
       label: 'RAPTURE',
       creed: 'It is not a disease. It is an invitation.',
       mod: { count: 1.15, hp: 0.9, dmg: 1.15, speed: 1.15, corrupt: 2.2 },
-      guns: ['torch', 'swarm', 'reaper'], kinds: ['nature', 'interior'],
+      guns: window.WEAPONS.arsenalOf('rapture'), kinds: ['nature', 'interior'],
       colour: [318, 66, 52], hostility: 1.5
     },
     freight: {
       label: 'FREIGHT',
       creed: 'The cargo moves. That is the whole of the law.',
       mod: { count: 1.05, hp: 1.05, dmg: 0.95, speed: 1.05, corrupt: 0.5 },
-      guns: ['smg', 'flak', 'scatter'], kinds: ['air', 'city'],
+      guns: window.WEAPONS.arsenalOf('freight'), kinds: ['air', 'city'],
       colour: [30, 62, 50], hostility: 0.7
     },
     quiet: {
       label: 'THE QUIET',
       creed: 'Nothing needs to be said that a closed door does not say.',
       mod: { count: 0.75, hp: 1.15, dmg: 1.4, speed: 1.2, corrupt: 0.6 },
-      guns: ['rail', 'reaper', 'coil'], kinds: ['interior', 'air'],
+      guns: window.WEAPONS.arsenalOf('quiet'), kinds: ['interior', 'air'],
       colour: [258, 34, 44], hostility: 1.2
     },
     growth: {
       label: 'GROWTH',
       creed: 'It was a garden. It is only being one again.',
       mod: { count: 1.2, hp: 1.0, dmg: 1.0, speed: 1.05, corrupt: 1.6 },
-      guns: ['swarm', 'torch', 'pulse'], kinds: ['nature', 'city'],
+      guns: window.WEAPONS.arsenalOf('growth'), kinds: ['nature', 'city'],
       colour: [96, 52, 44], hostility: 1.1
     },
     ledger: {
       label: 'THE LEDGER',
       creed: 'Debt is the only thing here that has never been destroyed.',
       mod: { count: 0.95, hp: 1.1, dmg: 1.1, speed: 1.0, corrupt: 0.4 },
-      guns: ['cannon', 'mortar', 'rail'], kinds: ['city', 'interior'],
+      guns: window.WEAPONS.arsenalOf('ledger'), kinds: ['city', 'interior'],
       colour: [46, 58, 52], hostility: 1.0
     }
   };

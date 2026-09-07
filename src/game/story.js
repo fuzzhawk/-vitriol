@@ -421,8 +421,12 @@ window.STORY = (function () {
       const t = (beat.act - 1) / 2;
       const heat = clamp(-story.rep.reduce((a, b) => a + Math.min(0, b), 0) * 0.05, 0, 0.5);
       const mods = story.mods();
+      /* What your standing is worth here, before the curve — a bounty
+         is more bodies, so it belongs in the density rather than
+         beside it. */
+      const rep = story.repEffects(foe.id);
       const sc = {
-        dens: (0.85 + t * 0.85 + heat) * (foe.mod.count || 1),
+        dens: (0.85 + t * 0.85 + heat) * (foe.mod.count || 1) * (1 + rep.bounty * 0.16),
         hp: (1 + t * 0.7) * (foe.mod.hp || 1),
         dmg: (1 + t * 0.45) * (foe.mod.dmg || 1),
         fire: (1 + t * 0.4) * (foe.mod.speed || 1),
@@ -445,10 +449,15 @@ window.STORY = (function () {
         bossTarget: !!beat.boss,
         carry: story.carry || null,
         /* the garrison is this faction's, and looks like it */
-        faction: foe
+        faction: foe,
+        /* and what your standing with everyone is worth, here */
+        grace: rep.grace,
+        tribute: rep.tribute,
+        giftPool: rep.giftPool,
+        rep: rep
       });
       return {
-        seed: sd, cfg, opts, beat, place, foe,
+        seed: sd, cfg, opts, beat, place, foe, rep,
         title: story.title(beat),
         brief: story.brief(beat),
         crawler: C.crawlerParams(sd, cfg, 0),
@@ -526,6 +535,67 @@ window.STORY = (function () {
       const scale = by > 0 ? story.mods().rep : 1;
       story.rep[facId] = clamp(story.rep[facId] + by * scale, -6, 6);
       W.factions[facId].rep = story.rep[facId];
+    };
+
+    /* ------------------------------------------------------------
+       REPUTATION, CASHED OUT.
+
+       A number that only ever appears on a debrief screen is not a
+       system. This turns the standing you have with each faction into
+       three things you can feel in the next level:
+
+         GRACE    the garrison of a faction you are square with takes a
+                  moment to decide you are a problem. Seconds, not
+                  safety.
+         BOUNTY   a faction you have wronged sends extra, and sends the
+                  people it sends when it has stopped being polite.
+         TRIBUTE  a faction that owes you leaves something on your
+                  approach — out of their own arsenal, so what you get
+                  says who left it.
+
+       Read at build time, and only from the standings that exist, so
+       a run where you never took a side plays exactly as it does now.
+       ------------------------------------------------------------ */
+    story.repEffects = function (foeId) {
+      const rep = story.rep;
+      const foe = foeId === undefined || foeId === null ? -1 : foeId;
+      const standing = foe >= 0 ? rep[foe] : 0;
+      /* Friends: whoever you are furthest into credit with, and who is
+         not the people whose floor this is. */
+      let ally = -1, best = 1.5;
+      for (let i = 0; i < rep.length; i++) {
+        if (i === foe) continue;
+        if (rep[i] > best) { best = rep[i]; ally = i; }
+      }
+      const out = {
+        foe: foe, standing: standing,
+        ally: ally, allyRep: ally >= 0 ? rep[ally] : 0,
+        /* Being on good terms with the garrison is worth a head start;
+           being hated by them is worth nothing at all. */
+        grace: standing > 1 ? clamp((standing - 1) * 1.6, 0, 8) : 0,
+        /* And being hated is worth extra company. */
+        bounty: standing < -2 ? clamp(Math.round((-standing - 2) * 0.8), 0, 4) : 0,
+        tribute: null,
+        giftPool: null
+      };
+      if (ally >= 0) {
+        const A = W.facById(ally);
+        const guns = (A && A.guns && A.guns.length) ? A.guns
+                   : window.WEAPONS.arsenalOf(A ? A.doctrine : null);
+        out.giftPool = guns.slice();
+        /* Only a real friend leaves a crate. Two points of standing is
+           somebody who does not shoot at you; four is somebody who
+           puts something down where you will find it. */
+        if (out.allyRep >= 3.5) {
+          out.tribute = {
+            from: ally,
+            weapon: guns[Math.abs(Math.round(out.allyRep * 7)) % guns.length],
+            health: out.allyRep >= 5 ? 40 : 0,
+            ammo: true
+          };
+        }
+      }
+      return out;
     };
 
     /* Answer a choice. Sets its flag, moves reputation, grants the

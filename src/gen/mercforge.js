@@ -67,7 +67,15 @@ const GUN_SHAPES={
   mortar: {len:9, h:3.4,grip:3.2,mag:false,scope:false,drum:false,tube:true},
   coil:   {len:14,h:1.8,grip:3.0,mag:true, scope:false,drum:false,coil:true},
   swarm:  {len:9, h:2.4,grip:3.0,mag:false,scope:false,drum:false,hopper:true,bulb:true},
-  reaper: {len:13,h:2.4,grip:3.1,mag:true, scope:true, drum:false,blade:true}
+  reaper: {len:13,h:2.4,grip:3.1,mag:true, scope:true, drum:false,blade:true},
+  /* The arsenals. A faction's own gun has to be recognisable in a
+     silhouette across a room, so each of these takes a combination of
+     parts none of the fifteen above uses. */
+  censer: {len:9, h:3.0,grip:3.1,mag:false,scope:false,drum:true, tank:true,nozzle:true},
+  harrow: {len:15,h:1.6,grip:3.0,mag:true, scope:true, drum:false,tube:true},
+  tithe:  {len:11,h:2.0,grip:3.0,mag:true, scope:false,drum:false,coil:true,bulb:true},
+  bloom:  {len:10,h:2.8,grip:3.1,mag:false,scope:false,drum:true, hopper:true,nozzle:true},
+  ratchet:{len:10,h:2.2,grip:2.9,mag:true, scope:false,drum:false,vent:true,twin:true}
 };
 const GUN_KINDS=Object.keys(GUN_SHAPES);
 

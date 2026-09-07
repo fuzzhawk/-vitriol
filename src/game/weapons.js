@@ -96,12 +96,78 @@ window.WEAPONS = (function () {
       mag: 8, reload: 1.7, kick: 1.5, shake: 1.4, size: 3, life: 1.5,
       pierce: 2, vamp: 0.18,
       tone: { f: 400, drop: 0.45, len: 0.22, noise: 0.55, type: 'sawtooth' }
+    },
+
+    /* --- the arsenals ------------------------------------------
+       Five weapons that belong to somebody. Each is built around the
+       exotic its doctrine would build a gun around, so picking one up
+       off a body tells you whose floor you are on before the briefing
+       does — and so that a faction you have made an enemy of is a
+       faction whose guns you now have a lot of.
+
+       Balanced the same way the rest of the table is: every one of
+       them is better than the sidearm at exactly one thing and worse
+       at the others. There is no upgrade here, only a choice. */
+    censer: {
+      label: 'CENSER', rate: 0.46, speed: 4.6, dmg: 3, spread: 0.10,
+      count: 3, mag: 9, reload: 1.7, kick: 1.6, shake: 1.5, size: 3, life: 0.9,
+      pierce: 0, burn: 4, drop: 0.05,
+      arsenal: 'purity',
+      tone: { f: 260, drop: 0.38, len: 0.24, noise: 0.95, type: 'sawtooth' }
+    },
+    harrow: {
+      label: 'HARROW', rate: 0.72, speed: 13.0, dmg: 11, spread: 0.006,
+      mag: 5, reload: 1.85, kick: 1.1, shake: 0.8, size: 2, life: 1.9,
+      pierce: 2, vamp: 0.10,
+      arsenal: 'quiet',
+      tone: { f: 210, drop: 0.62, len: 0.10, noise: 0.30, type: 'sine' }
+    },
+    tithe: {
+      label: 'TITHE COLLECTOR', rate: 0.26, speed: 8.6, dmg: 2.6, spread: 0.03,
+      mag: 18, reload: 1.45, kick: 0.8, shake: 0.8, size: 2, life: 1.2,
+      pierce: 0, chain: 2, vamp: 0.14,
+      arsenal: 'ledger',
+      tone: { f: 880, drop: 0.5, len: 0.12, noise: 0.4, type: 'square' }
+    },
+    bloom: {
+      label: 'BLOOM SEEDER', rate: 0.58, speed: 5.0, dmg: 3.4, spread: 0.06,
+      mag: 7, reload: 1.6, kick: 1.4, shake: 1.3, size: 3, life: 1.5,
+      pierce: 0, fork: 3, slow: 0.4,
+      arsenal: 'growth',
+      tone: { f: 340, drop: 0.42, len: 0.20, noise: 0.75, type: 'sine' }
+    },
+    ratchet: {
+      label: 'RATCHET GUN', rate: 0.13, speed: 6.0, dmg: 1.6, spread: 0.085,
+      mag: 32, reload: 1.10, kick: 0.6, shake: 0.6, size: 2, life: 1.6,
+      pierce: 0, bounce: 3,
+      arsenal: 'salvage',
+      tone: { f: 540, drop: 0.5, len: 0.07, noise: 0.85, type: 'square' }
     }
   };
 
   const ORDER = ['pistol', 'smg', 'rifle', 'cannon', 'beam',
                  'scatter', 'flak', 'rail', 'nail', 'pulse',
-                 'torch', 'mortar', 'coil', 'swarm', 'reaper'];
+                 'torch', 'mortar', 'coil', 'swarm', 'reaper',
+                 'censer', 'harrow', 'tithe', 'bloom', 'ratchet'];
+
+  /* Which weapons a faction of a given doctrine carries. The arsenal
+     is the doctrine's own gun plus the stock weapons it would buy;
+     what a garrison drops comes out of here, so a run against one
+     faction arms you differently from a run against another. */
+  const ARSENALS = {
+    attrition: ['pistol', 'smg', 'nail', 'ratchet'],
+    purity:    ['censer', 'torch', 'rifle', 'flak'],
+    salvage:   ['ratchet', 'scatter', 'nail', 'mortar'],
+    augury:    ['beam', 'pulse', 'coil', 'bloom'],
+    order:     ['rifle', 'rail', 'cannon', 'harrow'],
+    rapture:   ['censer', 'torch', 'swarm', 'reaper'],
+    freight:   ['smg', 'flak', 'scatter', 'ratchet'],
+    quiet:     ['harrow', 'rail', 'reaper', 'coil'],
+    growth:    ['bloom', 'swarm', 'torch', 'pulse'],
+    ledger:    ['tithe', 'cannon', 'mortar', 'rail']
+  };
+  const arsenalOf = doctrine =>
+    (ARSENALS[doctrine] || ['pistol', 'smg', 'rifle']).slice();
 
   /* ============================================================
      PROTOTYPE — one rolled weapon per run.
@@ -364,7 +430,7 @@ window.WEAPONS = (function () {
     return { kind, def, ammo: def.mag, reloading: 0, cool: 0, charge: 0 };
   }
 
-  return { table: W, ORDER, make, rollProto, retune, PROTO_CONTROLS,
+  return { table: W, ORDER, ARSENALS, arsenalOf, make, rollProto, retune, PROTO_CONTROLS,
            PROTO_PARAMS, PROTO_CORE, PROTO_EXOTIC, EXOTIC_SPEC,
            shapeFor, tagsFor,
            PROTO_PREFIX, PROTO_SUFFIX, PROTO_MARK };

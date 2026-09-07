@@ -271,6 +271,20 @@ window.WORLD = (function () {
     this.story = opts.story || null;
     this.beat = opts.beat || null;
 
+    /* --- who holds this place, and what they carry ---
+       A garrison drops what it was issued, so fighting through one
+       faction arms you differently from fighting through another —
+       and by the third mission against the same people you are using
+       their guns against them, which is the whole of the fantasy. */
+    this.faction = opts.faction || null;
+    this.arsenal = this.faction
+      ? window.WEAPONS.arsenalOf(this.faction.doctrine) : null;
+    /* Reputation, cashed out. A faction you are square with sends
+       people who take a moment to decide you are a problem; one you
+       have wronged sends extra, and sends specialists. */
+    this.grace = Math.max(0, opts.grace || 0);
+    this.tribute = opts.tribute || null;
+
     /* --- campaign --- */
     this.campaign = opts.campaign || null;
     this.sector = opts.sector || 0;
@@ -299,6 +313,12 @@ window.WORLD = (function () {
     if (this.allyRigs.length && allyCount > 0) this.placeAllies(allyCount, rng);
     if (this.wardenRigs.length) this.placeWardens(rng);
     this.spawnEnemies(mix, rng);
+
+    /* Tribute. A faction you have gone out of your way for leaves
+       something on your approach — the visible half of reputation,
+       and the reason a run where you kept your word plays differently
+       from one where you did not. */
+    if (this.tribute) this.placeTribute(this.tribute, rng);
 
     /* The loadout the last sector was walked out with, put back before
        anything else touches the player. */
@@ -578,7 +598,10 @@ window.WORLD = (function () {
       if (!best) continue;
       taken.push(best.x);
       const rig = this.wardenRigs[i];
-      const gift = window.CONFIG.wardenGift(rng, this.sector || 1);
+      /* A warden hands over what the people you are on good terms
+         with have been leaving lying about. Without an ally it is the
+         whole roster, as it always was. */
+      const gift = window.CONFIG.wardenGift(rng, this.sector || 1, this.opts.giftPool);
       const lines = window.DIALOG.lines(rng, gift, false);
       const W = new E.Warden(rig, best.x, best.y, gift, lines,
                              (this.cfg.seed + i * 7717) >>> 0);
@@ -1151,6 +1174,7 @@ window.WORLD = (function () {
   /* ---------------- simulation ---------------- */
   Mission.prototype.update = function (dt, input) {
     this.time += dt;
+    if (this.grace > 0) this.grace -= dt;
     if (this.bannerT > 0) this.bannerT -= dt;
 
     const P = this.player;
@@ -1227,6 +1251,13 @@ window.WORLD = (function () {
         }
         if (e.dead) continue;   // counted by kill(), whatever did it
       }
+      /* Standing on the ground of people you are square with buys a
+         few seconds before the room decides you are a problem. It is
+         not invulnerability and it is not a freeze frame: they keep
+         walking their patrol, they simply have not made their minds up
+         about you. A hostile that gets shot at makes its mind up
+         immediately. */
+      e.holdT = this.grace;
       e.step(this.world, this.threatFor(e), dt, this);
       /* Corrupted mercs vent, and ride a little off the deck. The lift
          is cosmetic — it is applied at draw time, not to the collision
@@ -1689,15 +1720,41 @@ window.WORLD = (function () {
     return best;
   };
 
+  /* A crate of somebody else's gratitude, on the ground a short way
+     into the level. Placed rather than granted, so it still has to be
+     walked to — a gift you receive on the loading screen is a number,
+     not a moment. */
+  Mission.prototype.placeTribute = function (t, rng) {
+    const runs = this.ground.filter(r => r.w >= 48 && r.x > this.player.x + 60 &&
+                                         r.x < this.player.x + 900);
+    const run = runs.length ? runs[rng.int(0, runs.length - 1)] : this.ground[0];
+    if (!run) return;
+    const x = clamp(run.x + run.w * 0.5, run.x + 16, run.x + run.w - 16);
+    const put = (kind, payload, dx) =>
+      this.pickups.push(new E.Pickup(x + dx, run.y - 4, kind, payload));
+    if (t.weapon && window.WEAPONS.table[t.weapon]) put('weapon', t.weapon, 0);
+    if (t.health) put('health', t.health, 18);
+    if (t.ammo) put('ammo', null, -18);
+    this.tributeAt = { x: x, y: run.y };
+  };
+
   Mission.prototype.maybeDrop = function (e) {
     const r = Math.random();
     if (r < 0.16) this.pickups.push(new E.Pickup(e.x, e.y - 4, 'health', 30));
     else if (r < 0.42) this.pickups.push(new E.Pickup(e.x, e.y - 4, 'ammo', null));
-    // Crawlers and the overlord carry no gun, so their rig has no
-    // `gun` to drop — give up the weapon roll rather than a pickup
-    // that names a weapon that does not exist.
-    else if (r < 0.52 && window.WEAPONS.table[e.rig.gun])
-      this.pickups.push(new E.Pickup(e.x, e.y - 4, 'weapon', e.rig.gun));
+    else if (r < 0.52) {
+      /* What it was carrying, or — when the place has an owner and the
+         body's own rig has no gun to give up, as a crawler's does not
+         — something out of that faction's arsenal. Crawlers and the
+         overlord drop nothing at all in an unowned level, because a
+         pickup naming a weapon that does not exist is worse than no
+         pickup. */
+      let k = window.WEAPONS.table[e.rig.gun] ? e.rig.gun : null;
+      if (!k && this.arsenal && this.arsenal.length) {
+        k = this.arsenal[Math.floor(Math.random() * this.arsenal.length)];
+      }
+      if (k) this.pickups.push(new E.Pickup(e.x, e.y - 4, 'weapon', k));
+    }
   };
 
   Mission.prototype.stepPickups = function (dt) {

@@ -116,7 +116,10 @@ its checks exist.
       `shieldman`, `zealot`, `stalker` — each with behaviour rather than only
       stats, and a doctrine-weighted roster so a faction's garrison reads as
       theirs. Faction colour on the troops.
-- [ ] **6 — New weapons and dynamics.** Faction arsenals; reputation effects.
+- [x] **6 — New weapons and dynamics.** Five arsenal weapons — `censer`,
+      `harrow`, `tithe`, `bloom`, `ratchet` — one per doctrine, dropped by the
+      garrison that carries them. Reputation cashed out into grace, bounty and
+      tribute.
 - [ ] **7 — UI.** Story setup, briefing screen, choice screen, codex, dossier.
 - [ ] **8 — Integration.** Autopilot plays story mode; README; polish pass.
 
