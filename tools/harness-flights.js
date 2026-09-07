@@ -41,7 +41,8 @@ for (const f of [
   'src/gen/scrapforge.js',
   'src/game/config.js', 'src/game/audio.js', 'src/game/weapons.js',
   'src/game/sprite.js', 'src/game/physics.js', 'src/game/rigid.js',
-  'src/game/dialog.js', 'src/game/lore.js', 'src/game/campaign.js',
+  'src/game/dialog.js', 'src/game/lore.js', 'src/game/story.js',
+  'src/game/campaign.js',
   'src/game/pilot.js', 'src/game/entities.js',
   'src/game/world.js', 'src/game/render.js'
 ]) require(path.join(ROOT, f));
@@ -183,6 +184,110 @@ const SCENARIOS = {
       done: camp.done, won: camp.won,
       logged: camp.log.length, score: camp.score, kills: camp.kills,
       styles: Array.from(new Set(sectors.map(s => s.style)))
+    };
+  },
+
+  /* Every objective type, flown. A mission the pilot cannot finish is
+     a mission a player is going to find infuriating for the same
+     reason, so this is a design check as much as a code one. */
+  objectives() {
+    const out = [];
+    const kinds = window.STORY.OBJ_KEYS;
+    /* Two seeds each. The pilot is stochastic — its aim jitters and
+       drops are random — so a single flight per objective makes a
+       flaky test out of a system that is only occasionally unlucky.
+       Two runs and a rate is the honest measurement: it still catches
+       an objective that cannot be finished, and does not cry wolf over
+       one bad afternoon. */
+    for (let i = 0; i < kinds.length; i++) {
+      const obj = kinds[i];
+      const runs = [];
+      for (let t = 0; t < 2; t++) {
+        const cfg = window.CONFIG.randomLevelCfg((0x2000 + i * 911 + t * 40503) >>> 0);
+        cfg.levelLen = 3;
+        const M = bake(cfg, window.CONFIG.randomMerc(3), {
+          difficulty: 'recruit', enemyDens: 0.7, lives: 9, allies: 1,
+          autopilot: true, wardens: 0,
+          objective: obj, seconds: 30, charges: 3, targetName: 'THE TARGET'
+        });
+        const rec = { hasObj: !!M.obj, kind: M.obj && M.obj.kind,
+                      gatedAtStart: !M.objectiveReady(),
+                      hasLine: !!M.objectiveText(),
+                      charges: M.obj ? M.obj.charges.length : 0,
+                      cache: !!(M.obj && M.obj.cache),
+                      target: !!(M.obj && M.obj.target),
+                      ward: !!(M.obj && M.obj.ward) };
+        Object.assign(rec, fly(M, 150));
+        rec.objDone = M.obj.done;
+        rec.objFailed = M.obj.failed;
+        runs.push(rec);
+      }
+      out.push({ obj, runs, wins: runs.filter(r => r.state === 'won').length,
+                 setup: runs[0] });
+    }
+    return { objectives: out };
+  },
+
+  /* A story, played. Only the first few missions — what is under test
+     is that a beat becomes a level, the objective is enforced, and the
+     loadout and traits carry across a beat boundary. */
+  story() {
+    const W = window.LORE.makeWorld(0xC0FFEE);
+    const S = window.STORY.makeStory(W, {
+      difficulty: 'recruit', enemyDens: 0.5, lives: 9, allies: 0, autopilot: true
+    });
+    const merc = window.CONFIG.randomMerc(0xC0FFEE);
+    const missions = [];
+    const choices = [];
+    let scenes = 0, guard = 0, played = 0;
+    const PLAY = 4;
+
+    while (!S.done && guard++ < 60) {
+      const b = S.current();
+      if (b.type === 'scene') { S.seen(); scenes++; continue; }
+      if (b.type === 'choice') {
+        const c = S.choiceAt(b);
+        choices.push({ template: c.template, prompt: c.prompt,
+                       options: c.options.length, chose: c.options[0].id });
+        S.choose(c.options[0].id);
+        continue;
+      }
+      if (played >= PLAY) break;
+      const bd = S.build();
+      bd.cfg.levelLen = 3;
+      const M = bake(bd.cfg, merc, Object.assign({}, bd.opts,
+        { scrap: bd.scrap, boss: bd.boss, proto: bd.proto }));
+      const rec = {
+        n: b.n, objective: bd.opts.objective,
+        place: bd.place.name, style: bd.cfg.style,
+        styleMatches: bd.cfg.style === bd.place.style,
+        foe: bd.foe.name,
+        knowsStory: M.story === S,
+        objKind: M.obj && M.obj.kind,
+        weaponIn: M.player.weapon.kind,
+        buffsIn: JSON.stringify(M.player.buffs),
+        traitsIn: S.traits.slice(),
+        brief: bd.brief
+      };
+      Object.assign(rec, fly(M, 150));
+      rec.objDone = M.obj.done;
+      played++;
+      missions.push(rec);
+      if (M.state !== 'won') break;
+      S.take(M);
+      rec.carryWeapon = S.carry.weapon;
+      S.finishMission({ won: true, score: M.player.score, kills: M.kills,
+                        total: M.totalEnemies, deaths: rec.deaths, time: M.time,
+                        hurt: M.player.hp < M.player.maxHp });
+      rec.traitsOut = S.traits.slice();
+      rec.repAfter = S.rep.slice();
+    }
+    return {
+      missions, choices, scenes,
+      beats: S.beats.length, totalMissions: S.missions,
+      traits: S.traits, flags: Object.keys(S.flags),
+      ending: S.ending(),
+      outline: window.STORY.outline(S).split('\n').length
     };
   },
 

@@ -43,7 +43,8 @@ const FILES = [
   'src/gen/scrapforge.js',
   'src/game/config.js', 'src/game/audio.js', 'src/game/weapons.js',
   'src/game/sprite.js', 'src/game/physics.js', 'src/game/rigid.js',
-  'src/game/dialog.js', 'src/game/lore.js', 'src/game/campaign.js',
+  'src/game/dialog.js', 'src/game/lore.js', 'src/game/story.js',
+  'src/game/campaign.js',
   'src/game/pilot.js', 'src/game/entities.js',
   'src/game/world.js', 'src/game/render.js', 'src/game/screens.js'
 ];
@@ -117,6 +118,193 @@ section('forge isolation');
 }
 
 /* ---------------- merc forge sprite work ---------------- */
+section('flights (each in its own process)');
+{
+  /* Every mission bakes its own sprite sheets, and those are native
+     canvas buffers V8 feels no pressure from — so a process that flies
+     eight of them dies of memory rather than of a failed assertion.
+     The scenarios run in child processes and report back; the checks
+     are here with everything else.
+
+     Run FIRST, before this process has baked anything of its own. A
+     child needing three gigabytes next to a parent already holding
+     four is a kernel deciding which of them to kill, and the answer
+     reads exactly like a test failure. */
+  const { execFileSync } = require('child_process');
+  const FLIGHTS = path.join(__dirname, 'harness-flights.js');
+  function flight(name) {
+    const t0 = Date.now();
+    const out = execFileSync(process.execPath, [FLIGHTS, name],
+      { encoding: 'utf8', maxBuffer: 8 << 20 });
+    console.log('  ' + name + ': ' + ((Date.now() - t0) / 1000).toFixed(1) + 's');
+    return JSON.parse(out);
+  }
+
+  /* --- can it finish a level at all --- */
+  {
+    const F = flight('autopilot');
+    ok(F.runs.length === 2, 'both autopilot seeds ran');
+    for (const r of F.runs) {
+      ok(r.autopilot === true, 'the mission knows it is flying itself');
+      ok(r.hasPilot, 'and has a pilot to do it');
+      ok(!r.inputTouched, 'autopilot never writes into the human input struct');
+      ok(r.state === 'won', 'autopilot reached extraction on seed ' + r.seed +
+         ' (got ' + r.state + ' at ' + (r.progress * 100).toFixed(0) + '%)');
+      ok(r.kills > 0, 'autopilot fought its way there');
+      console.log('    seed ' + r.seed + ': ' + r.state + ' at ' +
+                  (r.progress * 100).toFixed(0) + '%, ' + r.deaths + ' deaths, ' +
+                  r.kills + '/' + r.total + ' killed');
+    }
+  }
+
+  /* --- continuous mode: a chain of rolled builds --- */
+  {
+    const F = flight('chain');
+    ok(F.runs.length === 3, 'the chain flew three builds');
+    ok(F.distinctSeeds === 3, 'each run in the chain is built from its own seed');
+    for (const r of F.runs) {
+      ok(r.state === 'won', 'chain run reached extraction (' + r.style + ', ' + r.state + ')');
+      ok(r.endClockRuns, 'the end-state clock keeps running so the chain can advance');
+      ok(r.stayedEnded, 'and the run stays ended rather than resuming itself');
+      ok(r.keptAutopilot, 'the next build inherits autopilot from the last');
+    }
+    console.log('    ' + F.runs.map(r => r.style).join(' → '));
+  }
+
+  /* --- a campaign, flown end to end --- */
+  {
+    const F = flight('campaign');
+    ok(F.sectors.length === 3, 'the campaign flew every sector (' + F.sectors.length + '/3)');
+    ok(F.done && F.won, 'and the campaign reports itself finished');
+    ok(F.logged === 3, 'every cleared sector is logged');
+    ok(F.score > 0 && F.kills > 0, 'the campaign totals accumulate');
+    ok(F.styles.length > 1, 'the sectors are not all the same place (' +
+       F.styles.join(', ') + ')');
+    let prev = null;
+    for (const sct of F.sectors) {
+      ok(sct.state === 'won', 'autopilot cleared sector ' + sct.n +
+         ' (' + sct.style + ', got ' + sct.state + ')');
+      ok(sct.knowsCampaign, 'the mission knows its campaign');
+      ok(sct.knowsSector, 'and which sector it is');
+      ok(sct.wardens > 0, 'every sector has someone standing in it');
+      ok(sct.densRose, 'each sector deploys at least as many');
+      ok(sct.operativeSeed === F.sectors[0].operativeSeed,
+         'the same operative walks into every sector');
+      if (sct.carriedWeaponIn) {
+        ok(sct.weaponIn === sct.carriedWeaponIn,
+           'the weapon carried into sector ' + sct.n + ' (' + sct.carriedWeaponIn + ')');
+      }
+      ok(sct.carryWeapon === sct.weaponOut, 'the carry snapshot took the weapon in hand');
+      ok(sct.carryHp > 0, 'and you do not start the next floor dead');
+      ok(sct.carryHp >= sct.carryFloor, 'clearing a sector is worth a breath');
+      if (prev) {
+        /* Whatever the wardens grafted has to still be there. Comparing
+           the string is the point: any buff quietly resetting between
+           sectors is exactly the bug this catches. */
+        const before = JSON.parse(prev.buffsOut), now = JSON.parse(sct.buffsIn);
+        for (const k in before) {
+          ok(now[k] >= before[k] - 1e-9,
+             'buff "' + k + '" survived the sector boundary');
+        }
+        ok(sct.maxHpIn >= prev.maxHpIn, 'a raised vitals ceiling survives too');
+      }
+      prev = sct;
+    }
+    console.log('    ' + F.sectors.map(s => s.n + ':' + s.style).join(' → ') +
+                ' | ' + F.kills + ' killed, ' + F.score + ' scored');
+  }
+
+  /* --- every objective type, flown --- */
+  {
+    const F = flight('objectives');
+    ok(F.objectives.length === window.STORY.OBJ_KEYS.length, 'every objective was flown');
+    for (const o of F.objectives) {
+      const r = o.setup;
+      ok(r.hasObj && r.kind === o.obj, o.obj + ' is set up on the mission');
+      /* an objective that does not gate the pad is not an objective */
+      if (o.obj === 'extract') {
+        ok(!r.gatedAtStart, 'extract asks nothing extra');
+        ok(!r.hasLine, 'and says nothing extra');
+      } else {
+        ok(r.gatedAtStart, o.obj + ' holds the pad shut to begin with');
+        ok(r.hasLine, o.obj + ' tells you what it wants');
+      }
+      if (o.obj === 'sabotage') ok(r.charges >= 2, 'sabotage places its charges');
+      if (o.obj === 'recover') ok(r.cache, 'recover places a cache');
+      if (o.obj === 'hunt') ok(r.target, 'hunt promotes a target out of the garrison');
+      if (o.obj === 'escort') ok(r.ward, 'escort places somebody to protect');
+      /* Every run has to at least be finishable, and most have to
+         actually finish. An objective the pilot never completes is one
+         a player will find impossible for the same reason. */
+      ok(o.wins > 0, 'autopilot can complete ' + o.obj +
+         ' (' + o.runs.map(x => x.state).join('/') + ')');
+      for (const x of o.runs) {
+        ok(!x.objFailed || o.obj === 'escort',
+           o.obj + ' does not fail itself');
+        if (x.state === 'won') ok(x.objDone, o.obj + ' was actually met when it won');
+      }
+    }
+    {
+      const tot = F.objectives.reduce((a, o) => a + o.runs.length, 0);
+      const win = F.objectives.reduce((a, o) => a + o.wins, 0);
+      ok(win >= tot - 2, 'autopilot completes nearly every objective run (' +
+         win + '/' + tot + ')');
+      console.log('    ' + F.objectives.map(o => o.obj + ':' + o.wins + '/' + o.runs.length).join(' '));
+    }
+  }
+
+  /* --- a story, played --- */
+  {
+    const F = flight('story');
+    ok(F.beats > 12, 'the story had beats');
+    ok(F.scenes > 0, 'and scenes between them');
+    ok(F.missions.length > 0, 'and missions that became levels');
+    let prevTraits = [];
+    for (const m of F.missions) {
+      ok(m.knowsStory, 'a story mission knows which story it is in');
+      ok(m.styleMatches, 'and is built in the architecture of its location (' +
+         m.place + ' / ' + m.style + ')');
+      ok(m.objKind === m.objective, 'and enforces the beat\'s objective');
+      ok(m.brief.indexOf('%') < 0, 'and its briefing is filled in');
+      ok(m.state === 'won', 'autopilot cleared ' + m.objective + ' at ' + m.place +
+         ' (got ' + m.state + ')');
+      ok(m.objDone, 'and met the objective');
+      if (m.traitsOut) {
+        for (const t of prevTraits) {
+          ok(m.traitsOut.indexOf(t) >= 0, 'a trait once earned is never lost');
+        }
+        prevTraits = m.traitsOut;
+      }
+      if (m.carryWeapon) ok(typeof m.carryWeapon === 'string', 'the loadout is carried out');
+    }
+    /* the loadout that walked out walked back in */
+    for (let i = 1; i < F.missions.length; i++) {
+      const prev = F.missions[i - 1], cur = F.missions[i];
+      if (prev.carryWeapon) {
+        ok(cur.weaponIn === prev.carryWeapon,
+           'the weapon carried into mission ' + cur.n + ' (' + prev.carryWeapon + ')');
+      }
+    }
+    ok(F.ending && F.ending.title, 'and the run knows how it would end');
+    console.log('    ' + F.missions.map(m => m.objective + '@' + m.place).join('  '));
+  }
+
+  /* --- the prototype across a sector boundary --- */
+  {
+    const F = flight('protocarry');
+    ok(F.placed, 'the sector placed its prototype');
+    ok(F.equipped, 'and taking it equips the prototype');
+    ok(F.kindOut === 'proto', 'the prototype carries to the next sector');
+    ok(F.labelOut === F.label, 'and it is the same gun, not a new roll');
+    ok(F.sameRig, 'and the sprite still holds it');
+    ok(F.dmgBuff === 1.5, 'grafted power-ups carry');
+    ok(F.maxHp === 140, 'a raised vitals ceiling carries');
+    ok(F.hp > 60 && F.hp <= 140, 'and you get a breath, not a full heal');
+    ok(F.ammo === 3, 'the magazine you walked out with carries');
+    ok(F.differentPlace, 'the next sector is a different place');
+  }
+}
+
 section('merc forge');
 {
   const MF = window.MERCFORGE;
@@ -2258,6 +2446,162 @@ section('the world (lore)');
   }
 }
 
+section('the run (story)');
+{
+  const LR = window.LORE, ST = window.STORY;
+
+  /* every objective is a real one, and says what it is */
+  for (const k of ST.OBJ_KEYS) {
+    const O = ST.OBJECTIVES[k];
+    ok(typeof O.label === 'string' && O.label.length > 2, k + ' has a label');
+    ok(typeof O.brief === 'string' && O.brief.length > 20, k + ' has a briefing');
+    ok(typeof O.gate === 'string', k + ' says what gates the pad');
+  }
+  /* traits are modifiers, not flavour text */
+  for (const k of ST.TRAIT_KEYS) {
+    const T = ST.TRAITS[k];
+    ok(typeof T.line === 'string' && T.line.length > 15, 'trait ' + k + ' means something');
+    ok(T.mod && Object.keys(T.mod).length > 0, 'and does something');
+  }
+
+  const shapes = new Set(), objSeen = new Set(), placesSeen = new Set();
+  const N = 80;
+  for (let i = 0; i < N; i++) {
+    const W = LR.makeWorld((i * 2654435761) >>> 0);
+    const S = ST.makeStory(W, { difficulty: 'regular' });
+
+    ok(S.beats.length > 12, 'a story has enough beats to be one (' + S.beats.length + ')');
+    ok(S.missions >= 7, 'and enough missions (' + S.missions + ')');
+
+    let acts = new Set(), missions = 0, choices = 0, scenes = 0;
+    let lastAct = 0;
+    for (const b of S.beats) {
+      acts.add(b.act);
+      ok(b.act >= lastAct, 'beats run forward through the acts');
+      lastAct = b.act;
+      if (b.type === 'mission') {
+        missions++;
+        objSeen.add(b.objective);
+        placesSeen.add(W.placeById(b.place).name);
+        ok(!!ST.OBJECTIVES[b.objective], 'every mission has a real objective');
+        ok(!!W.placeById(b.place), 'and happens somewhere that exists');
+        ok(!!W.facById(b.foe), 'and is against somebody who exists');
+        ok(W.placeById(b.place).owner === b.foe,
+           'and the garrison is whoever holds the place');
+        if (b.objective === 'hunt') {
+          ok(!!b.target && !!W.charById(b.target), 'a hunt names somebody real');
+        }
+        if (b.objective === 'survive') ok(b.seconds >= 30, 'a hold has a real clock');
+        if (b.objective === 'sabotage') ok(b.charges >= 2, 'a sabotage has charges');
+        /* the briefing has to name the actual place and be filled in */
+        const br = S.brief(b);
+        ok(br.length > 20, 'the briefing is a briefing');
+        ok(br.indexOf('%') < 0, 'with every slot filled');
+        ok(br.indexOf('undefined') < 0, 'and nothing missing');
+      } else if (b.type === 'choice') {
+        choices++;
+        const c = S.choiceAt(b);
+        ok(!!c && c.options.length >= 2, 'a choice offers a choice');
+        ok(c.prompt.indexOf('%') < 0, 'and its prompt is filled in');
+        ok(c.prompt.indexOf('undefined') < 0, 'and complete');
+        ok(c.prompt.length > 20, 'and worth reading');
+        for (const op of c.options) {
+          ok(op.label.length > 4 && op.line.length > 15, 'every option says what it is');
+          ok(!op.trait || !!ST.TRAITS[op.trait], 'and grants a real trait');
+        }
+      } else scenes++;
+    }
+    ok(acts.size === 3, 'three acts');
+    ok(choices >= 3, 'at least three choices (' + choices + ')');
+    ok(scenes >= 5, 'and enough scenes to carry it (' + scenes + ')');
+    shapes.add(S.beats.map(b => b.type === 'mission' ? b.objective[0] : b.type[0]).join(''));
+
+    /* the run has to be walkable end to end without getting stuck */
+    let guard = 0;
+    while (!S.done && guard++ < 200) {
+      const b = S.current();
+      if (b.type === 'scene') S.seen();
+      else if (b.type === 'choice') S.choose(S.choiceAt(b).options[i % 3].id);
+      else S.finishMission({ won: true, score: 100, kills: 3, total: 4,
+                             deaths: 0, time: 40, hurt: true });
+    }
+    ok(S.done, 'a story runs to its end');
+    ok(guard < 200, 'without looping');
+    ok(S.traits.length >= 3, 'and the operative comes out of it changed (' +
+       S.traits.join(',') + ')');
+    for (const t of S.traits) ok(!!ST.TRAITS[t], 'every trait earned is a real one');
+    const e = S.ending();
+    ok(!!e.title && !!e.line, 'and it ends with something');
+    /* the modifier roll-up has to stay sane no matter what was earned */
+    const m = S.mods();
+    for (const k in m) {
+      ok(Number.isFinite(m[k]), 'trait modifier ' + k + ' is a number');
+      /* vitals and allies are added, everything else multiplies — so
+         zero is a legal value for exactly two of them */
+      const additive = k === 'vitals' || k === 'allies';
+      ok(additive ? m[k] >= 0 : m[k] > 0, 'trait modifier ' + k + ' is in range');
+    }
+    ok(m.dmg < 3 && m.armour < 3, 'and nothing runs away with itself');
+  }
+
+  console.log('  ' + N + ' stories: ' + shapes.size + ' distinct shapes, ' +
+              objSeen.size + '/' + ST.OBJ_KEYS.length + ' objectives, ' +
+              placesSeen.size + ' places visited');
+  ok(objSeen.size === ST.OBJ_KEYS.length, 'every objective type comes up');
+  ok(shapes.size > N * 0.5, 'no two stories are the same shape (' + shapes.size + ')');
+
+  /* determinism, and that a story is a function of its world */
+  {
+    const W = LR.makeWorld(0x1234);
+    const a = ST.outline(ST.makeStory(W, {}));
+    const b = ST.outline(ST.makeStory(W, {}));
+    ok(a === b, 'the same world makes the same story');
+    const c = ST.outline(ST.makeStory(LR.makeWorld(0x1235), {}));
+    ok(a !== c, 'a different world makes a different one');
+    ok(a.split('\n').length > 25, 'and the outline is readable');
+  }
+
+  /* choices actually change the run */
+  {
+    const W = LR.makeWorld(0x99);
+    const a = ST.makeStory(W, {}), b = ST.makeStory(W, {});
+    while (a.current().type !== 'choice') { const x = a.current();
+      if (x.type === 'scene') a.seen(); else a.finishMission({ won: true }); }
+    while (b.current().type !== 'choice') { const x = b.current();
+      if (x.type === 'scene') b.seen(); else b.finishMission({ won: true }); }
+    const opts = a.choiceAt(a.current()).options;
+    a.choose(opts[0].id);
+    b.choose(opts[1].id);
+    ok(JSON.stringify(a.flags) !== JSON.stringify(b.flags), 'a choice sets its own flag');
+    ok(JSON.stringify(a.traits) !== JSON.stringify(b.traits), 'and grants its own trait');
+    ok(JSON.stringify(a.rep) !== JSON.stringify(b.rep), 'and moves reputation its own way');
+  }
+
+  /* reputation: killing a faction's people is noticed by them and by
+     whoever hates them */
+  {
+    const W = LR.makeWorld(0x77);
+    const S = ST.makeStory(W, {});
+    while (S.current().type !== 'mission') S.seen();
+    const beat = S.current();
+    const before = S.rep.slice();
+    S.finishMission({ won: true, score: 0, kills: 1, total: 4, deaths: 0, time: 30 });
+    ok(S.rep[beat.foe] < before[beat.foe], 'shooting a faction costs you with them');
+    let anyUp = false;
+    for (const f of W.factions) {
+      if (f.id === beat.foe) continue;
+      if (W.relation(f.id, beat.foe) <= -1 && S.rep[f.id] > before[f.id]) anyUp = true;
+    }
+    ok(anyUp || W.factions.every(f => f.id === beat.foe || W.relation(f.id, beat.foe) > -1),
+       'and earns you credit with their enemies');
+    /* and it is bounded */
+    for (let k = 0; k < 40; k++) S.shiftRep(beat.foe, -3);
+    ok(S.rep[beat.foe] >= -6, 'reputation has a floor');
+    for (let k = 0; k < 40; k++) S.shiftRep(beat.foe, +3);
+    ok(S.rep[beat.foe] <= 6, 'and a ceiling');
+  }
+}
+
 section('level kinds');
 {
   const GWk = window.GREEBLEWORKS;
@@ -2435,113 +2779,6 @@ section('level kinds');
       cx2.fillText(label.toUpperCase() + '  ' + MK.cfg.style, 8, i * LV.H + LV.H - 8);
     });
     dump('out_kinds.png', cv);
-  }
-}
-
-section('flights (each in its own process)');
-{
-  /* Every mission bakes its own sprite sheets, and those are native
-     canvas buffers V8 feels no pressure from — so a process that flies
-     eight of them dies of memory rather than of a failed assertion.
-     The scenarios run in child processes and report back; the checks
-     are here with everything else. */
-  const { execFileSync } = require('child_process');
-  const FLIGHTS = path.join(__dirname, 'harness-flights.js');
-  function flight(name) {
-    const t0 = Date.now();
-    const out = execFileSync(process.execPath, [FLIGHTS, name],
-      { encoding: 'utf8', maxBuffer: 8 << 20 });
-    console.log('  ' + name + ': ' + ((Date.now() - t0) / 1000).toFixed(1) + 's');
-    return JSON.parse(out);
-  }
-
-  /* --- can it finish a level at all --- */
-  {
-    const F = flight('autopilot');
-    ok(F.runs.length === 2, 'both autopilot seeds ran');
-    for (const r of F.runs) {
-      ok(r.autopilot === true, 'the mission knows it is flying itself');
-      ok(r.hasPilot, 'and has a pilot to do it');
-      ok(!r.inputTouched, 'autopilot never writes into the human input struct');
-      ok(r.state === 'won', 'autopilot reached extraction on seed ' + r.seed +
-         ' (got ' + r.state + ' at ' + (r.progress * 100).toFixed(0) + '%)');
-      ok(r.kills > 0, 'autopilot fought its way there');
-      console.log('    seed ' + r.seed + ': ' + r.state + ' at ' +
-                  (r.progress * 100).toFixed(0) + '%, ' + r.deaths + ' deaths, ' +
-                  r.kills + '/' + r.total + ' killed');
-    }
-  }
-
-  /* --- continuous mode: a chain of rolled builds --- */
-  {
-    const F = flight('chain');
-    ok(F.runs.length === 3, 'the chain flew three builds');
-    ok(F.distinctSeeds === 3, 'each run in the chain is built from its own seed');
-    for (const r of F.runs) {
-      ok(r.state === 'won', 'chain run reached extraction (' + r.style + ', ' + r.state + ')');
-      ok(r.endClockRuns, 'the end-state clock keeps running so the chain can advance');
-      ok(r.stayedEnded, 'and the run stays ended rather than resuming itself');
-      ok(r.keptAutopilot, 'the next build inherits autopilot from the last');
-    }
-    console.log('    ' + F.runs.map(r => r.style).join(' → '));
-  }
-
-  /* --- a campaign, flown end to end --- */
-  {
-    const F = flight('campaign');
-    ok(F.sectors.length === 3, 'the campaign flew every sector (' + F.sectors.length + '/3)');
-    ok(F.done && F.won, 'and the campaign reports itself finished');
-    ok(F.logged === 3, 'every cleared sector is logged');
-    ok(F.score > 0 && F.kills > 0, 'the campaign totals accumulate');
-    ok(F.styles.length > 1, 'the sectors are not all the same place (' +
-       F.styles.join(', ') + ')');
-    let prev = null;
-    for (const sct of F.sectors) {
-      ok(sct.state === 'won', 'autopilot cleared sector ' + sct.n +
-         ' (' + sct.style + ', got ' + sct.state + ')');
-      ok(sct.knowsCampaign, 'the mission knows its campaign');
-      ok(sct.knowsSector, 'and which sector it is');
-      ok(sct.wardens > 0, 'every sector has someone standing in it');
-      ok(sct.densRose, 'each sector deploys at least as many');
-      ok(sct.operativeSeed === F.sectors[0].operativeSeed,
-         'the same operative walks into every sector');
-      if (sct.carriedWeaponIn) {
-        ok(sct.weaponIn === sct.carriedWeaponIn,
-           'the weapon carried into sector ' + sct.n + ' (' + sct.carriedWeaponIn + ')');
-      }
-      ok(sct.carryWeapon === sct.weaponOut, 'the carry snapshot took the weapon in hand');
-      ok(sct.carryHp > 0, 'and you do not start the next floor dead');
-      ok(sct.carryHp >= sct.carryFloor, 'clearing a sector is worth a breath');
-      if (prev) {
-        /* Whatever the wardens grafted has to still be there. Comparing
-           the string is the point: any buff quietly resetting between
-           sectors is exactly the bug this catches. */
-        const before = JSON.parse(prev.buffsOut), now = JSON.parse(sct.buffsIn);
-        for (const k in before) {
-          ok(now[k] >= before[k] - 1e-9,
-             'buff "' + k + '" survived the sector boundary');
-        }
-        ok(sct.maxHpIn >= prev.maxHpIn, 'a raised vitals ceiling survives too');
-      }
-      prev = sct;
-    }
-    console.log('    ' + F.sectors.map(s => s.n + ':' + s.style).join(' → ') +
-                ' | ' + F.kills + ' killed, ' + F.score + ' scored');
-  }
-
-  /* --- the prototype across a sector boundary --- */
-  {
-    const F = flight('protocarry');
-    ok(F.placed, 'the sector placed its prototype');
-    ok(F.equipped, 'and taking it equips the prototype');
-    ok(F.kindOut === 'proto', 'the prototype carries to the next sector');
-    ok(F.labelOut === F.label, 'and it is the same gun, not a new roll');
-    ok(F.sameRig, 'and the sprite still holds it');
-    ok(F.dmgBuff === 1.5, 'grafted power-ups carry');
-    ok(F.maxHp === 140, 'a raised vitals ceiling carries');
-    ok(F.hp > 60 && F.hp <= 140, 'and you get a breath, not a full heal');
-    ok(F.ammo === 3, 'the magazine you walked out with carries');
-    ok(F.differentPlace, 'the next sector is a different place');
   }
 }
 

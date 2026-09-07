@@ -107,10 +107,10 @@ its checks exist.
       faction that exists, no faction at war with itself).
 - [x] **2 — The run.** `story.js`: acts, beats, objectives, choices,
       reputation, character traits. Mission layer enforces objectives.
-- [x] **3 — Cutscenes.** `cutscene.js` + director + renderer.
-- [x] **4 — Nature.** Vegetation and natural level kinds in GREEBLEWORKS:
+- [ ] **3 — Cutscenes.** `cutscene.js` + director + renderer.
+- [ ] **4 — Nature.** Vegetation and natural level kinds in GREEBLEWORKS:
       `overgrowth`, `fungal`, `mire`, `frost`. A `bakeFlora` pass.
-- [x] **5 — New enemies.** Faction unit archetypes with doctrine modifiers.
+- [ ] **5 — New enemies.** Faction unit archetypes with doctrine modifiers.
 - [ ] **6 — New weapons and dynamics.** Faction arsenals; reputation effects.
 - [ ] **7 — UI.** Story setup, briefing screen, choice screen, codex, dossier.
 - [ ] **8 — Integration.** Autopilot plays story mode; README; polish pass.

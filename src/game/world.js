@@ -187,6 +187,10 @@ window.WORLD = (function () {
     };
     this.activatePrompt = null;
 
+    /* --- story --- */
+    this.story = opts.story || null;
+    this.beat = opts.beat || null;
+
     /* --- campaign --- */
     this.campaign = opts.campaign || null;
     this.sector = opts.sector || 0;
@@ -219,6 +223,24 @@ window.WORLD = (function () {
     /* The loadout the last sector was walked out with, put back before
        anything else touches the player. */
     if (this.campaign) this.campaign.give(this.player, this);
+    if (this.story) this.story.give(this.player, this);
+
+    /* The objective goes on LAST: it promotes a body out of the
+       garrison, or places charges relative to the exit, and both need
+       everything else to already be where it is going to be. */
+    this.setupObjective(rng);
+
+    /* Traits the operative has earned. Applied exactly the way a
+       warden's graft is, because that is what they are: a permanent
+       modifier with a line of fiction attached. */
+    if (this.story) {
+      const m = this.story.mods();
+      const P = this.player;
+      for (const k of ['dmg', 'rate', 'reload', 'speed', 'mag', 'armour']) {
+        P.buffs[k] = (P.buffs[k] || 1) * (m[k] || 1);
+      }
+      if (m.vitals) { P.maxHp += m.vitals; P.hp = Math.min(P.maxHp, P.hp + m.vitals); }
+    }
 
     this.scroll = 0;
     this.shake = 0;
@@ -599,6 +621,236 @@ window.WORLD = (function () {
     }
   };
 
+  /* ============================================================
+     OBJECTIVES
+
+     Story mode gives a mission a reason to be there beyond the pad.
+     The rule lives in story.js; what lives here is the enforcement —
+     what has to be true before the pad will take you, and what the
+     HUD says about it. A mission with no objective is `extract`, which
+     is the behaviour every other mode has always had.
+     ============================================================ */
+  Mission.prototype.setupObjective = function (rng) {
+    const o = this.opts.objective;
+    this.obj = {
+      kind: o || 'extract',
+      done: false, failed: false,
+      target: null,           // the named body a hunt is after
+      charges: [],            // what a sabotage has to break
+      cache: null,            // what a recovery has to carry out
+      carried: false,
+      timer: 0, timerMax: 0,
+      ward: null              // the body an escort has to keep alive
+    };
+    if (!o || o === 'extract') { this.obj.done = true; return; }
+
+    if (o === 'hunt') {
+      /* Promote one of the garrison. It is tougher, marked, and the
+         one the mission is actually about — a hunt where the target is
+         indistinguishable from the crowd is a purge with extra steps. */
+      const pool = this.enemies.filter(e => !e.dead && !e.boss && e.kind !== 'crawler');
+      const pick = this.overlord && this.opts.bossTarget ? this.overlord
+                 : (pool.length ? pool[Math.floor(pool.length * 0.72)] || pool[0] : null);
+      if (pick) {
+        pick.isTarget = true;
+        pick.maxHp = Math.round(pick.maxHp * 2.6);
+        pick.hp = pick.maxHp;
+        pick.targetName = this.opts.targetName || 'THE TARGET';
+        this.obj.target = pick;
+      } else this.obj.done = true;
+
+    } else if (o === 'purge') {
+      /* everything already placed counts */
+
+    } else if (o === 'sabotage') {
+      const n = Math.max(2, Math.min(5, this.opts.charges || 3));
+      const runs = this.ground.filter(r => r.w >= 60 && r.x > this.player.x + 180);
+      for (let i = 0; i < n && runs.length; i++) {
+        const want = this.player.x + (this.exit.x - this.player.x) * ((i + 0.7) / (n + 0.4));
+        let best = null, bd = 1e9;
+        for (const r of runs) {
+          const cx = clamp(want, r.x + 20, r.x + r.w - 20);
+          const d = Math.abs(cx - want);
+          if (d < bd) { bd = d; best = { x: cx, y: r.y }; }
+        }
+        if (!best) continue;
+        this.obj.charges.push({ x: best.x, y: best.y, hp: 26, dead: false,
+                                t: rng ? rng.range(0, 6.28) : Math.random() * 6.28 });
+      }
+      if (!this.obj.charges.length) this.obj.done = true;
+
+    } else if (o === 'recover') {
+      const runs = this.ground.filter(r => r.w >= 50 && r.x > this.player.x + 240);
+      const r = runs.length ? runs[Math.floor(runs.length * 0.7)] : null;
+      if (r) this.obj.cache = { x: r.x + r.w * 0.5, y: r.y, taken: false, t: 0 };
+      else this.obj.done = true;
+
+    } else if (o === 'survive') {
+      this.obj.timerMax = this.obj.timer = Math.max(20, this.opts.seconds || 60);
+
+    } else if (o === 'escort') {
+      /* A civilian: an ally rig that follows and cannot fight back.
+         Reusing Ally means it walks, falls and takes fire on exactly
+         the same terms everything else does — but it hangs back rather
+         than closing, and it is tough enough to survive being in the
+         room. An escort who charges the enemy is not an escort, it is
+         a countdown. */
+      const rig = this.allyRigs[0] || (this.rigs.grunt && this.rigs.grunt[0]);
+      if (rig) {
+        /* On the player's own floor, a little behind them. Dropped
+           anywhere else it starts the mission on a catwalk over a pit
+           and walks off it before the first shot. */
+        const run = this.ground.find(r => this.player.x >= r.x &&
+                                          this.player.x <= r.x + r.w) || this.ground[0];
+        const gx = clamp(this.player.x + 40, run.x + 10, run.x + run.w - 10);
+        const A = new E.Ally(rig, gx, run.y, this.diff, this.cfg.seed);
+        A.frozen = false;
+        A.isWard = true;
+        A.timid = true;
+        A.maxHp = 140; A.hp = 140;
+        A.pilot = new window.PILOT.Pilot(A, { follow: true, slot: 1, timid: true });
+        this.allies.push(A);
+        this.obj.ward = A;
+      } else this.obj.done = true;
+    }
+  };
+
+  Mission.prototype.stepObjective = function (dt) {
+    const O = this.obj;
+    if (!O || O.done || this.state !== 'play') return;
+    switch (O.kind) {
+      case 'hunt':
+        if (O.target && O.target.dead) { O.done = true; this.say('TARGET DOWN — GET OUT'); this.bannerT = 3; }
+        break;
+      case 'purge':
+        if (this.kills >= this.totalEnemies) { O.done = true; this.say('SECTOR CLEAR — GET OUT'); this.bannerT = 3; }
+        break;
+      case 'sabotage': {
+        let left = 0;
+        for (const c of O.charges) { c.t += dt; if (!c.dead) left++; }
+        if (!left) { O.done = true; this.say('CHARGES DOWN — GET OUT'); this.bannerT = 3; }
+        break;
+      }
+      case 'recover':
+        if (O.cache) {
+          O.cache.t += dt;
+          if (!O.cache.taken) {
+            const P = this.player;
+            if (!P.dead && Math.abs(P.x - O.cache.x) < 16 && Math.abs(P.y - O.cache.y) < 30) {
+              O.cache.taken = true; O.carried = true; O.done = true;
+              this.say('CACHE RECOVERED — GET OUT'); this.bannerT = 3;
+              window.AUDIO.play('extract');
+            }
+          }
+        }
+        break;
+      case 'survive':
+        O.timer -= dt;
+        if (O.timer <= 0) { O.timer = 0; O.done = true; this.say('PAD IS WARM — GO'); this.bannerT = 3; }
+        break;
+      case 'escort':
+        if (O.ward) {
+          /* Somebody who goes over an edge is hauled back onto the last
+             ground you stood on, badly. Losing the escort has to be
+             something that happened in the fight — a civilian
+             mistiming a jump you already made is not a failure the
+             player had any way to prevent. */
+          if (!O.ward.dead && O.ward.y > this.world.floor - 40) {
+            const tr = this.trail;
+            const back = tr && tr.length ? tr[Math.max(0, tr.length - 3)] : null;
+            if (back) {
+              O.ward.x = back.x; O.ward.y = back.y;
+              O.ward.vx = 0; O.ward.vy = 0;
+              O.ward.hurt(O.ward.maxHp * 0.7);
+              O.ward.invuln = 1.2;
+              if (!O.ward.dead) { this.say('THEY ALMOST WENT OVER'); this.bannerT = 2; }
+            }
+          }
+          if (O.ward.dead) { O.failed = true; this.say('THEY DID NOT MAKE IT'); this.bannerT = 3; }
+          else if (Math.abs(O.ward.x - this.exit.x) < this.exit.r + 20 &&
+                   Math.abs(O.ward.y - this.exit.y) < 60) {
+            O.done = true; this.say('THEY ARE ON THE PAD'); this.bannerT = 3;
+          }
+        }
+        break;
+    }
+    if (O.failed && this.state === 'play') {
+      /* A failed objective is not a death: you are alive and the job
+         is gone. The run layer decides what that costs. */
+      this.state = 'failed'; this.endT = 0;
+    }
+  };
+
+  /* One place a kill is counted, scored and looted, and a body can
+     only ever go through it once.
+
+     Four different paths can be the last thing that touches an enemy —
+     a round, a chain arc, a fire it was already carrying, and the
+     boss's own death hook — and every one of them used to increment
+     the counter itself. The boss went through two of them, which is
+     how a PURGE completed with something still standing in the room.
+     `counted` is the flag that makes it impossible rather than
+     unlikely. */
+  Mission.prototype.countKill = function (e, by, silent) {
+    if (!e || e.counted) return false;
+    e.counted = true;
+    this.kills++;
+    if (by === undefined || by === null || by === this.player) {
+      this.player.score += e.A ? e.A.score : 20;
+    }
+    /* Something that fell off the level does not leave a pickup on it. */
+    if (!silent) this.maybeDrop(e);
+    return true;
+  };
+
+  Mission.prototype.objectiveReady = function () {
+    return !this.obj || this.obj.done;
+  };
+
+  /* The line the HUD shows. One place, so the objective and what it
+     says about itself cannot drift. */
+  Mission.prototype.objectiveText = function () {
+    const O = this.obj;
+    if (!O || O.kind === 'extract') return null;
+    if (O.done) return 'REACH THE PAD';
+    switch (O.kind) {
+      case 'hunt':   return 'KILL ' + (O.target ? O.target.targetName : 'THE TARGET');
+      case 'purge':  return 'CLEAR ' + (this.totalEnemies - this.kills) + ' REMAINING';
+      case 'sabotage': {
+        const left = O.charges.filter(c => !c.dead).length;
+        return 'CHARGES ' + (O.charges.length - left) + '/' + O.charges.length;
+      }
+      case 'recover': return 'RECOVER THE CACHE';
+      case 'survive': return 'HOLD ' + Math.ceil(O.timer) + 's';
+      case 'escort':  return O.ward ? 'ESCORT — ' + Math.max(0, Math.ceil(O.ward.hp)) + ' HP'
+                                    : 'ESCORT';
+    }
+    return null;
+  };
+
+  /* Sabotage charges take fire like anything else. Called from the
+     bullet step so a charge is shot, not walked into. */
+  Mission.prototype.hitCharge = function (b) {
+    const O = this.obj;
+    if (!O || O.kind !== 'sabotage') return false;
+    for (const c of O.charges) {
+      if (c.dead) continue;
+      if (Math.abs(b.x - c.x) > 9 || b.y < c.y - 20 || b.y > c.y + 3) continue;
+      c.hp -= b.dmg;
+      if (c.hp <= 0) {
+        c.dead = true;
+        this.explode(c.x, c.y - 8, '#ffb020', '#ff5a2a', 2.2);
+        this.shake = Math.min(6, this.shake + 3);
+        window.AUDIO.play('boom', null, this.distTo(c.x));
+      } else {
+        this.impact(b, -b.vx, -b.vy);
+        window.AUDIO.play('hit', null, this.distTo(c.x));
+      }
+      return true;
+    }
+    return false;
+  };
+
   /* Burn, mire and the ward, ticked once per frame on the player.
      Enemies tick theirs in the enemy loop; keeping the two apart is
      what lets each route its damage through its own hurt path. */
@@ -670,6 +922,7 @@ window.WORLD = (function () {
      rounds behave identically — including a rolled prototype if that
      is what they are holding. */
   Mission.prototype.allyFire = function (A, dt) {
+    if (A.timid) return;          // an escort is a passenger, not a gun
     const W = A.weapon;
     W.cool -= dt;
     if (W.reloading > 0) {
@@ -702,10 +955,14 @@ window.WORLD = (function () {
       : (P.x - e.x) * (P.x - e.x) + (P.y - e.y) * (P.y - e.y);
     for (const A of this.allies) {
       if (A.dead || A.frozen) continue;
-      const d = (A.x - e.x) * (A.x - e.x) + (A.y - e.y) * (A.y - e.y);
-      // a small bias to the player, so allies draw fire without
-      // becoming a way to ignore the fight entirely
-      if (d * 1.35 < bd) { bd = d * 1.35; best = A; }
+      /* A small bias to the player, so allies draw fire without
+         becoming a way to ignore the fight entirely — and a very large
+         one away from an escort. A garrison that fixates on the
+         civilian turns a protection job into a coin flip you cannot
+         influence, which is the opposite of what it is for. */
+      const w = A.timid ? 9 : 1.35;
+      const d = ((A.x - e.x) * (A.x - e.x) + (A.y - e.y) * (A.y - e.y)) * w;
+      if (d < bd) { bd = d; best = A; }
     }
     return best || P;
   };
@@ -764,8 +1021,6 @@ window.WORLD = (function () {
   };
   Mission.prototype.onOverlordDeath = function (O) {
     this.shake = 8;
-    this.kills++;
-    this.player.score += O.A.score;
     this.say('OVERLORD DOWN');
     window.AUDIO.play('boom', null, 0);
     for (let i = 0; i < 60; i++) this.vapor(O.x + (Math.random() - 0.5) * 90,
@@ -848,6 +1103,19 @@ window.WORLD = (function () {
       }
       this.autoInput = inUse;
       P.step(this.world, inUse, dt);
+      /* Breadcrumbs: where the player has actually stood. An escort
+         follows this rather than a point behind the player's shoulder,
+         because "behind" is a direction and a path is a place — one
+         walks off the ledge the player just jumped, the other does
+         not. */
+      if (P.ground) {
+        const tr = this.trail || (this.trail = []);
+        const last = tr[tr.length - 1];
+        if (!last || Math.abs(P.x - last.x) > 7 || Math.abs(P.y - last.y) > 7) {
+          tr.push({ x: P.x, y: P.y });
+          if (tr.length > 60) tr.shift();
+        }
+      }
       if (P.y > this.world.floor) {           // pit
         P.hp = 0; P.dead = true;
         window.AUDIO.play('die');
@@ -877,14 +1145,7 @@ window.WORLD = (function () {
             e.y - Math.random() * (e.h || 20), (Math.random() - 0.5) * 0.5,
             -0.4 - Math.random(), 0.22 + Math.random() * 0.3, '#ff7a2a', -0.02));
         }
-        if (e.dead) {
-          this.kills++;
-          // a kill by fire still pays, and still drops
-          const by = e.burnBy;
-          if (by === this.player || !by) this.player.score += e.A ? e.A.score : 20;
-          this.maybeDrop(e);
-          continue;
-        }
+        if (e.dead) continue;   // counted by kill(), whatever did it
       }
       e.step(this.world, this.threatFor(e), dt, this);
       /* Corrupted mercs vent, and ride a little off the deck. The lift
@@ -925,8 +1186,9 @@ window.WORLD = (function () {
       if (this.flashes[i].life <= 0) this.flashes.splice(i, 1);
     }
 
-    /* extraction */
-    if (this.state === 'play' && !P.dead &&
+    /* the objective, then extraction */
+    this.stepObjective(dt);
+    if (this.state === 'play' && !P.dead && this.objectiveReady() &&
         Math.abs(P.x - this.exit.x) < this.exit.r && Math.abs(P.y - this.exit.y) < 46) {
       this.state = 'won'; this.endT = 0;
       window.AUDIO.play('extract');
@@ -1122,6 +1384,9 @@ window.WORLD = (function () {
         /* Debris is checked before terrain: a crate in front of a wall
            should eat the shot, and shoving it is most of why it is
            there in the first place. */
+        if (b.friendly && this.hitCharge(b)) {
+          this.bullets.splice(i, 1); removed = true; break;
+        }
         const body = this.rigid.hitTest(b.x, b.y, b.size);
         if (body) {
           /* Hit hard enough to be worth doing. Debris that twitches
@@ -1176,11 +1441,7 @@ window.WORLD = (function () {
               this.onHit(b, e);
               this.impact(b, -b.vx, -b.vy);
               window.AUDIO.play('flesh', null, this.distTo(b.x));
-              if (e.dead) {
-                this.kills++;
-                P.score += e.A.score;
-                this.maybeDrop(e);
-              }
+              /* the count happens in kill(); nothing to do here */
               if (b.pierce > 0) {
                 b.pierce--;
                 (b.hitList || (b.hitList = [])).push(e);
@@ -1296,7 +1557,7 @@ window.WORLD = (function () {
         const dmg = b.dmg * 0.55;
         if (b.friendly) {
           best.hurtBy(dmg, this);
-          if (best.dead) { this.kills++; this.player.score += best.A ? best.A.score : 20; this.maybeDrop(best); }
+          /* the count happens in kill(); nothing to do here */
         } else if (best.hurt) best.hurt(dmg * 2.2);
         const fy = from.kind === 'crawler' || from.kind === 'overlord' ? from.y : from.y - from.h * 0.5;
         const by = best.kind === 'crawler' || best.kind === 'overlord' ? best.y : best.y - best.h * 0.5;

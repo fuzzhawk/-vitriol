@@ -41,6 +41,12 @@ window.RENDER = (function () {
 
     for (const p of M.pickups) drawPickup(ctx, p, S);
 
+    /* objective furniture: charges to blow and a cache to carry out */
+    if (M.obj) {
+      for (const c of M.obj.charges) drawCharge(ctx, c, S);
+      if (M.obj.cache && !M.obj.cache.taken) drawCache(ctx, M.obj.cache, S);
+    }
+
     /* corpses first, so the living stand in front of them */
     for (const e of M.enemies) {
       if (!e.dead) continue;
@@ -66,6 +72,29 @@ window.RENDER = (function () {
       if (e.kind === 'crawler' || e.kind === 'overlord') drawCrawler(ctx, e, sx, S, time);
       else drawActor(ctx, e, sx, e.y - (e.lift || 0), e.flash > 0);
       if (!e.boss) drawEnemyPip(ctx, e, sx);
+      /* A hunt target has to be findable across a room, or the mission
+         is a purge with extra steps: a ring under it and a caret over
+         its head, in the one colour nothing else in the level uses. */
+      if (e.isTarget) {
+        const ty = e.y - (e.lift || 0);
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalAlpha = 0.30 + 0.16 * Math.sin(time * 3.4);
+        ctx.strokeStyle = '#ff3b6e';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.ellipse(sx, ty + 1, e.w * 1.1, 3.4, 0, 0, TAU);
+        ctx.stroke();
+        ctx.restore();
+        const bob = Math.sin(time * 3) * 1.6;
+        ctx.fillStyle = '#ff3b6e';
+        ctx.beginPath();
+        ctx.moveTo(sx - 3, ty - e.h - 11 + bob);
+        ctx.lineTo(sx + 3, ty - e.h - 11 + bob);
+        ctx.lineTo(sx, ty - e.h - 6 + bob);
+        ctx.closePath();
+        ctx.fill();
+      }
     }
 
     for (const g of M.gibs) drawGib(ctx, g, S);
@@ -382,6 +411,65 @@ window.RENDER = (function () {
     const sy = A.y - ((time * 26 + A.shimmer * 9) % h);
     ctx.fillStyle = hexA(col, 0.35);
     ctx.fillRect(Math.round(ax - w / 2), Math.round(sy), w, 1);
+  }
+
+  /* A demolition charge: a satchel with a countdown light on it,
+     bright enough to find from across a room because the objective
+     line has already told you to. */
+  function drawCharge(ctx, c, S) {
+    const sx = c.x - S;
+    if (sx < -30 || sx > LV.W + 30) return;
+    if (c.dead) {
+      // the scorch it leaves, so a cleared charge still reads
+      ctx.fillStyle = 'rgba(10,8,7,.75)';
+      ctx.fillRect(Math.round(sx) - 7, Math.round(c.y) - 3, 14, 3);
+      return;
+    }
+    const y = Math.round(c.y);
+    ctx.fillStyle = '#22262a';
+    ctx.fillRect(Math.round(sx) - 5, y - 9, 10, 9);
+    ctx.fillStyle = '#3a4046';
+    ctx.fillRect(Math.round(sx) - 5, y - 9, 10, 2);
+    ctx.fillStyle = '#12161a';
+    ctx.fillRect(Math.round(sx) - 3, y - 7, 6, 4);
+    const blink = Math.sin(c.t * 5) > -0.2;
+    ctx.fillStyle = blink ? '#ff3b30' : '#5a1a18';
+    ctx.fillRect(Math.round(sx) - 1, y - 6, 2, 2);
+    if (blink) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      const g = ctx.createRadialGradient(sx, y - 5, 0, sx, y - 5, 16);
+      g.addColorStop(0, 'rgba(255,60,48,.32)');
+      g.addColorStop(1, 'rgba(255,60,48,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(sx - 16, y - 21, 32, 32);
+      ctx.restore();
+    }
+  }
+
+  /* The cache a recovery is after: a case on a stand, lit so it reads
+     as the thing in the room worth crossing it for. */
+  function drawCache(ctx, c, S) {
+    const sx = c.x - S;
+    if (sx < -40 || sx > LV.W + 40) return;
+    const y = Math.round(c.y);
+    const bob = Math.sin(c.t * 1.8) * 1.5;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const g = ctx.createRadialGradient(sx, y - 12, 0, sx, y - 12, 30);
+    g.addColorStop(0, 'rgba(110,220,255,.28)');
+    g.addColorStop(1, 'rgba(110,220,255,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(sx - 30, y - 42, 60, 60);
+    ctx.restore();
+    ctx.fillStyle = '#1a2026';
+    ctx.fillRect(Math.round(sx) - 6, y - 4, 12, 4);
+    ctx.fillStyle = '#2c353d';
+    ctx.fillRect(Math.round(sx) - 8, Math.round(y - 16 + bob), 16, 11);
+    ctx.fillStyle = '#4a5a66';
+    ctx.fillRect(Math.round(sx) - 8, Math.round(y - 16 + bob), 16, 2);
+    ctx.fillStyle = '#6edcff';
+    ctx.fillRect(Math.round(sx) - 5, Math.round(y - 12 + bob), 10, 2);
   }
 
   /* ============================================================
@@ -833,11 +921,24 @@ window.RENDER = (function () {
     ctx.fillStyle = acc;
     ctx.fillRect(bx + Math.round(px * 118), 12, 2, 6);
 
+    /* The objective. Under the extraction bar because that is the bar
+       it gates: the pad does not open until this line says it does. */
+    {
+      const line = M.objectiveText ? M.objectiveText() : null;
+      if (line) {
+        const ready = M.objectiveReady();
+        const blink = ready ? (0.65 + 0.35 * Math.sin(time * 5)) : 1;
+        text(ctx, line, HUD_W / 2, 20,
+             hexA(ready ? '#4ad07a' : '#ffd06b', blink), 'center');
+      }
+    }
+
     /* which sector of the campaign this is */
     if (M.campaign) {
       const C = M.campaign;
       const lab = 'SECTOR ' + String(M.sector).padStart(2, '0') + ' / ' + String(C.total).padStart(2, '0');
-      text(ctx, lab, HUD_W / 2, 20, hexA(acc, 0.85), 'center');
+      const y2 = (M.objectiveText && M.objectiveText()) ? 27 : 20;
+      text(ctx, lab, HUD_W / 2, y2, hexA(acc, 0.85), 'center');
     }
 
     /* What the wardens have grafted on. Under the weapon panel rather
@@ -1163,5 +1264,5 @@ window.RENDER = (function () {
   return { frame, entityPass, hud, worldHud, overlay, text, bar, hexA, FONT,
            HUD_W, HUD_H, HUD_S,
            drawCrawler, drawSlime, drawGib, drawBody, drawVapor,
-           drawStasis, drawAllyPip, drawWarden, dialogBox };
+           drawStasis, drawAllyPip, drawWarden, drawCharge, drawCache, dialogBox };
 })();

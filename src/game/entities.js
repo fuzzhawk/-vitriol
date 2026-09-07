@@ -443,6 +443,12 @@ window.ENTITIES = (function () {
 
   Enemy.prototype.kill = function (out, silent) {
     this.dead = true; this.deathT = 0;
+    /* Counted HERE, not at the call sites. A body can die to a round,
+       a chain arc, a fire it was already carrying, a blast it was
+       standing next to, a thrown crate, or the floor running out — and
+       every one of those used to be a separate place that remembered
+       (or forgot) to increment the counter. */
+    if (out && out.countKill) out.countKill(this, null, silent);
     if (!silent) {
       out.explode(this.x, this.y - this.h * 0.5,
         this.rig.params.colAccent, this.rig.params.colVisor, this.A.label === 'HEAVY' ? 1.8 : 1);
@@ -495,7 +501,11 @@ window.ENTITIES = (function () {
      decide otherwise, and a stray round shouldn't rob you of one. */
   Ally.prototype.hurt = function (n) {
     if (this.frozen) return false;
-    return Player.prototype.hurt.call(this, n);
+    /* An escort is the objective, not a soldier: it takes a fraction
+       of what lands on it. Losing one has to be possible or the
+       mission is not a mission — but it has to be something you did,
+       not something the spawn table did to you. */
+    return Player.prototype.hurt.call(this, this.timid ? n * 0.35 : n);
   };
 
   Ally.prototype.step = function (world, player, dt, out) {
@@ -777,6 +787,7 @@ window.ENTITIES = (function () {
   Crawler.prototype.kill = function (out, silent) {
     this.dead = true; this.deathT = 0;
     for (const l of this.limbs) { l.state = 'idle'; l.anchor = null; l.cast = null; }
+    if (out && out.countKill) out.countKill(this, null, silent);
     if (!silent) {
       out.gib(this, 16);
       out.burst(this);
@@ -1015,6 +1026,7 @@ window.ENTITIES = (function () {
     this.dead = true; this.deathT = 0;
     if (this.grab) { this.grab.held = null; this.grab.wake(); this.grab = null; }
     for (const l of this.limbs) { l.state = 'idle'; l.anchor = null; l.cast = null; }
+    if (out && out.countKill) out.countKill(this, null, silent);
     if (!silent) out.onOverlordDeath(this);
   };
 

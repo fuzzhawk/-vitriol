@@ -44,7 +44,10 @@ window.PILOT = (function () {
     faceBand: 34,        // a threat within this much height is in our face
     probeWindow: 0.5,    // how often to ask whether we are getting anywhere
     probeMove: 9,        // ...and how far counts as getting somewhere
-    edge: 16             // jump a pit from this close to its lip, not on sight
+    edge: 16,            // jump a pit from this close to its lip, not on sight
+    standoff: 34,        // how far back to stand when shooting a fixed thing
+    timidGap: 46,        // how far behind the player a passenger walks
+    landLead: 20         // spend the air jump this far above the far ledge
   };
 
   function Pilot(actor, opts) {
@@ -71,6 +74,7 @@ window.PILOT = (function () {
     this.probeX = actor.x;
     this.probeT = 0;
     this.launchY = actor.y;    // the height we last had ground under us
+    this.landY = 999;          // ...and the height of the far side of the hole ahead
   }
 
   /* ---------------- perception ---------------- */
@@ -79,6 +83,26 @@ window.PILOT = (function () {
   Pilot.prototype.pickTarget = function (M) {
     const a = this.a;
     let best = null, bd = CFG.engageRange * CFG.engageRange;
+    /* A demolition charge is not a hostile, but on a sabotage it is
+       the thing to be shooting at — and it does not shoot back, so it
+       is checked first and taken whenever one is in range. Wrapped in
+       the shape of an actor so the aiming code below needs no special
+       case for it. */
+    const O = M.obj;
+    if (O && !O.done && O.kind === 'sabotage') {
+      let bc = null, bcd = CFG.engageRange;
+      for (const c of O.charges) {
+        if (c.dead) continue;
+        const d = Math.hypot(c.x - a.x, (c.y - 6) - (a.y - a.h * 0.5));
+        if (d > bcd) continue;
+        if (!M.world.canSee(a.x, a.y - a.h * 0.6, c.x, c.y - 6)) continue;
+        bcd = d; bc = c;
+      }
+      if (bc) {
+        return { x: bc.x, y: bc.y - 5, h: 10, w: 10, vx: 0, vy: 0,
+                 dead: false, kind: 'charge', isCharge: true, charge: bc };
+      }
+    }
     for (const e of M.enemies) {
       if (e.dead) continue;
       const ey = (e.kind === 'crawler' || e.kind === 'overlord') ? e.y : e.y - e.h * 0.5;
@@ -99,6 +123,26 @@ window.PILOT = (function () {
     const a = this.a;
     if (this.o.follow) {
       const P = M.player;
+      /* A timid follower keeps the player between itself and whatever
+         is downrange, and hangs further back. An escort that walks
+         shoulder to shoulder into a firefight is a countdown, not a
+         passenger. */
+      if (this.o.timid) {
+        /* Walk the ground the player walked, a fixed lag behind. A
+           follower that aims at a point behind the player's shoulder
+           walks off the ledge the player just jumped; one that follows
+           the breadcrumbs goes where somebody has already been. */
+        const tr = M.trail;
+        if (tr && tr.length) {
+          let acc = 0;
+          for (let i = tr.length - 1; i > 0; i--) {
+            acc += Math.abs(tr[i].x - tr[i - 1].x) + Math.abs(tr[i].y - tr[i - 1].y);
+            if (acc >= CFG.timidGap) return { x: tr[i - 1].x, y: tr[i - 1].y, soft: true };
+          }
+          return { x: tr[0].x, y: tr[0].y, soft: true };
+        }
+        return { x: P.x, y: P.y, soft: true };
+      }
       // hold a loose formation slot rather than standing on the player
       const side = this.o.slot || 1;
       return { x: P.x - side * 26, y: P.y, soft: true };
@@ -110,6 +154,48 @@ window.PILOT = (function () {
       if (W.spent) continue;
       const d = Math.abs(W.x - a.x);
       if (d < 260 && W.x > a.x - 40) return { x: W.x, y: W.y, warden: W };
+    }
+
+    /* The objective, when there is one. A pilot that walks to the pad
+       on a purge stands on a cold pad until the clock runs out, so it
+       has to know what the mission is actually asking for. */
+    const O = M.obj;
+    if (O && !O.done) {
+      if (O.kind === 'sabotage') {
+        let bestC = null, bcd = 1e9;
+        for (const c of O.charges) {
+          if (c.dead) continue;
+          const d = Math.abs(c.x - a.x);
+          if (d < bcd) { bcd = d; bestC = c; }
+        }
+        /* Stand off a little rather than on top of it: a body aiming
+           straight down at its own boots does not get a clean line, and
+           the muzzle is at chest height. */
+        if (bestC) {
+          const side = bestC.x >= a.x ? -1 : 1;
+          return { x: bestC.x + side * CFG.standoff, y: bestC.y, charge: bestC };
+        }
+      }
+      if (O.kind === 'recover' && O.cache && !O.cache.taken) {
+        return { x: O.cache.x, y: O.cache.y, cache: O.cache };
+      }
+      if (O.kind === 'hunt' && O.target && !O.target.dead) {
+        const t = O.target;
+        const ty = (t.kind === 'crawler' || t.kind === 'overlord') ? t.y : t.y - t.h * 0.5;
+        return { x: t.x, y: ty, chase: t };
+      }
+      if (O.kind === 'purge') {
+        /* work toward whatever is still standing, nearest first */
+        let bestE = null, bed = 1e9;
+        for (const e of M.enemies) {
+          if (e.dead) continue;
+          const d = Math.abs(e.x - a.x);
+          if (d < bed) { bed = d; bestE = e; }
+        }
+        if (bestE) return { x: bestE.x, y: bestE.y, chase: bestE };
+      }
+      /* survive and escort both want you near the pad and alive, which
+         is what the default goal already does */
     }
 
     // something worth a detour, if it is roughly on the way
@@ -161,11 +247,12 @@ window.PILOT = (function () {
       if (!this.floorAt(M, x, y)) { firstHole = d; break; }
     }
     this.holeAt = firstHole < 0 ? 999 : firstHole;
+    this.landY = 999;
     if (firstHole < 0) return 0;
     for (let d = firstHole; d <= 130; d += 5) {
       const x = a.x + dir * d;
       const g = this.floorAt(M, x, y);
-      if (g) return d - firstHole;          // width of the hole
+      if (g) { this.landY = g.y; return d - firstHole; }   // width of the hole
     }
     return 999;                              // nothing on the far side within reach
   };
@@ -215,7 +302,9 @@ window.PILOT = (function () {
     }
 
     /* --- who to shoot --- */
-    if (this.retarget <= 0 || !this.target || this.target.dead) {
+    if (this.o.timid) {
+      this.target = null;
+    } else if (this.retarget <= 0 || !this.target || this.target.dead) {
       this.retarget = 0.25;
       this.target = this.pickTarget(M);
     }
@@ -301,7 +390,9 @@ window.PILOT = (function () {
        `dir` is how a body ends up standing forever under the deck it
        was trying to reach. */
     if (this.unstickT <= 0) {
-      const gap = dir !== 0 ? this.gapAhead(M, dir) : 0;
+      let gap = 0;
+      if (dir !== 0) gap = this.gapAhead(M, dir);
+      else { this.holeAt = 999; this.landY = 999; }
       const wall = dir !== 0 && M.world.solidAt(a.x + dir * (a.w * 0.5 + 4), a.y - 8, false);
       const stepUp = dir !== 0 && M.world.solidAt(a.x + dir * (a.w * 0.5 + 4), a.y - 3, false);
 
@@ -319,27 +410,36 @@ window.PILOT = (function () {
         }
       } else if (!a.ground && a.airJumps > 0) {
         const below = this.floorAt(M, a.x, a.y);
-        if (a.vy > 0.4 && a.hitWall) {
-          // Sliding down the face of a ledge we undershot. Spend the
-          // air jump NOW — deliberately ignoring the cooldown, because
-          // every frame of the slide is height we will not get back and
-          // riding it down is how a run ends in the pit at the foot of
-          // the wall.
+        /* The height of the thing we are trying to land on. The far
+           side of the hole ahead when we can see one, and otherwise the
+           height we last left the ground at.
+
+           Which of the two it is matters more than it looks. A body at
+           the top of its arc is still above everything it might land
+           on, so "is there floor under me" says no even when it is
+           sailing comfortably towards a ledge; spending the air jump
+           there buys height it does not need and carries it clean over
+           the ledge into the NEXT pit. So the jump waits for the body
+           to come down to the level of its landing. Launch height used
+           to stand in for that, and it is the same number whenever you
+           jump a pit in the floor — but step off a catwalk and it is
+           sixty pixels of sky above the ledge you are crossing to, and
+           waiting to fall back to it means waiting until you are
+           already below the ledge, hitting its face and sliding into
+           the pit. Which is exactly what a body does when you ask it to
+           wait for a height it left behind on the way down. */
+        const ref = this.landY < 900 ? this.landY : this.launchY;
+        const short = a.vy > 0.6 && !below && a.y > ref - CFG.landLead;
+        if ((a.vy > 0.4 && a.hitWall) || short) {
+          /* Falling with nothing underneath, level with our landing —
+             or already sliding down the face of a ledge we undershot.
+             Spend the air jump NOW, deliberately ignoring the cooldown:
+             every frame of the fall is height we will not get back, and
+             riding it down is how a run ends in the pit at the foot of
+             the wall. */
           input.jumpPressed = true; this.jumpCool = 0.3;
         } else if (this.jumpCool > 0) {
           /* still on cooldown for the non-urgent cases */
-        } else if (a.vy > 0.6 && !below && a.y > this.launchY - 4) {
-          /* Falling, with nothing under us, having come back down to
-             the height we jumped from. That last part is the whole
-             rule. A body at the top of its arc is still above
-             everything it might land on, so "is there floor under me"
-             says no even when it is sailing comfortably towards a
-             ledge; spending the air jump there buys height it does not
-             need and carries it clean over the ledge into the NEXT
-             pit. Launch height is the first moment the question has an
-             answer, and waiting costs nothing — the jump is still
-             there, and by then it has travelled further. */
-          input.jumpPressed = true; this.jumpCool = 0.3;
         } else if (wantUp && a.vy > -1.4 && (a.y - this.goal.y) > 30) {
           // rising has run out and we are still short of the deck
           input.jumpPressed = true; this.jumpCool = 0.3;
