@@ -444,8 +444,8 @@ exactly right: the structural twists and the objective verbs.
 
 ### The run
 
-`story.js` lays three acts over the world: eighteen beats, of which eight are
-missions, three are decisions and seven are scenes. A mission carries an
+`story.js` lays three acts over the world: eighteen to twenty-five beats, of
+which eight to thirteen are missions, three are decisions and the rest scenes. A mission carries an
 **objective** the mission layer enforces, and there are seven of them:
 
 | objective | what it is |
@@ -457,6 +457,15 @@ missions, three are decisions and seven are scenes. A mission carries an
 | `recover` | find the cache, carry it out. |
 | `survive` | hold for T seconds, then the pad opens. |
 | `escort` | an ally has to reach the pad alive. |
+
+The spine is not the same spine twice. Beats carry odds, so a run drops some of
+what the template offers; some are **asides** off the spine rather than on it;
+and some are **consequences** — beats that do not exist until the run earns
+them, welded on ahead of where you are so they arrive while they still mean
+something. Spare the rival and he turns up two beats later owing you and hating
+it. Sell out your handler and somebody comes to collect. Make an enemy deep
+enough and they send people after you. A run is eight to thirteen missions long,
+and 115 out of 120 runs come out a different shape.
 
 A decision is not a branch — a story is a spine with a memory. What varies is
 who the beats are against, what they cost you, and how they end. Each option

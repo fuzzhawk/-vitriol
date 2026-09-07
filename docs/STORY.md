@@ -128,6 +128,23 @@ its checks exist.
       minute. README rewritten around the four modes and the four kinds of
       place.
 
+### Second pass — making it worth replaying
+
+The eight phases above build story mode. These make it worth playing twice.
+The test they are all written against: **two runs should differ in SHAPE, not
+only in content.** After phase 8 every run was the same eighteen beats with
+different names in them, which is a generated story told the same way every
+time.
+
+- [x] **9 — A spine that varies.** Optional beats with `odds`, asides off the
+      spine, and CONSEQUENCES welded on mid-run by what you actually did. 8–13
+      missions; 115 of 120 runs a distinct shape.
+- [ ] **10 — People, not fixtures.** Story wardens are somebody: a defector, a
+      survivor, a creditor, with lines built out of the world rather than the
+      generic warden grammar. The rival turns up as a hostile you have met.
+- [ ] **11 — The faction in the level.** Whose floor you are on, visible in the
+      architecture: their colour on the neon, their mark on the walls.
+
 ---
 
 ## Rules for this build

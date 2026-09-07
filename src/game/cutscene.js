@@ -121,6 +121,8 @@ window.CUTSCENE = (function () {
     betrayal:     ['transit', 'depot', 'ruin'],
     revelation:   ['sanctum', 'wilds', 'updraft'],
     ending:       ['overlook', 'updraft', 'ruin'],
+    reunion:      ['ruin', 'transit', 'wilds'],
+    gratitude:    ['depot', 'transit', 'overlook'],
     choice:       ['transit', 'depot', 'approach'],
     arrival:      ['approach', 'updraft', 'wilds']
   };
@@ -948,6 +950,75 @@ window.CUTSCENE = (function () {
           'I WILL SLEEP SOMEWHERE WITH A WINDOW.',
           'AND THAT IS ALL ANYONE HERE GETS.',
           'THE REST IS SOMEBODY ELSE\'S SHIFT.'
+        ] }
+      ]
+    },
+    /* --- the scenes that only happen because of something --- */
+    reunion: {
+      title: 'AGAIN',
+      turns: [
+        { who: 'rival', a: [
+          'YOU DID NOT HAVE TO DO THAT.',
+          'I HAVE BEEN LOOKING FOR YOU SINCE.',
+          'EVERYONE I HAVE TOLD SAYS I AM LYING.',
+          'I OWE YOU AND I DO NOT LIKE IT.',
+          'YOU LEFT ME BREATHING. THAT WAS EITHER MERCY OR A MISTAKE.',
+          'I WENT BACK FOR MY ROUNDS. YOU WERE ALREADY GONE.'
+        ], b: [
+          'I HAVE NOT DECIDED WHICH IT WAS.',
+          'SO HERE I AM, BEING USEFUL. IT IS HUMILIATING.',
+          'DO NOT MAKE ME REGRET BEING ALIVE.',
+          'THE FEE IS SETTLED. THIS IS SOMETHING ELSE.',
+          'I AM NOT GOOD AT THIS PART.'
+        ] },
+        { who: 'you', a: [
+          'THEN CALL IT SETTLED.',
+          'YOU WERE OUT OF ROUNDS. IT WAS NOT A FAVOUR.',
+          'I NEEDED SOMEBODY WHO KNEW THE FLOOR.',
+          'DO NOT MAKE IT A SPEECH.',
+          'I HAVE NOT DECIDED EITHER.'
+        ], b: [
+          'WALK BEHIND ME AND WE WILL SEE.',
+          'YOU CAN PAY IT BACK IN THE NEXT ROOM.',
+          'NOBODY IS KEEPING SCORE BUT YOU.',
+          'IT IS DONE. LEAVE IT DONE.'
+        ] },
+        { who: 'rival', a: [
+          'THEN WE GO IN TOGETHER AND SEE WHO IS RIGHT.',
+          'I KNOW A WAY IN THAT IS NOT ON ANYONE\'S PLAN.',
+          'WHATEVER HAPPENS NEXT, I WAS HERE FOR IT.',
+          'IF THIS GOES BADLY, IT WAS STILL BETTER THAN THE FLOOR.',
+          'DO NOT DIE BEFORE I HAVE PAID IT.'
+        ] }
+      ]
+    },
+    gratitude: {
+      title: 'A CREDIT',
+      turns: [
+        { who: 'handler', a: [
+          'SOMEBODY OUT THERE SPEAKS WELL OF YOU. IT IS UNSETTLING.',
+          'THERE IS A CRATE ON YOUR APPROACH WITH NO INVOICE ON IT.',
+          'YOU HAVE MADE A FRIEND. I DID NOT AUTHORISE THAT.',
+          'I HAVE HAD A MESSAGE ABOUT YOU THAT WAS NOT A COMPLAINT.',
+          '%F HAVE STOPPED SHOOTING AT MY PEOPLE. THEY SAY IT IS ABOUT YOU.'
+        ], b: [
+          'DO NOT LET IT GO TO YOUR HEAD. HEADS ARE EXPENSIVE.',
+          'TAKE IT. NOBODY LEAVES ANYTHING TWICE.',
+          'A FRIEND IS A DEBT WITH BETTER MANNERS.',
+          'I HAVE NO IDEA WHAT YOU DID AND I DO NOT WANT ONE.',
+          'IT WILL LAST AS LONG AS IT IS USEFUL TO THEM.'
+        ] },
+        { who: 'you', a: [
+          'THEN LET IT LAST.',
+          'I DID THE JOB. THEY NOTICED.',
+          'YOU SOUND DISAPPOINTED.',
+          'I WILL TAKE THE CRATE.',
+          'PEOPLE ARE ALLOWED TO BE GRATEFUL.'
+        ], b: [
+          'IT IS NOT COMPLICATED.',
+          'YOU COULD TRY IT SOMETIME.',
+          'THAT IS THE WHOLE OF THE MYSTERY.',
+          'AND THEN WE GET BACK TO WORK.'
         ] }
       ]
     },

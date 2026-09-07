@@ -83,10 +83,12 @@ window.STORY = (function () {
       beats: [
         { t: 'scene',   k: 'open',        who: ['handler', 'you'] },
         { t: 'mission', k: 'first',       obj: ['extract', 'hunt'] },
-        { t: 'scene',   k: 'complication', who: ['handler'] },
+        { t: 'scene',   k: 'complication', who: ['handler'], odds: 0.75 },
         { t: 'mission', k: 'contact',     obj: ['purge', 'sabotage', 'extract'] },
+        { t: 'mission', k: 'errand',      obj: ['recover', 'sabotage', 'escort'],
+          odds: 0.45, aside: true },
         { t: 'choice',  k: 'allegiance' },
-        { t: 'mission', k: 'reprisal',    obj: ['survive', 'hunt', 'extract'] }
+        { t: 'mission', k: 'reprisal',    obj: ['survive', 'hunt', 'extract'], odds: 0.8 }
       ]
     },
     {
@@ -94,7 +96,9 @@ window.STORY = (function () {
       beats: [
         { t: 'scene',   k: 'oracle',      who: ['oracle', 'you'] },
         { t: 'mission', k: 'deep',        obj: ['recover', 'sabotage', 'extract'] },
-        { t: 'scene',   k: 'rival',       who: ['rival', 'you'] },
+        { t: 'mission', k: 'debt',        obj: ['purge', 'escort', 'survive'],
+          odds: 0.5, aside: true },
+        { t: 'scene',   k: 'rival',       who: ['rival', 'you'], odds: 0.85 },
         { t: 'mission', k: 'rivalfight',  obj: ['hunt', 'purge'] },
         { t: 'choice',  k: 'mercy' },
         { t: 'scene',   k: 'betrayal',    who: ['handler', 'you'] },
@@ -106,11 +110,45 @@ window.STORY = (function () {
       beats: [
         { t: 'scene',   k: 'revelation',  who: ['oracle', 'you'] },
         { t: 'mission', k: 'approach',    obj: ['sabotage', 'recover', 'purge'] },
+        { t: 'mission', k: 'threshold',   obj: ['survive', 'purge', 'hunt'],
+          odds: 0.5, aside: true },
         { t: 'choice',  k: 'final' },
         { t: 'mission', k: 'confront',    obj: ['hunt'], boss: true },
         { t: 'scene',   k: 'ending',      who: ['you'] }
       ]
     }
+  ];
+
+  /* ============================================================
+     BEATS THAT ONLY HAPPEN BECAUSE OF SOMETHING.
+
+     The acts above are the spine. These are what gets welded onto it
+     by what the run has actually done: a rival you spared comes back,
+     a faction you sold out sends somebody, a handler you refused has
+     a second conversation. They are laid in after the fact, at the
+     first beat past the one that earned them, so a story can grow a
+     limb it did not start with.
+
+     `when` is asked once, after every choice and every mission, and
+     is given the story. `after` says how far past the current beat to
+     splice it. Each may fire once.
+     ============================================================ */
+  const CONSEQUENCES = [
+    { id: 'reunion', after: 2,
+      when: S => S.flag('spared') && S.world.rival.alive !== false,
+      beat: { t: 'scene', k: 'reunion', who: ['rival', 'you'] } },
+    { id: 'debtcall', after: 1,
+      when: S => S.flag('bought'),
+      beat: { t: 'mission', k: 'collected', obj: ['escort', 'recover'], aside: true } },
+    { id: 'reprisal2', after: 1,
+      when: S => S.rep.some(r => r <= -4),
+      beat: { t: 'mission', k: 'hunted', obj: ['survive', 'purge'], aside: true } },
+    { id: 'thankyou', after: 2,
+      when: S => S.rep.some(r => r >= 4),
+      beat: { t: 'scene', k: 'gratitude', who: ['handler', 'you'] } },
+    { id: 'confession', after: 1,
+      when: S => S.flag('silent') || S.flag('robbed'),
+      beat: { t: 'scene', k: 'complication', who: ['handler'] } }
   ];
 
   /* ============================================================
@@ -292,11 +330,33 @@ window.STORY = (function () {
     let bagAt = 0;
     const nextPlace = () => bag[(bagAt++) % bag.length];
 
-    /* --- lay the spine --- */
+    /* --- lay the spine ---
+       Not every beat in the template survives the roll. A beat with
+       `odds` is optional, and a run that drops one is a run with a
+       different shape rather than the same eighteen with different
+       names in them. The bones are safe: an act keeps its opening
+       scene, its decision and at least two missions, because those
+       are the parts that make it an act. */
     let mission = 0;
     for (const act of ACTS) {
+      const keep = [];
+      let kept = 0;
       for (const tmpl of act.beats) {
+        if (tmpl.odds !== undefined && !R.chance(tmpl.odds)) continue;
+        keep.push(tmpl);
+        if (tmpl.t === 'mission') kept++;
+      }
+      /* If the roll left an act too thin to be one, put back the
+         optional missions it dropped, nearest the front first. */
+      for (const tmpl of act.beats) {
+        if (kept >= 2) break;
+        if (tmpl.t !== 'mission' || keep.indexOf(tmpl) >= 0) continue;
+        keep.splice(act.beats.indexOf(tmpl), 0, tmpl);
+        kept++;
+      }
+      for (const tmpl of keep) {
         const beat = { act: act.n, actName: act.name, type: tmpl.t, kind: tmpl.k,
+                       aside: !!tmpl.aside,
                        i: story.beats.length };
         if (tmpl.t === 'mission') {
           const place = nextPlace();
@@ -327,10 +387,81 @@ window.STORY = (function () {
       }
     }
     story.missions = mission;
+    story.fired = {};             // which consequences have already been welded on
+
+    /* ------------------------------------------------------------
+       Splice in whatever the run has earned. Called after anything
+       that could change the answer — a decision taken, a mission
+       finished — and asked of every consequence that has not already
+       fired.
+
+       Inserted AHEAD of where you are rather than appended, so a
+       consequence arrives while it still means something: a rival you
+       spared turning up in the last scene of the run is a footnote,
+       and one turning up two beats later is a story.
+       ------------------------------------------------------------ */
+    story.consequences = function () {
+      let added = 0;
+      for (const C of CONSEQUENCES) {
+        if (story.fired[C.id]) continue;
+        let want = false;
+        try { want = !!C.when(story); } catch (e) { want = false; }
+        if (!want) continue;
+        /* Ahead of where the run is, and never past the ending: a
+           consequence that lands after the last scene is a beat
+           nobody plays, and a story that carries on after it has
+           finished is not a story. */
+        let last = story.beats.length;
+        for (let i = story.beats.length - 1; i >= 0; i--) {
+          if (story.beats[i].kind === 'ending') { last = i; break; }
+        }
+        const at = Math.min(last, story.at + Math.max(1, C.after));
+        if (at <= story.at) continue;
+        story.fired[C.id] = true;
+        const cur = story.beats[Math.max(0, at - 1)] || story.beats[story.at];
+        const beat = { act: cur.act, actName: cur.actName,
+                       type: C.beat.t, kind: C.beat.k, aside: !!C.beat.aside,
+                       consequence: C.id, i: at };
+        if (C.beat.t === 'mission') {
+          const place = nextPlace();
+          const foe = W.facById(place.owner);
+          beat.place = place.id;
+          beat.foe = foe.id;
+          beat.objective = R.pick(C.beat.obj);
+          beat.boss = false;
+          beat.target = null;
+          if (beat.objective === 'survive') beat.seconds = R.int(45, 80);
+          if (beat.objective === 'sabotage') beat.charges = R.int(3, 4);
+        } else if (C.beat.t === 'choice') {
+          beat.template = C.beat.k;
+        } else {
+          beat.who = (C.beat.who || ['you']).slice();
+        }
+        story.beats.splice(at, 0, beat);
+        /* Indices are how a beat is looked back up, so they have to
+           stay true to their position — and mission numbers have to
+           stay in the order you play them, or a briefing spliced in at
+           beat five announces itself as mission nine. Both are safe to
+           rewrite here because the splice is always AHEAD of where the
+           run is: nothing already logged moves. */
+        let n = 0;
+        for (let i = 0; i < story.beats.length; i++) {
+          story.beats[i].i = i;
+          if (story.beats[i].type === 'mission') story.beats[i].n = ++n;
+        }
+        story.missions = n;
+        added++;
+      }
+      return added;
+    };
 
     /* ---------------- reading the run ---------------- */
 
-    story.current = () => story.beats[story.at] || null;
+    /* Where the run is. Null once it is over — a story that keeps
+       handing back its last beat is a story a caller will play
+       forever, and every loop that walks the spine would need the same
+       guard bolted onto it separately. */
+    story.current = () => story.done ? null : (story.beats[story.at] || null);
 
     story.ctxFor = function (beat) {
       if (!beat) return { W };
@@ -623,6 +754,7 @@ window.STORY = (function () {
         else if (who === 'wanter') story.shiftRep(W.artifact.wantedBy, op.rep[who]);
         else if (who === 'rival') { W.rival.standing += op.rep[who]; if (op.rep[who] < -2) W.rival.alive = false; }
       }
+      story.consequences();
       story.log.push({ i: beat.i, kind: 'choice', template: beat.template,
                        chose: op.id, line: op.line });
       story.advance();
@@ -658,6 +790,7 @@ window.STORY = (function () {
       story.log.push({ i: beat.i, kind: 'mission', n: beat.n,
                        place: beat.place, objective: beat.objective,
                        won: !!res.won, kills: res.kills, deaths: res.deaths });
+      story.consequences();
       story.advance();
       return true;
     };

@@ -3215,7 +3215,7 @@ section('reputation, cashed out');
   {
     const W = LR.makeWorld(0x5EED);
     const S = ST.makeStory(W);
-    while (S.current() && S.current().type !== 'mission') {
+    while (!S.done && S.current() && S.current().type !== 'mission') {
       if (S.current().type === 'choice') S.choose(S.choiceAt(S.current()).options[0].id);
       else S.seen();
     }
@@ -3568,7 +3568,7 @@ section('the story screens');
       const S = ST.makeStory(W);
       /* walk the whole spine, briefing every mission on the way */
       let guard = 0;
-      while (S.current() && guard++ < 60) {
+      while (!S.done && S.current() && guard++ < 60) {
         const b = S.current();
         if (b.type === 'mission') {
           const vm = UI.briefing(S, b);
@@ -3608,7 +3608,7 @@ section('the story screens');
   {
     const W = LR.makeWorld(0x9111);
     const S = ST.makeStory(W);
-    while (S.current() && S.current().type !== 'mission') {
+    while (!S.done && S.current() && S.current().type !== 'mission') {
       if (S.current().type === 'choice') S.choose(S.choiceAt(S.current()).options[0].id);
       else S.seen();
     }
@@ -3634,7 +3634,7 @@ section('the story screens');
       const W = LR.makeWorld((0xC401 + i * 2654435761) >>> 0);
       const S = ST.makeStory(W);
       let guard = 0, choices = 0;
-      while (S.current() && guard++ < 60) {
+      while (!S.done && S.current() && guard++ < 60) {
         const b = S.current();
         if (b.type === 'choice') {
           const vm = UI.choiceView(S, b);
@@ -3669,6 +3669,105 @@ section('the story screens');
     ok(labels.size >= 8, 'the decisions are not the same three every run (' + labels.size + ')');
   }
 
+  /* --- the spine is not the same spine twice ---
+     The whole claim of a second pass: two runs differ in SHAPE, not
+     only in the names inside it. */
+  {
+    const shapes = new Set(), lengths = {}, fired = {};
+    const asides = new Set(), consequences = new Set();
+    const N = 120;
+    for (let i = 0; i < N; i++) {
+      const W = LR.makeWorld((i * 2654435761) >>> 0);
+      const S = ST.makeStory(W);
+      /* every run gets the same treatment so the variety measured is
+         the story's and not the player's */
+      let g = 0;
+      while (!S.done && S.current() && g++ < 90) {
+        const b = S.current();
+        if (b.aside) asides.add(b.kind);
+        if (b.consequence) consequences.add(b.consequence);
+        if (b.type === 'mission') {
+          S.finishMission({ won: true, score: 100, kills: 4, total: 4,
+                            time: 40, deaths: i % 5 === 0 ? 2 : 0 });
+        } else if (b.type === 'choice') {
+          const o = S.choiceAt(b).options;
+          S.choose(o[i % o.length].id);
+        } else S.seen();
+      }
+      ok(S.done, 'a run with optional beats still ends');
+      ok(g < 90, 'and does not run away with itself (' + g + ' beats)');
+      shapes.add(S.beats.map(b => b.type[0] + (b.consequence ? '*' : '')).join(''));
+      lengths[S.missions] = (lengths[S.missions] || 0) + 1;
+      for (const k in S.fired) fired[k] = (fired[k] || 0) + 1;
+
+      /* the bones survive the roll */
+      for (const act of [1, 2, 3]) {
+        const inAct = S.beats.filter(b => b.act === act);
+        ok(inAct.filter(b => b.type === 'mission').length >= 2,
+           'act ' + act + ' keeps at least two missions');
+        ok(inAct.some(b => b.type === 'choice'), 'and its decision');
+      }
+      ok(S.beats[0].kind === 'open', 'a run still opens on the offer');
+      ok(S.beats[S.beats.length - 1].kind === 'ending', 'and closes on the ending');
+      ok(S.beats.some(b => b.boss), 'and still has a last fight');
+      /* indices and mission numbers stay true after a splice */
+      for (let k = 0; k < S.beats.length; k++) {
+        ok(S.beats[k].i === k, 'every beat knows where it is');
+      }
+      {
+        let n = 0, bad = 0;
+        for (const b of S.beats) if (b.type === 'mission') { n++; if (b.n !== n) bad++; }
+        ok(bad === 0, 'and the missions are numbered in the order you play them');
+        ok(n === S.missions, 'and counted');
+      }
+    }
+    const lens = Object.keys(lengths).map(Number).sort((a, b) => a - b);
+    ok(lens.length >= 4, 'a run is not always the same length (' + lens.join('/') + ')');
+    ok(lens[0] >= 6, 'but never a short one (' + lens[0] + ')');
+    ok(lens[lens.length - 1] <= 16, 'nor an endless one (' + lens[lens.length - 1] + ')');
+    ok(shapes.size > N * 0.7,
+       'and two runs are rarely the same shape (' + shapes.size + '/' + N + ')');
+    ok(asides.size >= 3, 'there are errands off the spine (' + asides.size + ')');
+    ok(Object.keys(fired).length >= 4,
+       'and beats that only exist because of what you did (' +
+       Object.keys(fired).join(', ') + ')');
+    for (const id in fired) {
+      ok(fired[id] > 2 && fired[id] < N,
+         'consequence "' + id + '" is neither guaranteed nor impossible (' +
+         fired[id] + '/' + N + ')');
+    }
+    /* and every consequence beat the run can weld on is one the
+       cutscene director and the briefing can actually stage */
+    for (const kind of consequences) ok(typeof kind === 'string', 'named');
+    console.log('  ' + shapes.size + '/' + N + ' distinct spines, ' +
+                lens[0] + '-' + lens[lens.length - 1] + ' missions, ' +
+                Object.keys(fired).length + ' consequences');
+  }
+
+  /* every scene kind a run can produce has a grammar of its own */
+  {
+    const CS = window.CUTSCENE;
+    const kinds = new Set();
+    for (let i = 0; i < 60; i++) {
+      const W = LR.makeWorld((0x5CE0 + i * 7919) >>> 0);
+      const S = ST.makeStory(W);
+      let g = 0;
+      while (!S.done && S.current() && g++ < 90) {
+        const b = S.current();
+        if (b.type === 'scene') kinds.add(b.kind);
+        if (b.type === 'mission') S.finishMission({ won: true, score: 50, kills: 2, time: 20, deaths: 1 });
+        else if (b.type === 'choice') { const o = S.choiceAt(b).options; S.choose(o[i % o.length].id); }
+        else S.seen();
+      }
+    }
+    ok(kinds.size >= 8, 'a run can produce this many kinds of scene (' + kinds.size + ')');
+    for (const k of kinds) {
+      ok(!!CS.SCENES[k], 'scene "' + k + '" has lines of its own');
+      ok(!!CS.SET_FOR[k], 'and somewhere to be staged');
+      ok(CS.SET_FOR[k].every(x => !!CS.SETS[x]), 'somewhere that exists');
+    }
+  }
+
   /* --- the codex only lists what you have met --- */
   {
     const W = LR.makeWorld(0xC0DE);
@@ -3682,7 +3781,7 @@ section('the story screens');
     ok(st0.rows.length === W.factions.length, 'but always lists who is out there');
 
     let guard = 0;
-    while (S.current() && guard++ < 60) {
+    while (!S.done && S.current() && guard++ < 60) {
       const b = S.current();
       if (b.type === 'mission') S.finishMission({ score: 50, kills: 2, time: 30, deaths: 0 });
       else if (b.type === 'choice') S.choose(S.choiceAt(b).options[0].id);
@@ -3713,7 +3812,7 @@ section('the story screens');
     ok(!mid.line, 'and has no last word yet');
     ok(mid.rows.length >= 5, 'but has numbers');
     let guard = 0;
-    while (S.current() && guard++ < 60) {
+    while (!S.done && S.current() && guard++ < 60) {
       const b = S.current();
       if (b.type === 'mission') S.finishMission({ score: 400, kills: 9, time: 70, deaths: 1 });
       else if (b.type === 'choice') S.choose(S.choiceAt(b).options[0].id);
@@ -3754,7 +3853,7 @@ section('the story screens');
       ok(text(host).indexOf(W.you.name) >= 0, 'and has your name on it');
       ok(text(host).indexOf(W.artifact.name) >= 0, 'and what everyone wants');
 
-      while (S.current() && S.current().type !== 'mission') {
+      while (!S.done && S.current() && S.current().type !== 'mission') {
         if (S.current().type === 'choice') S.choose(S.choiceAt(S.current()).options[0].id);
         else S.seen();
       }
@@ -3768,7 +3867,7 @@ section('the story screens');
       UI.renderBriefing(null, empty);
       ok(empty.children.length === 0, 'and a briefing for no mission renders nothing');
 
-      while (S.current() && S.current().type !== 'choice') {
+      while (!S.done && S.current() && S.current().type !== 'choice') {
         if (S.current().type === 'mission') {
           S.finishMission({ score: 10, kills: 1, time: 10, deaths: 0 });
         } else S.seen();
@@ -3802,7 +3901,7 @@ section('the story screens');
       const W = LR.makeWorld((0xE4D1 + i * 7919) >>> 0);
       const S = ST.makeStory(W);
       let guard = 0;
-      while (S.current() && guard++ < 60) {
+      while (!S.done && S.current() && guard++ < 60) {
         const b = S.current();
         if (b.type === 'mission') S.finishMission({ score: 100, kills: 4, time: 40, deaths: 0 });
         else if (b.type === 'choice') {

@@ -107,7 +107,13 @@ window.STORYUI = (function () {
     const rep = story.repEffects ? story.repEffects(foe.id) : null;
 
     const vm = {
-      act: 'ACT ' + roman(b.act) + ' · ' + b.actName,
+      act: 'ACT ' + roman(b.act) + ' · ' + b.actName +
+           /* An errand is not the spine, and saying so is the
+              difference between a run that wanders and one that has
+              somewhere to be. */
+           (b.aside ? ' · ASIDE' : '') +
+           (b.consequence ? ' · CONSEQUENCE' : ''),
+      aside: !!b.aside, consequence: b.consequence || null,
       n: b.n, of: story.missions,
       title: O.label,
       verb: O.verb,
