@@ -107,7 +107,7 @@ its checks exist.
       faction that exists, no faction at war with itself).
 - [x] **2 — The run.** `story.js`: acts, beats, objectives, choices,
       reputation, character traits. Mission layer enforces objectives.
-- [ ] **3 — Cutscenes.** `cutscene.js` + director + renderer.
+- [x] **3 — Cutscenes.** `cutscene.js` + director + renderer.
 - [ ] **4 — Nature.** Vegetation and natural level kinds in GREEBLEWORKS:
       `overgrowth`, `fungal`, `mire`, `frost`. A `bakeFlora` pass.
 - [ ] **5 — New enemies.** Faction unit archetypes with doctrine modifiers.

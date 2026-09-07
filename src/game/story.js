@@ -326,15 +326,35 @@ window.STORY = (function () {
 
     story.ctxFor = function (beat) {
       if (!beat) return { W };
+      /* A scene has no location of its own, but it is almost always
+         about the one coming up — a briefing names the place you are
+         being sent to, and a cutscene staged with %P reading "THE
+         SITE" is a cutscene about nowhere. So a non-mission beat
+         borrows the next mission's place, and its garrison too unless
+         the beat already has a faction of its own to talk about. */
+      let ahead = null;
+      if (beat.type !== 'mission') {
+        for (let i = beat.i; i < story.beats.length; i++) {
+          if (story.beats[i].type === 'mission') { ahead = story.beats[i]; break; }
+        }
+        if (!ahead) {
+          for (let i = beat.i; i >= 0; i--) {
+            if (story.beats[i].type === 'mission') { ahead = story.beats[i]; break; }
+          }
+        }
+      }
       return {
         W,
-        place: beat.place !== undefined ? W.placeById(beat.place) : null,
+        place: beat.place !== undefined ? W.placeById(beat.place)
+             : ahead ? W.placeById(ahead.place) : null,
         /* A choice has no garrison, so %F on one names the faction
            making the offer — otherwise the allegiance prompt offers you
            a job with "THEM". */
         faction: beat.foe !== undefined ? W.facById(beat.foe)
-               : beat.offer !== undefined ? W.facById(beat.offer) : null,
-        target: beat.target ? W.charById(beat.target) : null,
+               : beat.offer !== undefined ? W.facById(beat.offer)
+               : ahead ? W.facById(ahead.foe) : null,
+        target: beat.target ? W.charById(beat.target)
+              : ahead && ahead.target ? W.charById(ahead.target) : null,
         offer: beat.offer !== undefined ? W.facById(beat.offer) : null,
         secondsOrSecret: beat.seconds
       };

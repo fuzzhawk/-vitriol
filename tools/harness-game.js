@@ -44,6 +44,7 @@ const FILES = [
   'src/game/config.js', 'src/game/audio.js', 'src/game/weapons.js',
   'src/game/sprite.js', 'src/game/physics.js', 'src/game/rigid.js',
   'src/game/dialog.js', 'src/game/lore.js', 'src/game/story.js',
+  'src/game/cutscene.js',
   'src/game/campaign.js',
   'src/game/pilot.js', 'src/game/entities.js',
   'src/game/world.js', 'src/game/render.js', 'src/game/screens.js'
@@ -2599,6 +2600,245 @@ section('the run (story)');
     ok(S.rep[beat.foe] >= -6, 'reputation has a floor');
     for (let k = 0; k < 40; k++) S.shiftRep(beat.foe, +3);
     ok(S.rep[beat.foe] <= 6, 'and a ceiling');
+  }
+}
+
+section('the scenes (cutscenes)');
+{
+  const LR = window.LORE, ST = window.STORY, CS = window.CUTSCENE;
+
+  /* --- the sets --- */
+  ok(CS.SET_KEYS.length >= 8, 'there are enough places to stage a scene in');
+  ok(CS.MOOD_KEYS.length >= 8, 'and enough weather to light them by');
+  for (const k of CS.SET_KEYS) {
+    const S = CS.SETS[k];
+    ok(['city', 'interior', 'air', 'nature'].indexOf(S.paint) >= 0,
+       'set "' + k + '" names a painter that exists');
+    ok(S.moods.length > 0 && S.moods.every(m => !!CS.MOODS[m]),
+       'set "' + k + '" only asks for weather that exists');
+    ok(typeof S.label === 'string' && S.label.length > 4, 'set "' + k + '" says where it is');
+  }
+  /* every scene kind has somewhere to be staged, and every staging it
+     could be given is a real one */
+  for (const k of CS.SCENE_KEYS) {
+    const pref = CS.SET_FOR[k];
+    ok(!!pref && pref.length > 0, 'scene "' + k + '" has sets it prefers');
+    for (const p of pref) ok(!!CS.SETS[p], 'scene "' + k + '" prefers a set that exists');
+  }
+  for (const k of CS.STAGING_KEYS) {
+    for (const s of CS.STAGING[k]) {
+      ok(s.at >= -1 && s.at <= 1, 'staging "' + k + '" puts everyone on the stage');
+    }
+  }
+
+  /* determinism and variety of the sets themselves */
+  {
+    const a = CS.makeSet(0xBEEF, { set: 'overlook' });
+    const b = CS.makeSet(0xBEEF, { set: 'overlook' });
+    ok(JSON.stringify(a) === JSON.stringify(b), 'the same seed paints the same set');
+    const c = CS.makeSet(0xBEF0, { set: 'overlook' });
+    ok(JSON.stringify(a) !== JSON.stringify(c), 'a different seed does not');
+  }
+  {
+    const shapes = new Set(), moods = new Set();
+    for (const k of CS.SET_KEYS) {
+      for (let i = 0; i < 24; i++) {
+        const B = CS.makeSet((i * 0x9e3779b9 + k.length) >>> 0, { set: k });
+        ok(B.id === k, 'a set built by name is that set');
+        ok(!!CS.MOODS[B.mood], 'and lit by real weather');
+        ok(B.motes.length > 4, 'and has something in the air');
+        if (B.paint !== 'interior') {
+          ok(B.layers.length === 3, 'an outdoor set has three ranks of depth');
+          let shapeN = 0;
+          for (const L of B.layers) shapeN += L.shapes.length;
+          ok(shapeN > 4, 'and something in each of them');
+        } else {
+          ok(B.rings >= 4 && B.pipes.length > 0 && B.lamps.length > 0,
+             'an interior recedes, and has pipes and a light');
+          ok(B.vp.x > 0.2 && B.vp.x < 0.8, 'with the vanishing point on screen');
+        }
+        moods.add(B.mood);
+        shapes.add(k + ':' + B.layers.length + ':' + B.motes.length);
+      }
+    }
+    ok(moods.size >= 8, 'the sets do not all end up under the same sky (' + moods.size + ')');
+    ok(shapes.size > CS.SET_KEYS.length * 2, 'and no two are laid out the same');
+  }
+
+  /* --- the director --- */
+  const lines = new Set(), sets = new Set(), speakers = new Set(), kinds = new Set();
+  let sceneN = 0, shotN = 0;
+  const NW = 40;
+  for (let i = 0; i < NW; i++) {
+    const W = LR.makeWorld((0x5cee0000 + i * 2654435761) >>> 0);
+    const S = ST.makeStory(W);
+    for (const beat of S.beats) {
+      if (beat.type === 'mission') continue;
+      const ctx = S.ctxFor(beat);
+      const opts = {};
+      if (beat.type === 'choice') opts.prompt = S.choiceAt(beat).prompt;
+      if (beat.kind === 'ending') opts.ending = S.ending().line;
+      const sc = CS.direct(beat, ctx, opts);
+      sceneN++;
+      kinds.add(sc.kind);
+      sets.add(sc.setId);
+      ok(!!CS.SETS[sc.setId], 'a scene is staged somewhere that exists');
+      ok(sc.shots.length >= 2, 'and has an establishing shot and at least one line');
+      ok(sc.shots[0].line === null && !!sc.shots[0].caption,
+         'the first shot is the establishing one');
+      ok(!!sc.card.title && !!sc.card.sub, 'and it carries a card');
+      ok(sc.cast.length >= 1 && sc.cast.length <= 3, 'no more than three people on stage');
+
+      for (let n = 1; n < sc.shots.length; n++) {
+        const sh = sc.shots[n];
+        shotN++;
+        ok(typeof sh.line === 'string' && sh.line.length > 3, 'every staged shot has a line');
+        ok(sh.line.indexOf('%') < 0,
+           'and no unfilled slot in it: ' + JSON.stringify(sh.line));
+        ok(sh.line === sh.line.toUpperCase(), 'spoken in the register of the game');
+        ok(!!sh.speaker && !!sh.speaker.name, 'and somebody says it');
+        ok(sc.cast.length === 0 || sh.cast.length === sc.cast.length,
+           'with the whole cast staged');
+        /* exactly one figure is lit: the one talking */
+        const lit = sh.cast.filter(c => c.dim === 0);
+        ok(lit.length === 1, 'and exactly one of them is in the light');
+        ok(lit.length === 0 || lit[0].char === sh.speaker, 'and it is the one talking');
+        ok(sh.cam.z0 > 0.5 && sh.cam.z1 > 0.5, 'the camera has a move with a scale on it');
+        speakers.add(sh.speaker.name);
+        lines.add(sh.line);
+      }
+    }
+  }
+  ok(kinds.size >= 7, 'every kind of scene in the spine gets staged (' + kinds.size + ')');
+  ok(sets.size >= 6, 'and they are not all staged in the same room (' + sets.size + ')');
+  ok(lines.size > shotN * 0.65,
+     'the grammar does not repeat itself (' + lines.size + '/' + shotN + ' lines distinct)');
+  ok(speakers.size > NW, 'and it is a different cast every run (' + speakers.size + ')');
+  console.log('  ' + sceneN + ' scenes, ' + shotN + ' staged shots, ' +
+              lines.size + ' distinct lines, ' + sets.size + ' sets used');
+
+  /* the same beat in the same world always stages the same way */
+  {
+    const W = LR.makeWorld(0x1234);
+    const S1 = ST.makeStory(W), S2 = ST.makeStory(W);
+    const b1 = S1.beats.find(b => b.type === 'scene');
+    const b2 = S2.beats.find(b => b.type === 'scene');
+    const a = CS.direct(b1, S1.ctxFor(b1)), b = CS.direct(b2, S2.ctxFor(b2));
+    ok(a.shots.map(s => s.line).join('|') === b.shots.map(s => s.line).join('|'),
+       'the same beat in the same world stages identically');
+    const W2 = LR.makeWorld(0x1235);
+    const S3 = ST.makeStory(W2);
+    const b3 = S3.beats.find(b => b.type === 'scene');
+    const c = CS.direct(b3, S3.ctxFor(b3));
+    ok(c.shots.map(s => s.line).join('|') !== a.shots.map(s => s.line).join('|'),
+       'and a different world does not');
+  }
+
+  /* --- the runtime --- */
+  {
+    const W = LR.makeWorld(0xA11CE);
+    const S = ST.makeStory(W);
+    const beat = S.beats.find(b => b.type === 'scene');
+    const sc = CS.direct(beat, S.ctxFor(beat));
+
+    /* on autopilot it plays itself out, and it finishes */
+    const cs = new CS.Cutscene(sc, { auto: true, autoHold: 0.2 });
+    let steps = 0, seen = new Set();
+    while (!cs.done && steps < 60 * 240) { cs.step(1 / 60, false, false); seen.add(cs.i); steps++; }
+    ok(cs.done, 'a cutscene on autopilot reaches its end');
+    ok(seen.size === sc.shots.length, 'having played every shot');
+    ok(steps < 60 * 200, 'without taking all afternoon (' + (steps / 60).toFixed(1) + 's)');
+
+    /* a player mashing the advance key gets through it much faster */
+    const cs2 = new CS.Cutscene(sc, {});
+    let s2 = 0;
+    while (!cs2.done && s2 < 60 * 240) { cs2.step(1 / 60, s2 % 20 === 0, true); s2++; }
+    ok(cs2.done, 'and a player can hurry it along');
+    ok(s2 < steps, 'faster than waiting (' + (s2 / 60).toFixed(1) + 's vs ' + (steps / 60).toFixed(1) + 's)');
+
+    /* skip is absolute */
+    const cs3 = new CS.Cutscene(sc, {});
+    cs3.skip();
+    ok(cs3.done && cs3.skipped, 'and skip ends it outright');
+    ok(cs3.step(1 / 60, false, false) === false, 'and it stays ended');
+
+    /* the camera actually moves */
+    const cs4 = new CS.Cutscene(sc, { auto: true });
+    cs4.step(0.01, false, false);
+    const c0 = cs4.camAt();
+    for (let k = 0; k < 90; k++) cs4.step(1 / 60, false, false);
+    const c1 = cs4.camAt();
+    ok(Math.abs(c0.x - c1.x) > 0.5 || Math.abs(c0.z - c1.z) > 0.01,
+       'and the camera is not nailed down');
+  }
+
+  /* --- it draws --- */
+  {
+    const W = LR.makeWorld(0xF00D);
+    const S = ST.makeStory(W);
+    const beat = S.beats.find(b => b.type === 'scene');
+    const painters = { city: 'overlook', interior: 'sanctum', air: 'updraft', nature: 'wilds' };
+    const cells = [];
+    let bakeMs = 0;
+    for (const paint in painters) {
+      const sc = CS.direct(beat, S.ctxFor(beat), { set: painters[paint] });
+      ok(sc.set.paint === paint, 'a named set uses the painter it claims');
+      const cs = new CS.Cutscene(sc, { auto: true });
+      // step into the first spoken shot, so there are figures on stage
+      for (let k = 0; k < 60 * 4 && cs.i === 0; k++) cs.step(1 / 60, false, false);
+      for (let k = 0; k < 40; k++) cs.step(1 / 60, false, false);
+      const cv = createCanvas(CS.CS_W, CS.CS_H);
+      const cx = cv.getContext('2d');
+      const t0 = Date.now();
+      CS.draw(cx, cs, 2.4);
+      bakeMs += Date.now() - t0;
+      /* a second frame, off the cache, is the one that has to be cheap */
+      const t1 = Date.now();
+      CS.draw(cx, cs, 2.6);
+      const warm = Date.now() - t1;
+      ok(warm < 120, 'a cached cutscene frame is cheap (' + paint + ': ' + warm + 'ms)');
+
+      const d = cx.getImageData(0, 0, CS.CS_W, CS.CS_H).data;
+      let ink = 0, hues = new Set();
+      for (let i = 0; i < d.length; i += 4) {
+        if (d[i] + d[i + 1] + d[i + 2] > 40) ink++;
+        if ((i >> 2) % 97 === 0) hues.add((d[i] >> 4) + ',' + (d[i + 1] >> 4) + ',' + (d[i + 2] >> 4));
+      }
+      ok(ink > CS.CS_W * CS.CS_H * 0.3, 'a ' + paint + ' set draws a picture (' + ink + 'px)');
+      ok(hues.size > 12, 'and it is not one flat colour (' + paint + ': ' + hues.size + ')');
+      /* the letterbox is solid, top and bottom */
+      const topRow = cx.getImageData(0, 4, CS.CS_W, 1).data;
+      let dark = 0;
+      for (let i = 0; i < topRow.length; i += 4) if (topRow[i] + topRow[i + 1] + topRow[i + 2] < 90) dark++;
+      ok(dark > CS.CS_W * 0.8, 'with a letterbox across the top of it (' + paint + ')');
+      cells.push([paint + ' / ' + painters[paint] + ' / ' + sc.set.mood, cv]);
+    }
+    console.log('  first frame of four sets in ' + bakeMs + 'ms (bake included)');
+
+    const sheet = createCanvas(CS.CS_W * 2, CS.CS_H * 2);
+    const sx = sheet.getContext('2d');
+    cells.forEach(([label, cv], i) => {
+      sx.drawImage(cv, (i % 2) * CS.CS_W, Math.floor(i / 2) * CS.CS_H);
+      sx.font = '10px monospace'; sx.fillStyle = '#0af';
+      sx.fillText(label, (i % 2) * CS.CS_W + 6, Math.floor(i / 2) * CS.CS_H + 14);
+    });
+    dump('out_cutscene.png', sheet);
+
+    /* and a strip of one scene playing, so the staging is reviewable */
+    const sc = CS.direct(beat, S.ctxFor(beat));
+    const cs = new CS.Cutscene(sc, { auto: true, autoHold: 0.1 });
+    const strip = createCanvas(CS.CS_W, CS.CS_H * Math.min(4, sc.shots.length));
+    const tx = strip.getContext('2d');
+    for (let n = 0; n < Math.min(4, sc.shots.length); n++) {
+      const target = n;
+      let guard = 0;
+      while (cs.i < target && !cs.done && guard++ < 60 * 60) cs.step(1 / 60, false, false);
+      for (let k = 0; k < 30; k++) cs.step(1 / 60, false, false);
+      const cv = createCanvas(CS.CS_W, CS.CS_H);
+      CS.draw(cv.getContext('2d'), cs, 1.2 + n);
+      tx.drawImage(cv, 0, n * CS.CS_H);
+    }
+    dump('out_cutscene_shots.png', strip);
   }
 }
 
