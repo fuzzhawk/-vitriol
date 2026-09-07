@@ -112,7 +112,10 @@ its checks exist.
       `overgrowth`, `fungal`, `mire`, `frost`. A `floraLayer` painter behind
       the parallax band, a thicket back wall, growth props on the decks, and
       spores that rise instead of falling. Dealt into the campaign cycle.
-- [ ] **5 — New enemies.** Faction unit archetypes with doctrine modifiers.
+- [x] **5 — New enemies.** Five specialist archetypes — `sniper`, `sapper`,
+      `shieldman`, `zealot`, `stalker` — each with behaviour rather than only
+      stats, and a doctrine-weighted roster so a faction's garrison reads as
+      theirs. Faction colour on the troops.
 - [ ] **6 — New weapons and dynamics.** Faction arsenals; reputation effects.
 - [ ] **7 — UI.** Story setup, briefing screen, choice screen, codex, dossier.
 - [ ] **8 — Integration.** Autopilot plays story mode; README; polish pass.
