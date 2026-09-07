@@ -152,15 +152,23 @@ window.STORY = (function () {
     final: {
       prompt: '%S',
       opts: [
+        /* The last decision has to cost the most. `holder` is whoever
+           has the artifact and `wanter` is whoever has been trying to
+           take it off them all run: between them they are everybody
+           with a stake in how this ends, so they are what the ending
+           is priced in. */
         { id: 'burn',    label: 'END IT ANYWAY',
           line: 'Whatever it costs, it stops here.',
-          flag: 'burn', rep: {}, trait: 'unflinching' },
+          flag: 'burn', rep: { holder: -3, wanter: -3, handler: +1 },
+          trait: 'unflinching' },
         { id: 'bargain', label: 'MAKE A DEAL',
           line: 'Everything in this stack has a price. Including this.',
-          flag: 'bargain', rep: {}, trait: 'pragmatist' },
+          flag: 'bargain', rep: { holder: +3, wanter: -3, handler: -2 },
+          trait: 'pragmatist' },
         { id: 'walk',    label: 'WALK AWAY',
           line: 'Some doors are better left where they are.',
-          flag: 'walk', rep: {}, trait: 'survivor' }
+          flag: 'walk', rep: { holder: +1, wanter: -1, handler: -3 },
+          trait: 'survivor' }
       ]
     }
   };
@@ -611,6 +619,8 @@ window.STORY = (function () {
       for (const who in op.rep) {
         if (who === 'handler') { story.shiftRep(W.handler.faction, op.rep[who]); W.handler.standing += op.rep[who]; }
         else if (who === 'offer') story.shiftRep(beat.offer, op.rep[who]);
+        else if (who === 'holder') story.shiftRep(W.artifact.heldBy, op.rep[who]);
+        else if (who === 'wanter') story.shiftRep(W.artifact.wantedBy, op.rep[who]);
         else if (who === 'rival') { W.rival.standing += op.rep[who]; if (op.rep[who] < -2) W.rival.alive = false; }
       }
       story.log.push({ i: beat.i, kind: 'choice', template: beat.template,

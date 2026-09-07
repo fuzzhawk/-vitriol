@@ -190,6 +190,46 @@ button{font:inherit;cursor:pointer}
          text-align:center;animation:autoblink 1s steps(2,end) infinite}
 #db-auto.on{display:block}
 @keyframes autoblink{0%,60%{opacity:1}61%,100%{opacity:.45}}
+
+/* ---------- story ----------
+   One vocabulary for every story screen: the briefing, the decision,
+   the codex and the debrief are the same list of labelled rows under
+   the same headings, because they are all the same document at
+   different points in the run. */
+#scr-story{background:rgba(6,7,8,.94)}
+.story-card{position:relative;z-index:3;width:min(720px,92vw);max-height:88vh;
+  display:flex;flex-direction:column;border:1px solid var(--line2);
+  background:rgba(11,14,15,.98);padding:22px 26px 18px}
+.story-card .acts{display:flex;gap:8px;margin-top:16px;flex:0 0 auto}
+.story-card .acts .big{flex:1}
+#story-body{overflow-y:auto;flex:1;min-height:0;padding-right:6px}
+.st-title{margin:0 0 4px;font-size:14px;letter-spacing:6px;font-weight:700;color:var(--amber)}
+.st-sub{margin:0 0 14px;font-size:10px;letter-spacing:3px;color:var(--dim)}
+.st-act{margin:0 0 6px;font-size:9.5px;letter-spacing:4px;color:#5d6a72}
+.st-brief{margin:0 0 12px;font-size:12px;line-height:1.7;color:var(--ink);
+  border-left:2px solid var(--hot);padding-left:11px}
+.st-body{display:flex;flex-direction:column;gap:14px}
+.st-block{border-top:1px solid #191d1f;padding-top:10px}
+.st-h{margin:0 0 7px;font-size:9.5px;letter-spacing:4px;color:var(--amber);font-weight:700}
+.st-row{display:flex;justify-content:space-between;gap:16px;align-items:baseline;
+  padding:2px 0}
+.st-k{color:var(--ink);font-weight:400;letter-spacing:1.5px;font-size:10.5px}
+.st-v{color:var(--dim);letter-spacing:1.5px;font-size:10px;text-align:right;white-space:nowrap}
+.st-note{margin:1px 0 7px;color:#5d6a72;font-size:10px;line-height:1.6}
+.st-flag{margin:0 0 5px;font-size:10.5px;letter-spacing:2px}
+.t-good{color:var(--good)} .t-ok{color:#8fb} .t-warn{color:var(--amber)}
+.t-bad{color:var(--hot)}   .t-flat{color:var(--dim)}
+.st-choices{display:flex;flex-direction:column;gap:9px;margin-top:6px}
+.st-choice{display:flex;flex-direction:column;gap:4px;text-align:left;
+  background:#161a1c;border:1px solid var(--line2);color:var(--ink);padding:12px 15px;
+  transition:background .12s,border-color .12s}
+.st-choice:hover{background:#20272a;border-color:var(--amber)}
+.st-choice b{letter-spacing:3px;font-size:11px;color:var(--amber)}
+.st-choice-line{color:#8b979d;font-size:10.5px;line-height:1.6}
+.st-choice-trait{color:var(--good);font-size:9.5px;letter-spacing:2px}
+.st-choice-cost{color:#5d6a72;font-size:9.5px;letter-spacing:2px}
+#storyWrap .st-body{gap:10px}
+#storyDossier{padding:22px 26px;overflow-y:auto}
 </style>
 </head>
 <body>
@@ -247,6 +287,7 @@ button{font:inherit;cursor:pointer}
     <div class="seg">
       <button id="m-random" class="on">RANDOMIZE</button>
       <button id="m-campaign">CAMPAIGN</button>
+      <button id="m-story">STORY</button>
       <button id="m-custom">CUSTOM BUILD</button>
     </div>
     <div class="field">
@@ -263,6 +304,7 @@ button{font:inherit;cursor:pointer}
   <div class="setup-body">
     <div class="setup-main">
       <div id="rollSummary"></div>
+      <div id="storyDossier" style="display:none"></div>
 
       <div id="customWrap" style="display:none">
         <div class="tabs">
@@ -372,6 +414,15 @@ button{font:inherit;cursor:pointer}
         bring it up; it fights alongside you and draws fire.</p>
       </div>
 
+      <div id="storyWrap" style="display:none">
+        <p class="side-h">THE RUN</p>
+        <p class="pinnote">A world generated from this seed — its factions, its
+        people, its ground and what everyone is fighting over — with a story
+        laid across it in three acts. Reroll the seed until you like the shape
+        of the war; the dossier on the left is what you are walking into.</p>
+        <button id="btn-rollWorld" class="mini" style="width:100%">⟳ REROLL THE WORLD</button>
+      </div>
+
       <div id="campaignWrap">
         <p class="side-h">CAMPAIGN LENGTH</p>
         <div class="slide-row">
@@ -426,6 +477,18 @@ button{font:inherit;cursor:pointer}
 </div>
 
 <!-- ============ DEBRIEF ============ -->
+<!-- ============ STORY ============ -->
+<div id="scr-story" class="screen">
+  <div class="story-card">
+    <div id="story-body"></div>
+    <div class="acts">
+      <button id="btn-story-go" class="big primary">CONTINUE</button>
+      <button id="btn-story-codex" class="big">CODEX</button>
+      <button id="btn-story-quit" class="big">ABANDON</button>
+    </div>
+  </div>
+</div>
+
 <div id="scr-debrief" class="screen">
   <div class="card">
     <h3 id="db-title">DEBRIEF</h3>
@@ -452,6 +515,7 @@ button{font:inherit;cursor:pointer}
 <script src="src/game/lore.js"></script>
 <script src="src/game/story.js"></script>
 <script src="src/game/cutscene.js"></script>
+<script src="src/game/story-ui.js"></script>
 <script src="src/game/campaign.js"></script>
 <script src="src/game/pilot.js"></script>
 <script src="src/game/rigid.js"></script>

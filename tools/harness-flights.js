@@ -42,6 +42,7 @@ for (const f of [
   'src/game/config.js', 'src/game/audio.js', 'src/game/weapons.js',
   'src/game/sprite.js', 'src/game/physics.js', 'src/game/rigid.js',
   'src/game/dialog.js', 'src/game/lore.js', 'src/game/story.js',
+  'src/game/cutscene.js', 'src/game/story-ui.js',
   'src/game/campaign.js',
   'src/game/pilot.js', 'src/game/entities.js',
   'src/game/world.js', 'src/game/render.js'
@@ -353,6 +354,102 @@ const SCENARIOS = {
     /* it still has to be a level you can finish */
     Object.assign(out, fly(M, 170));
     return { reputation: out };
+  },
+
+  /* A whole story, played end to end by the pilot, exactly the way the
+     app drives one: every scene watched, every decision answered, every
+     mission flown. The claim under test is the headline one — that
+     story mode is a mode and not a demo — and nothing short of walking
+     the entire spine proves it.
+
+     Kept short (three-screen levels, recruit, nine lives) because what
+     is being checked is that the run COMPLETES, not that it is hard. */
+  fullstory() {
+    const seed = 0x5709;
+    const W = window.LORE.makeWorld(seed);
+    const S = window.STORY.makeStory(W, {
+      difficulty: 'recruit', enemyDens: 0.5, lives: 9, allies: 0, autopilot: true
+    });
+    const merc = window.CONFIG.randomMerc(seed);
+    const log = [];
+    let scenes = 0, shots = 0, choices = 0, missions = 0, lost = 0;
+    let guard = 0;
+    const t0 = Date.now();
+
+    while (!S.done && guard++ < 80) {
+      const b = S.current();
+      if (!b) break;
+
+      if (b.type === 'scene') {
+        /* Directed and played out on the same clock the app uses, so a
+           scene that never ends is a scene that fails here rather than
+           one that hangs a player. */
+        const ctx = S.ctxFor(b);
+        const opts = {};
+        if (b.kind === 'ending') opts.ending = S.ending().line;
+        const scene = window.CUTSCENE.direct(b, ctx, opts);
+        const cs = new window.CUTSCENE.Cutscene(scene, { auto: true, autoHold: 0.3 });
+        let f = 0;
+        while (!cs.done && f++ < 60 * 200) cs.step(1 / 60, false, false);
+        log.push({ t: 'scene', kind: b.kind, set: scene.setId,
+                   shots: scene.shots.length, seconds: +(f / 60).toFixed(1),
+                   ended: cs.done });
+        scenes++; shots += scene.shots.length;
+        S.seen();
+        continue;
+      }
+
+      if (b.type === 'choice') {
+        const c = S.choiceAt(b);
+        const pick = c.options[((S.seed ^ (b.i * 2654435761)) >>> 0) % c.options.length];
+        log.push({ t: 'choice', template: c.template, options: c.options.length,
+                   chose: pick.id });
+        S.choose(pick.id);
+        choices++;
+        continue;
+      }
+
+      const bd = S.build();
+      bd.cfg.levelLen = 3;
+      let M = bake(bd.cfg, merc, Object.assign({}, bd.opts,
+        { scrap: bd.scrap, boss: bd.boss, proto: bd.proto }));
+      const rec = { t: 'mission', n: b.n, objective: bd.opts.objective,
+                    place: bd.place.name, foe: bd.foe.name,
+                    kind: bd.place.kind, style: bd.cfg.style,
+                    grace: +(bd.opts.grace || 0).toFixed(1),
+                    tribute: !!bd.opts.tribute };
+      Object.assign(rec, fly(M, 170));
+      rec.objDone = !!(M.obj && M.obj.done);
+      if (M.state === 'won') S.take(M);
+      else lost++;
+      S.finishMission({ won: M.state === 'won', score: M.player.score,
+                        kills: M.kills, total: M.totalEnemies,
+                        deaths: rec.deaths, time: M.time,
+                        hurt: M.player.hp < M.player.maxHp });
+      rec.repAfter = S.rep.slice();
+      log.push(rec);
+      missions++;
+      M = null;                       // let the bake go before the next one
+    }
+
+    const UI = window.STORYUI;
+    return {
+      fullstory: {
+        seed: seed,
+        seconds: +((Date.now() - t0) / 1000).toFixed(1),
+        done: S.done, at: S.at, beats: S.beats.length,
+        scenes, shots, choices, missions, lost,
+        expectedMissions: S.missions,
+        traits: S.traits.slice(),
+        flags: Object.keys(S.flags),
+        rep: S.rep.slice(),
+        ending: S.ending(),
+        /* and the screens it would have shown, at the end of it */
+        debrief: UI.debrief(S),
+        codexGround: UI.codex(S).sections.find(x => x.h === 'GROUND WALKED').rows.length,
+        log: log
+      }
+    };
   },
 
   /* A story, played. Only the first few missions — what is under test

@@ -120,8 +120,13 @@ its checks exist.
       `harrow`, `tithe`, `bloom`, `ratchet` — one per doctrine, dropped by the
       garrison that carries them. Reputation cashed out into grace, bounty and
       tribute.
-- [ ] **7 — UI.** Story setup, briefing screen, choice screen, codex, dossier.
-- [ ] **8 — Integration.** Autopilot plays story mode; README; polish pass.
+- [x] **7 — UI.** `story-ui.js`: view models plus a thin DOM renderer — dossier,
+      briefing, decision, codex, debrief — and the STORY mode wired through
+      main.js, with cutscenes drawn on the game canvas between beats.
+- [x] **8 — Integration.** A `fullstory` flight plays a whole eighteen-beat run
+      on autopilot — every scene, every decision, every mission — in under a
+      minute. README rewritten around the four modes and the four kinds of
+      place.
 
 ---
 

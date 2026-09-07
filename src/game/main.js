@@ -41,6 +41,13 @@
     autoNext: 0,          // countdown to the next run under autopilot
     autoRuns: 0,          // how many it has flown back to back
     campaign: null,       // the live campaign, when running one
+    /* --- story mode --- */
+    world: null,          // the generated world, once one has been rolled
+    story: null,          // the run laid across it
+    cutscene: null,       // the scene currently playing, if any
+    codexOpen: false,
+    autoStory: 0,         // autopilot's countdown on a story screen
+    storyTitle: '',
     sectors: window.CAMPAIGN.SECTORS,
     lastStats: null,
     panels: { level: null, merc: null, crawler: null, scrap: null, boss: null, proto: null }
@@ -153,13 +160,21 @@
   function show(name) {
     if (name !== 'debrief') cancelAutoNext();
     App.state = name;
-    for (const id of ['scr-title', 'scr-setup', 'scr-load', 'scr-pause', 'scr-debrief']) {
-      $(id).classList.toggle('on', id === 'scr-' + name.replace('play', 'none')
-        .replace('title', 'title').replace('setup', 'setup')
-        .replace('loading', 'load').replace('paused', 'pause').replace('debrief', 'debrief'));
+    /* Which overlay, if any. A cutscene is drawn on the game canvas
+       like play is, so it shows no overlay at all — it just is not
+       play, which is why the state and the overlay are two questions
+       rather than one. */
+    const SCREEN = { title: 'scr-title', setup: 'scr-setup', loading: 'scr-load',
+                     paused: 'scr-pause', debrief: 'scr-debrief', story: 'scr-story',
+                     play: null, cutscene: null };
+    const want = SCREEN[name] === undefined ? null : SCREEN[name];
+    for (const id of ['scr-title', 'scr-setup', 'scr-load', 'scr-pause',
+                      'scr-debrief', 'scr-story']) {
+      $(id).classList.toggle('on', id === want);
     }
-    $('stage').classList.toggle('playing', name === 'play' || name === 'paused');
-    document.body.classList.toggle('in-game', name === 'play' || name === 'paused');
+    const inGame = name === 'play' || name === 'paused' || name === 'cutscene';
+    $('stage').classList.toggle('playing', inGame);
+    document.body.classList.toggle('in-game', inGame);
   }
 
   /* ---------------- title ---------------- */
@@ -256,9 +271,14 @@
     $('m-random').classList.toggle('on', App.mode === 'random');
     $('m-custom').classList.toggle('on', App.mode === 'custom');
     $('m-campaign').classList.toggle('on', App.mode === 'campaign');
+    $('m-story').classList.toggle('on', App.mode === 'story');
+    const isStory = App.mode === 'story';
     $('customWrap').style.display = App.mode === 'custom' ? '' : 'none';
-    $('rollSummary').style.display = App.mode === 'custom' ? 'none' : '';
+    $('rollSummary').style.display = (App.mode === 'custom' || isStory) ? 'none' : '';
     $('campaignWrap').style.display = App.mode === 'campaign' ? '' : 'none';
+    $('storyWrap').style.display = isStory ? '' : 'none';
+    $('storyDossier').style.display = isStory ? '' : 'none';
+    if (isStory) refreshDossier();
     $('sectorField').value = App.sectors;
     $('sectorVal').textContent = App.sectors;
     // The per-tab sidebar controls only make sense in custom mode.
@@ -745,7 +765,9 @@
     show('loading');
     App.jobProgress = 0; App.jobMsg = 'preparing'; App.jobPhase = 'level';
     $('l-seed').textContent = App.cfg.seed.toString(16).toUpperCase().padStart(8, '0');
-    $('l-style').textContent = App.campaign
+    $('l-style').textContent = App.story
+      ? App.storyTitle + ' · ' + App.cfg.levelLen + ' screens'
+      : App.campaign
       ? App.campaign.name(App.campaign.sector, App.cfg) + ' · ' + App.cfg.levelLen + ' screens'
       : App.cfg.style + ' · ' + App.cfg.skyMood +
         ' · ' + App.cfg.palette + ' · ' + App.cfg.levelLen + ' screens';
@@ -756,6 +778,130 @@
                             { scrap: App.scrap, boss: App.boss, proto: App.proto })),
       done: 0, seen: 0, t0: performance.now()
     };
+  }
+
+  /* ============================================================
+     STORY MODE
+
+     A campaign is a difficulty curve. A story is a generated world
+     with a run laid across it, and the difference the player sees is
+     that between missions there are scenes, decisions and a dossier
+     that fills up. This is the loop that walks it: one function that
+     looks at the beat it is on and puts the right thing on screen,
+     and calls itself again when that thing is finished.
+     ============================================================ */
+  function refreshDossier() {
+    if (!App.world || App.world.seed !== (App.cfg.seed >>> 0)) {
+      App.world = window.LORE.makeWorld(App.cfg.seed);
+    }
+    window.STORYUI.renderDossier(window.STORYUI.dossier(App.world), $('storyDossier'));
+  }
+
+  function startStory(seed) {
+    App.campaign = null;
+    App.world = window.LORE.makeWorld(seed);
+    App.story = window.STORY.makeStory(App.world, App.opts);
+    App.autoRuns = 0;
+    App.codexOpen = false;
+    App.cutscene = null;
+    storyStep();
+  }
+
+  /* What the beat we are on wants on screen. Called on every
+     transition, and only ever by things that have finished. */
+  function storyStep() {
+    const S = App.story;
+    if (!S) { show('setup'); return; }
+    const b = S.current();
+    App.codexOpen = false;
+    if (!b || S.done) { showStoryEnd(); return; }
+
+    if (b.type === 'scene') {
+      const ctx = S.ctxFor(b);
+      const opts = {};
+      if (b.kind === 'ending') opts.ending = S.ending().line;
+      const scene = window.CUTSCENE.direct(b, ctx, opts);
+      App.cutscene = new window.CUTSCENE.Cutscene(scene, { auto: !!App.opts.autopilot });
+      App.state = 'cutscene';
+      show('cutscene');
+      return;
+    }
+
+    if (b.type === 'choice') {
+      window.STORYUI.renderChoice(window.STORYUI.choiceView(S, b), $('story-body'), id => {
+        window.AUDIO.play('ui');
+        S.choose(id);
+        storyStep();
+      });
+      $('btn-story-go').style.display = 'none';
+      show('story');
+      if (App.opts.autopilot) App.autoStory = 3;
+      return;
+    }
+
+    /* a mission: brief it, and wait to be told to go */
+    window.STORYUI.renderBriefing(window.STORYUI.briefing(S, b), $('story-body'));
+    $('btn-story-go').style.display = '';
+    $('btn-story-go').textContent = 'DEPLOY';
+    show('story');
+    /* Autopilot reads the briefing at the speed a person would and
+       then goes, so a full-auto story run plays end to end without a
+       key being touched. */
+    if (App.opts.autopilot) App.autoStory = 2.2;
+  }
+
+  function showStoryEnd() {
+    const S = App.story;
+    window.STORYUI.renderDebrief(window.STORYUI.debrief(S), $('story-body'));
+    $('btn-story-go').style.display = '';
+    $('btn-story-go').textContent = 'A NEW WORLD';
+    show('story');
+    if (App.opts.autopilot) App.autoStory = 4;
+  }
+
+  /* The one button. What it does depends on what is on screen, which
+     is the whole point of there being one. */
+  function storyGo() {
+    const S = App.story;
+    if (!S) { show('setup'); return; }
+    if (App.codexOpen) { App.codexOpen = false; storyStep(); return; }
+    if (S.done || !S.current()) { startStory(rollSeed()); return; }
+    const b = S.current();
+    if (b.type === 'mission') { loadStoryMission(); return; }
+    /* An autopilot has to answer the question rather than re-read it.
+       Which option it takes is drawn from the run seed, so a full-auto
+       story is still a story rather than always the first choice. */
+    if (b.type === 'choice') {
+      const c = S.choiceAt(b);
+      const pick = c.options[((S.seed ^ (b.i * 2654435761)) >>> 0) % c.options.length];
+      S.choose(pick.id);
+    }
+    storyStep();
+  }
+
+  function toggleCodex() {
+    const S = App.story;
+    if (!S) return;
+    App.codexOpen = !App.codexOpen;
+    if (App.codexOpen) {
+      window.STORYUI.renderCodex(window.STORYUI.codex(S), $('story-body'));
+      $('btn-story-go').style.display = '';
+      $('btn-story-go').textContent = 'BACK';
+    } else storyStep();
+  }
+
+  function loadStoryMission() {
+    const S = App.story;
+    const b = S.build();
+    if (!b) { storyStep(); return; }
+    App.cfg = b.cfg;
+    App.crawler = b.crawler;
+    App.scrap = b.scrap;
+    App.boss = b.boss;
+    App.proto = b.proto;
+    App.sectorOpts = b.opts;
+    App.storyTitle = b.title;
+    deploy();
   }
 
   /* ---------------- campaign ----------------
@@ -848,6 +994,11 @@
     if (M.state === 'dead') {
       if (M.lives > 0 && M.respawn()) return;
       if (App.campaign) App.campaign.deaths++;
+      /* A story does not end because a mission did. Losing one costs
+         you standing and puts you back on the spine — the run carries
+         on, which is the difference between a story and a score
+         attack. */
+      if (App.story && !App.story.done) { storyEnded(M, false); return; }
       debrief(false);
     } else if (M.state === 'won') {
       /* A cleared sector is not the end of a campaign run — it is the
@@ -856,8 +1007,25 @@
         App.campaign.take(M);
         if (App.campaign.advance()) { loadSector(); return; }
       }
+      if (App.story && !App.story.done) { storyEnded(M, true); return; }
       debrief(true);
     }
+  }
+
+  /* A story mission finished, one way or the other. Report it to the
+     run and go back to the spine. */
+  function storyEnded(M, won) {
+    const S = App.story;
+    window.AUDIO.ambience(false);
+    S.take(M);
+    S.finishMission({
+      score: M.player.score, kills: M.kills, total: M.totalEnemies,
+      time: M.time, deaths: M.deathCount + (won ? 0 : 1),
+      hurt: M.player.hp < M.player.maxHp,
+      seconds: M.time,
+      won: won
+    });
+    storyStep();
   }
 
   /* ---------------- continuous autopilot ----------------
@@ -958,6 +1126,47 @@
     if (App.state === 'loading') {
       drawLoadBackdrop(ctx, dt);
       pumpJob();
+      return;
+    }
+
+    /* A scene between beats. Drawn on the game canvas through the same
+       HUD transform the play screen uses, so the letterbox and the
+       text land on the same pixel grid as everything else. */
+    if (App.state === 'cutscene') {
+      const CS = App.cutscene;
+      if (!CS) { storyStep(); return; }
+      const adv = input.jumpPressed || input.talkPressed;
+      input.jumpPressed = false; input.talkPressed = false;
+      const alive = CS.step(dt, adv, input.talkHeld);
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.imageSmoothingEnabled = false;
+      ctx.fillStyle = '#05070a';
+      ctx.fillRect(0, 0, LV.W, LV.H);
+      ctx.save();
+      ctx.scale(window.RENDER.HUD_S, window.RENDER.HUD_S);
+      window.CUTSCENE.draw(ctx, CS, CS.total);
+      ctx.restore();
+      if (!alive) {
+        const S = App.story;
+        App.cutscene = null;
+        if (S) { S.seen(); storyStep(); } else show('setup');
+      }
+      return;
+    }
+
+    /* A story screen. Nothing to draw — the DOM is doing it — but the
+       autopilot still needs a clock, or a full-auto run stops at the
+       first briefing and waits for a hand that is not there. */
+    if (App.state === 'story') {
+      drawTitle(ctx, dt);
+      if (App.autoStory > 0) {
+        App.autoStory -= dt;
+        if (App.autoStory <= 0) {
+          App.autoStory = 0;
+          if (App.codexOpen) { App.codexOpen = false; storyStep(); }
+          else storyGo();
+        }
+      }
       return;
     }
 
@@ -1174,12 +1383,30 @@
 
     $('btn-deploy').onclick = () => {
       if (App.mode === 'campaign') startCampaign(App.cfg.seed);
-      else { App.campaign = null; App.sectorOpts = null; deploy(); }
+      else if (App.mode === 'story') startStory(App.cfg.seed);
+      else { App.campaign = null; App.story = null; App.sectorOpts = null; deploy(); }
     };
     $('m-campaign').onclick = () => {
       App.mode = 'campaign';
       window.AUDIO.play('ui');
       refreshSetup();
+    };
+    $('m-story').onclick = () => {
+      App.mode = 'story';
+      window.AUDIO.play('ui');
+      refreshSetup();
+    };
+    $('btn-rollWorld').onclick = () => {
+      window.AUDIO.play('ui');
+      applySeed(rollSeed());
+    };
+    $('btn-story-go').onclick = () => { window.AUDIO.play('ui'); storyGo(); };
+    $('btn-story-codex').onclick = () => { window.AUDIO.play('ui'); toggleCodex(); };
+    $('btn-story-quit').onclick = () => {
+      window.AUDIO.play('ui');
+      window.AUDIO.ambience(false);
+      App.story = null; App.cutscene = null;
+      show('setup');
     };
     $('sectorField').oninput = e => {
       App.sectors = Math.max(2, Math.min(12, +e.target.value || 8));

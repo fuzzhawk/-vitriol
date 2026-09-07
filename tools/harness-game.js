@@ -44,7 +44,7 @@ const FILES = [
   'src/game/config.js', 'src/game/audio.js', 'src/game/weapons.js',
   'src/game/sprite.js', 'src/game/physics.js', 'src/game/rigid.js',
   'src/game/dialog.js', 'src/game/lore.js', 'src/game/story.js',
-  'src/game/cutscene.js',
+  'src/game/cutscene.js', 'src/game/story-ui.js',
   'src/game/campaign.js',
   'src/game/pilot.js', 'src/game/entities.js',
   'src/game/world.js', 'src/game/render.js', 'src/game/screens.js'
@@ -350,6 +350,64 @@ section('flights (each in its own process)');
        ' @' + (R.progress * 100).toFixed(0) + '%)');
     console.log('    ' + R.arsenal.join('/') + ' | ' + R.ownDrops + '/' + R.drops +
                 ' own drops | grace held ' + R.heldDuring + ' → ' + R.heldAfter);
+  }
+
+  /* --- a whole story, played end to end --- */
+  {
+    const F = flight('fullstory');
+    const R = F.fullstory;
+    ok(R.done, 'autopilot plays a story mode run to its end');
+    ok(R.missions === R.expectedMissions,
+       'flying every mission on the spine (' + R.missions + '/' + R.expectedMissions + ')');
+    ok(R.lost === 0, 'and losing none of them (' + R.lost + ')');
+    ok(R.scenes >= 5, 'watching the scenes between them (' + R.scenes + ')');
+    ok(R.choices === 3, 'and answering every decision (' + R.choices + ')');
+    ok(R.shots > R.scenes * 2, 'the scenes are scenes, not title cards (' +
+       R.shots + ' shots)');
+    ok(R.seconds < 400, 'and the whole run fits in a sitting (' + R.seconds + 's)');
+
+    /* every beat did what its type is for */
+    const missions = R.log.filter(e => e.t === 'mission');
+    const scenes = R.log.filter(e => e.t === 'scene');
+    const choices = R.log.filter(e => e.t === 'choice');
+    ok(missions.length === R.missions && scenes.length === R.scenes &&
+       choices.length === R.choices, 'and the log accounts for all of them');
+    for (const m of missions) {
+      ok(m.objDone, 'mission ' + m.n + ' (' + m.objective + ') met its objective');
+      ok(m.progress > 0.6, 'and got most of the way through (' +
+         (m.progress * 100).toFixed(0) + '%)');
+      ok(!!m.place && m.place.indexOf('%') < 0, 'somewhere with a name');
+      ok(!!m.foe, 'held by somebody');
+    }
+    for (const sc of scenes) {
+      ok(sc.ended, 'scene "' + sc.kind + '" plays out rather than hanging');
+      ok(sc.seconds > 1 && sc.seconds < 90,
+         'and takes a sensible amount of time (' + sc.seconds + 's)');
+      ok(sc.shots >= 2, 'and has shots in it');
+    }
+    /* the run has to be a run: different places, different objectives */
+    {
+      const places = new Set(missions.map(m => m.place));
+      const objs = new Set(missions.map(m => m.objective));
+      const sets = new Set(scenes.map(sc => sc.set));
+      ok(places.size === missions.length, 'no place is visited twice');
+      ok(objs.size >= 3, 'and the missions are not all the same job (' + objs.size + ')');
+      ok(sets.size >= 3, 'nor the scenes all staged in the same room (' + sets.size + ')');
+      const kinds = new Set(missions.map(m => m.kind));
+      ok(kinds.size >= 2, 'and it does not all happen in one kind of place');
+    }
+    /* and it left a mark */
+    ok(R.traits.length >= 3, 'the run makes something of the operative (' +
+       R.traits.join(', ') + ')');
+    ok(R.flags.length >= 3, 'and remembers what they chose');
+    ok(R.rep.some(x => x !== 0), 'and somebody out there has an opinion now');
+    ok(!!R.ending && !!R.ending.title, 'it ends with an ending (' + R.ending.title + ')');
+    ok(R.debrief.title === R.ending.title, 'and the debrief carries its name');
+    ok(!!R.debrief.line, 'and its last word');
+    ok(R.codexGround === R.missions, 'and the codex remembers every floor walked');
+    console.log('    ' + R.missions + ' missions, ' + R.scenes + ' scenes, ' +
+                R.choices + ' decisions in ' + R.seconds + 's → ' + R.ending.title);
+    console.log('    ' + missions.map(m => m.objective).join(' → '));
   }
 
   /* --- a story, played --- */
@@ -3442,6 +3500,322 @@ section('the scenes (cutscenes)');
       tx.drawImage(cv, 0, n * CS.CS_H);
     }
     dump('out_cutscene_shots.png', strip);
+  }
+}
+
+section('the story screens');
+{
+  const LR = window.LORE, ST = window.STORY, UI = window.STORYUI;
+
+  /* --- standing reads as words, and the words are ordered --- */
+  {
+    ok(UI.STANDING.length >= 5, 'standing has words for it');
+    const seen = [];
+    for (let r = -6; r <= 6; r++) seen.push(UI.standingOf(r).word);
+    ok(new Set(seen).size >= 5, 'and they are not all the same word');
+    ok(UI.standingOf(-6).tone === 'bad', 'being hunted reads as bad');
+    ok(UI.standingOf(6).tone === 'good', 'being owed reads as good');
+    ok(UI.standingOf(0).tone === 'flat', 'and being nobody reads as neither');
+    /* monotone: standing never improves as reputation falls */
+    const rank = { bad: 0, warn: 1, flat: 2, ok: 3, good: 4 };
+    let last = -1;
+    for (let r = -6; r <= 6; r++) {
+      const t = rank[UI.standingOf(r).tone];
+      ok(t >= last, 'standing improves with reputation (' + r + ')');
+      last = t;
+    }
+  }
+
+  /* --- the dossier --- */
+  {
+    let anyLong = false;
+    for (let i = 0; i < 20; i++) {
+      const W = LR.makeWorld((0xD055 + i * 7919) >>> 0);
+      const vm = UI.dossier(W);
+      ok(!!vm.title && !!vm.sub, 'a dossier has a heading');
+      ok(vm.sub.indexOf('0x') === 0 || vm.sub.indexOf('SEED') === 0,
+         'and names the seed it came from');
+      ok(vm.blocks.length >= 4, 'and has something to read (' + vm.blocks.length + ')');
+      const heads = vm.blocks.map(b => b.h);
+      ok(heads.indexOf('THE FACTIONS') >= 0, 'including who is fighting');
+      ok(heads.indexOf('KNOWN GROUND') >= 0, 'and where');
+      for (const b of vm.blocks) {
+        ok(b.rows.length > 0, 'block "' + b.h + '" is not empty');
+        for (const r of b.rows) {
+          ok(typeof r.k === 'string' && r.k.length > 0, 'every row is labelled');
+          ok(r.k.indexOf('%') < 0 && String(r.v || '').indexOf('%') < 0,
+             'and has no unfilled slot in it');
+        }
+      }
+      const facs = vm.blocks.find(b => b.h === 'THE FACTIONS');
+      ok(facs.rows.length === W.factions.length, 'every faction is listed');
+      for (const r of facs.rows) ok(r.hue >= 0 && r.hue < 360, 'and has its colour on it');
+      const ground = vm.blocks.find(b => b.h === 'KNOWN GROUND');
+      ok(ground.rows.length === W.places.length, 'and every place');
+      /* the dossier must not give away the twist */
+      const all = JSON.stringify(vm);
+      ok(all.indexOf(W.secret.line) < 0, 'and the dossier does not spoil the turn');
+      if (all.length > 1200) anyLong = true;
+    }
+    ok(anyLong, 'a dossier is a page, not a line');
+  }
+
+  /* --- the briefing --- */
+  {
+    const kinds = new Set();
+    for (let i = 0; i < 24; i++) {
+      const W = LR.makeWorld((0xB21E + i * 40503) >>> 0);
+      const S = ST.makeStory(W);
+      /* walk the whole spine, briefing every mission on the way */
+      let guard = 0;
+      while (S.current() && guard++ < 60) {
+        const b = S.current();
+        if (b.type === 'mission') {
+          const vm = UI.briefing(S, b);
+          ok(!!vm, 'a mission has a briefing');
+          kinds.add(b.objective);
+          ok(vm.title === ST.OBJECTIVES[b.objective].label, 'that names the objective');
+          ok(vm.place === W.placeById(b.place).name, 'and the place');
+          ok(vm.foe === W.facById(b.foe).name, 'and who holds it');
+          ok(vm.brief.length > 20 && vm.brief.indexOf('%') < 0,
+             'and reads as a sentence: ' + JSON.stringify(vm.brief));
+          ok(vm.n >= 1 && vm.n <= vm.of, 'and says where in the run you are');
+          ok(vm.act.indexOf('ACT') === 0, 'and which act');
+          ok(vm.standing.indexOf(vm.foe) >= 0, 'and how they feel about you');
+          ok(vm.arsenal.length > 0, 'and what they will be carrying');
+          ok(vm.arsenal.every(x => typeof x === 'string' && x.length > 1),
+             'in words rather than keys');
+          ok(Array.isArray(vm.notes), 'and any warnings');
+          /* the objective-specific rows */
+          const rk = vm.rows.map(r => r.k);
+          if (b.objective === 'hunt') ok(rk.indexOf('TARGET') >= 0, 'a hunt names its target');
+          if (b.objective === 'survive') ok(rk.indexOf('HOLD FOR') >= 0, 'a hold names its clock');
+          if (b.objective === 'sabotage') ok(rk.indexOf('CHARGES') >= 0, 'a sabotage counts its charges');
+          if (b.boss) ok(rk.indexOf('EXPECT') >= 0, 'and the last one warns you');
+          S.finishMission({ score: 100, kills: 3, time: 40, deaths: 0 });
+        } else if (b.type === 'choice') {
+          S.choose(S.choiceAt(b).options[0].id);
+        } else S.seen();
+      }
+      ok(!UI.briefing(S, S.beats.find(x => x.type === 'scene')),
+         'and a scene has no briefing to give');
+    }
+    ok(kinds.size === ST.OBJ_KEYS.length,
+       'every objective gets briefed (' + kinds.size + '/' + ST.OBJ_KEYS.length + ')');
+  }
+
+  /* the notes actually reflect standing */
+  {
+    const W = LR.makeWorld(0x9111);
+    const S = ST.makeStory(W);
+    while (S.current() && S.current().type !== 'mission') {
+      if (S.current().type === 'choice') S.choose(S.choiceAt(S.current()).options[0].id);
+      else S.seen();
+    }
+    const b = S.current();
+    const other = W.factions.find(f => f.id !== b.foe).id;
+    S.rep = S.rep.map(() => 0);
+    ok(UI.briefing(S, b).notes.length === 0, 'a neutral briefing has no warnings');
+    S.rep[b.foe] = 5;
+    ok(UI.briefing(S, b).notes.some(n => n.tone === 'good'),
+       'a briefing against friends says so');
+    S.rep[b.foe] = -6; S.rep[other] = 6;
+    const hot = UI.briefing(S, b);
+    ok(hot.notes.some(n => n.tone === 'bad'), 'and one against enemies says that');
+    ok(hot.notes.some(n => n.t.indexOf(W.facById(other).name) >= 0),
+       'and names the friend who left you something');
+    ok(hot.standingTone === 'bad', 'with the standing line to match');
+  }
+
+  /* --- the choice --- */
+  {
+    const labels = new Set();
+    for (let i = 0; i < 20; i++) {
+      const W = LR.makeWorld((0xC401 + i * 2654435761) >>> 0);
+      const S = ST.makeStory(W);
+      let guard = 0, choices = 0;
+      while (S.current() && guard++ < 60) {
+        const b = S.current();
+        if (b.type === 'choice') {
+          const vm = UI.choiceView(S, b);
+          choices++;
+          ok(!!vm && vm.options.length >= 2, 'a choice offers a choice');
+          ok(vm.prompt.length > 20 && vm.prompt.indexOf('%') < 0,
+             'and asks something: ' + JSON.stringify(vm.prompt));
+          const ids = vm.options.map(o => o.id);
+          ok(new Set(ids).size === ids.length, 'with options that differ');
+          for (const o of vm.options) {
+            ok(o.label.length > 2 && o.label.indexOf('%') < 0, 'each option is labelled');
+            ok(o.line.length > 10, 'and says what taking it means');
+            ok(Array.isArray(o.cost), 'and what it costs');
+            for (const c of o.cost) {
+              ok(typeof c.who === 'string' && c.who.length > 1, 'named, not numbered');
+              ok(c.by !== 0, 'and a cost of nothing is not listed');
+              ok(c.tone === (c.by > 0 ? 'good' : 'bad'), 'and reads the right way round');
+            }
+            labels.add(o.label);
+          }
+          /* at least one option must cost something, or it is not a choice */
+          ok(vm.options.some(o => o.cost.length > 0), 'and at least one of them costs');
+          S.choose(ids[i % ids.length]);
+        } else if (b.type === 'mission') {
+          S.finishMission({ score: 10, kills: 1, time: 10, deaths: 0 });
+        } else S.seen();
+      }
+      ok(choices === 3, 'a run puts three decisions to you (' + choices + ')');
+      ok(!UI.choiceView(S, S.beats.find(x => x.type === 'mission')),
+         'and a mission is not one of them');
+    }
+    ok(labels.size >= 8, 'the decisions are not the same three every run (' + labels.size + ')');
+  }
+
+  /* --- the codex only lists what you have met --- */
+  {
+    const W = LR.makeWorld(0xC0DE);
+    const S = ST.makeStory(W);
+    const early = UI.codex(S);
+    const ground = early.sections.find(s => s.h === 'GROUND WALKED');
+    ok(ground.rows.length <= 1, 'a codex starts almost empty (' + ground.rows.length + ')');
+    ok(JSON.stringify(early).indexOf(W.secret.line) < 0, 'and does not know the twist');
+    /* standing is always listed: you always know who you have annoyed */
+    const st0 = early.sections.find(s => s.h === 'STANDING');
+    ok(st0.rows.length === W.factions.length, 'but always lists who is out there');
+
+    let guard = 0;
+    while (S.current() && guard++ < 60) {
+      const b = S.current();
+      if (b.type === 'mission') S.finishMission({ score: 50, kills: 2, time: 30, deaths: 0 });
+      else if (b.type === 'choice') S.choose(S.choiceAt(b).options[0].id);
+      else S.seen();
+    }
+    const late = UI.codex(S);
+    const lg = late.sections.find(s => s.h === 'GROUND WALKED');
+    const lp = late.sections.find(s => s.h === 'PEOPLE');
+    ok(lg.rows.length > ground.rows.length,
+       'and fills up as you walk (' + ground.rows.length + ' → ' + lg.rows.length + ')');
+    ok(lg.rows.length === S.missions, 'one entry per place you were sent');
+    ok(lp.rows.length >= 3, 'and the people you met (' + lp.rows.length + ')');
+    for (const s of late.sections) {
+      for (const r of s.rows) {
+        ok(String(r.k).indexOf('%') < 0 && String(r.note || '').indexOf('%') < 0,
+           'nothing in a codex has an unfilled slot');
+      }
+    }
+    ok(late.sections.some(s => s.h === 'THE PRIZE'), 'and it remembers what this was for');
+  }
+
+  /* --- the debrief --- */
+  {
+    const W = LR.makeWorld(0xDEB1);
+    const S = ST.makeStory(W);
+    const mid = UI.debrief(S);
+    ok(mid.title === 'DEBRIEF', 'a run in progress debriefs as one');
+    ok(!mid.line, 'and has no last word yet');
+    ok(mid.rows.length >= 5, 'but has numbers');
+    let guard = 0;
+    while (S.current() && guard++ < 60) {
+      const b = S.current();
+      if (b.type === 'mission') S.finishMission({ score: 400, kills: 9, time: 70, deaths: 1 });
+      else if (b.type === 'choice') S.choose(S.choiceAt(b).options[0].id);
+      else S.seen();
+    }
+    const end = UI.debrief(S);
+    ok(S.done, 'the run ends');
+    ok(end.title !== 'DEBRIEF', 'and the debrief takes the ending\'s name (' + end.title + ')');
+    ok(!!end.line && end.line.length > 20, 'and has a last word');
+    ok(end.standing.length === W.factions.length, 'with everyone\'s standing on it');
+    ok(end.rows.some(r => r.k === 'SCORE' && r.v !== '0'), 'and a score that moved');
+    ok(end.rows.some(r => r.k === 'TIME' && /^\d+:\d\d$/.test(r.v)), 'and a clock');
+  }
+
+  /* --- the renderers actually emit something ---
+     Under a DOM crude enough to be honest about what these functions
+     use: create, set text, append, assign onclick. If a renderer ever
+     reaches for anything else, this is where it stops being portable
+     to a headless run. */
+  {
+    function mkEl(tag) {
+      return { tagName: tag, className: '', textContent: '', style: {},
+               children: [], onclick: null,
+               appendChild(c) { this.children.push(c); return c; },
+               classList: { toggle() {}, add() {}, remove() {} } };
+    }
+    const realCreate = global.document.createElement;
+    global.document.createElement = t => t === 'canvas' ? realCreate(t) : mkEl(t);
+    try {
+      const count = n => 1 + n.children.reduce((a, c) => a + count(c), 0);
+      const text = n => (n.textContent || '') + n.children.map(text).join(' ');
+      const W = LR.makeWorld(0x7717);
+      const S = ST.makeStory(W);
+
+      let host = mkEl('div');
+      UI.renderDossier(UI.dossier(W), host);
+      ok(count(host) > 40, 'the dossier renders (' + count(host) + ' nodes)');
+      ok(text(host).indexOf(W.you.name) >= 0, 'and has your name on it');
+      ok(text(host).indexOf(W.artifact.name) >= 0, 'and what everyone wants');
+
+      while (S.current() && S.current().type !== 'mission') {
+        if (S.current().type === 'choice') S.choose(S.choiceAt(S.current()).options[0].id);
+        else S.seen();
+      }
+      const mb = S.current();
+      host = mkEl('div');
+      UI.renderBriefing(UI.briefing(S), host);
+      ok(count(host) > 6, 'the briefing renders (' + count(host) + ' nodes)');
+      ok(text(host).indexOf(W.placeById(mb.place).name) >= 0, 'and names the place');
+      /* an empty view model must not throw */
+      const empty = mkEl('div');
+      UI.renderBriefing(null, empty);
+      ok(empty.children.length === 0, 'and a briefing for no mission renders nothing');
+
+      while (S.current() && S.current().type !== 'choice') {
+        if (S.current().type === 'mission') {
+          S.finishMission({ score: 10, kills: 1, time: 10, deaths: 0 });
+        } else S.seen();
+      }
+      host = mkEl('div');
+      let picked = null;
+      UI.renderChoice(UI.choiceView(S), host, id => { picked = id; });
+      ok(count(host) > 10, 'the choice renders (' + count(host) + ' nodes)');
+      const list = host.children.find(c => c.className === 'st-choices');
+      ok(!!list && list.children.length >= 2, 'with buttons on it');
+      ok(list.children.every(b => typeof b.onclick === 'function'), 'that are wired');
+      list.children[0].onclick();
+      ok(picked === UI.choiceView(S).options[0].id ||
+         typeof picked === 'string', 'and pressing one answers the question');
+
+      host = mkEl('div');
+      UI.renderCodex(UI.codex(S), host);
+      ok(count(host) > 20, 'the codex renders (' + count(host) + ' nodes)');
+      host = mkEl('div');
+      UI.renderDebrief(UI.debrief(S), host);
+      ok(count(host) > 15, 'and so does the debrief (' + count(host) + ' nodes)');
+    } finally {
+      global.document.createElement = realCreate;
+    }
+  }
+
+  /* --- every ending is reachable and has words --- */
+  {
+    const seen = new Set();
+    for (let i = 0; i < 60; i++) {
+      const W = LR.makeWorld((0xE4D1 + i * 7919) >>> 0);
+      const S = ST.makeStory(W);
+      let guard = 0;
+      while (S.current() && guard++ < 60) {
+        const b = S.current();
+        if (b.type === 'mission') S.finishMission({ score: 100, kills: 4, time: 40, deaths: 0 });
+        else if (b.type === 'choice') {
+          const o = S.choiceAt(b).options;
+          S.choose(o[i % o.length].id);
+        } else S.seen();
+      }
+      const d = UI.debrief(S);
+      seen.add(d.title);
+      ok(!!d.line, 'every ending has a line');
+    }
+    ok(seen.size >= 3, 'a story can end more than one way (' + seen.size + ')');
+    console.log('  endings seen: ' + Array.from(seen).join(', '));
   }
 }
 

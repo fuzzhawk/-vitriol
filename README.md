@@ -37,9 +37,9 @@ Walk into a stasis pod on the way and the operative inside comes online and
 fights alongside you. Walk into a warden and it talks — you keep the controls
 the whole time, and walking away ends the conversation.
 
-## The three ways in
+## The four ways in
 
-The launch screen leads to **BUILD**, which offers three:
+The launch screen leads to **BUILD**, which offers four:
 
 **RANDOMIZE** — one seed rolls the whole run: architecture, palette, sky mood,
 skyline, weather, level length, and the operative you play as. The roll is
@@ -55,6 +55,8 @@ hands, its magazine, the spare ammo, everything the wardens grafted onto you.
 debris and boss. Difficulty rides on top of whatever you chose rather than
 replacing it, so RECRUIT at the bottom is still gentler than VITRIOL at the top.
 Autopilot flies a campaign the same way it flies a single level.
+
+**STORY** — a generated world with a run laid across it. See below.
 
 **CUSTOM BUILD** — both generators opened up.
 
@@ -120,6 +122,10 @@ src/game/
   physics.js            swept AABB against the generator's `plats` data
   rigid.js              impulse solver for the debris
   dialog.js             the RPG text box the wardens talk through
+  lore.js               the world: factions, doctrines, people, places, the twist
+  story.js              the run laid across it: acts, beats, objectives, choices
+  cutscene.js           the staged scenes between beats — director and renderer
+  story-ui.js           the story screens, as view models plus a thin renderer
   campaign.js           a run made of many sectors: the curve and the carry
   pilot.js              the AI that plays the game — allies and autopilot
   entities.js           player, enemy AI, projectiles, pickups
@@ -162,7 +168,7 @@ Do not hand-edit `src/gen/*.js` — edit the tool and re-extract.
 
 ```bash
 npm install @napi-rs/canvas
-node tools/harness-game.js     # or: npm test — ~30,600 checks + contact sheets in out/
+node tools/harness-game.js     # or: npm test — ~86,400 checks + contact sheets in out/
 node tools/harness.js          # the original MERC FORGE validator
 ```
 
@@ -182,14 +188,25 @@ path in both directions, and writes contact sheets to `out/`:
 | `out_guns.png` | all fifteen weapons in one operative's hands |
 | `out_wardens.png` | approaching a warden, the prompt, and mid-sentence |
 | `out_warden_zoom.png` | one warden at 3x, for the lantern glow |
-| `out_kinds.png` | one frame each of a city, an interior and an air lane |
+| `out_kinds.png` | one frame each of a city, an interior, an air lane and a wood |
 | `out_crawler_surfaces.png` | one crawler seated on floor, both walls and ceiling |
+| `out_flora.png` | the four growth forms behind a level, side by side |
+| `out_specialists.png` | the five specialists, each in the state worth seeing |
+| `out_cutscene.png` | one cutscene frame from each of the four backdrop painters |
+| `out_cutscene_shots.png` | a whole scene, shot by shot, as it plays |
 
-It also flies: two levels end to end on autopilot, a chain of three consecutive
-rolled builds the way continuous mode does, and a whole campaign with the
-loadout carried across every sector boundary. Those are the checks that matter
-most — an AI that plays well for thirty seconds and then stands under a crate
-for two minutes passes every invariant test you can write and is still broken.
+It also flies. Two levels end to end on autopilot; a chain of three consecutive
+rolled builds the way continuous mode does; a whole campaign with the loadout
+carried across every sector boundary; every one of the seven objectives, twice
+each, because an objective the pilot cannot finish is one a player will find
+infuriating for the same reason; one level of each of the four kinds of place;
+three doctrines' garrisons, to prove they play differently; a garrison with an
+owner, to prove the drops and the crate and the head start are real; and a
+**whole story mode run end to end** — every scene watched, every decision
+answered, every mission flown, eighteen beats in under a minute. Those are the
+checks that matter most — an AI that plays well for thirty seconds and then
+stands under a crate for two minutes passes every invariant test you can write
+and is still broken.
 
 The flown scenarios live in `harness-flights.js` and run in **child processes**,
 one each. Every mission bakes its own sprite sheets, and those are native canvas
@@ -323,10 +340,10 @@ Autopilot handles it without knowing it is in one: a cleared sector is not the
 end of a run, it is the middle of one, so the app loop advances the campaign
 where it would otherwise have rolled a fresh build.
 
-## Three kinds of place
+## Four kinds of place
 
 An architecture is not just a palette — it decides what kind of level you are
-in. `STYLE_KIND` in GREEBLEWORKS classifies all 21 of them, and the difference
+in. `STYLE_KIND` in GREEBLEWORKS classifies all 25 of them, and the difference
 runs the whole way through: what gets baked, how the layout is shaped, and what
 the compositor puts behind it.
 
@@ -368,12 +385,138 @@ LANE over a cloud deck.
 bottom third, squashes and hazes it, so the skyline reads as something a long
 way below rather than across the street.
 
+**NATURE** — OVERGROWTH, FUNGAL BLOOM, THE MIRE, THE FROST. Street level with a
+sky over it, so structurally these are city levels and nothing downstream had to
+learn a new shape. What differs is that the thing behind the action grew rather
+than was built. `floraLayer` paints the parallax band the way `cityLayer` paints
+a skyline — masses against the horizon, toned toward it by depth, through the
+same crush and the same haze — in four forms, because vegetation as one shape is
+one level with four palettes: trunks with crowns, stalks with caps, reeds
+standing in water they are reflected in, and frozen spires with no crown at all.
+The back wall becomes a thicket leaning every way at once, with the ruins of
+whatever it grew over showing through the gaps, and growth props go on the decks
+mixed with barrels and rubble — what makes these read as VITRIOL rather than as
+a nature documentary is the barrel with a shrub coming out of it. They get
+weather of their own: spores rise, slowly, lit from inside by whatever released
+them.
+
+Ground that was never levelled gets shorter runs, bigger steps between them and
+more to climb, because the way through a wood is over things rather than along
+them.
+
 A campaign **deals** these out rather than rolling them. Over eight sectors a
-fair three-way roll produces a run of eight streets often enough to be the thing
-you remember about the campaign, so instead the kinds are laid into a cycle and
-the cycle is rotated by the campaign seed. Every campaign gets all three, no
-campaign runs three of a kind back to back, and sector one is always a street —
-it is the one everybody already knows how to read.
+fair roll produces a run of eight streets often enough to be the thing you
+remember about the campaign, so instead the kinds are laid into a cycle and the
+cycle is rotated by the campaign seed. Every campaign gets roughly a quarter of
+each, no campaign runs three of a kind back to back, and sector one is always a
+street — it is the one everybody already knows how to read. Air lanes and
+overgrowth are not depths, so they get their own words for where you are: LANE,
+HIGH LANE, STRATOS; VERGE, OUTGROWTH, THE UNMAPPED.
+
+## Story mode
+
+Campaign mode is a difficulty curve with a loadout that carries. **Story mode is
+a generated world with a story running through it.** Every run invents its own
+factions, people, places, artifact and twist, and lays a dramatic spine over a
+sequence of missions. Two runs should feel like two different games, not two
+seeds of the same one.
+
+Three things make it work.
+
+**The world is generated before the story is.** `lore.js` builds four to six
+factions out of ten doctrines, with a relation matrix between them, holdings,
+leaders, a cast of five people you will actually talk to, an artifact everyone
+wants and a secret that turns act three. The story is then built *out of* what
+the world contains — which is why the beats always connect to something, and why
+a betrayal is by someone you have met.
+
+**Level styles are locations.** The 25 architectures stop being a texture choice
+and become named places with an owner and a history. `THE ASH FORGE` is an
+`industrial` level, held by a faction, and the mission you play there is about
+what that faction did in it. A place's architecture is fixed by the location —
+you do not get a different ASH FORGE each visit — but everything else about the
+bake still rolls.
+
+**Nothing is written down that could be generated.** Names, doctrines,
+histories, dialogue registers, scene lines and beats all come out of grammars
+seeded by the run. Written prose is reserved for the pieces that have to be
+exactly right: the structural twists and the objective verbs.
+
+### The run
+
+`story.js` lays three acts over the world: eighteen beats, of which eight are
+missions, three are decisions and seven are scenes. A mission carries an
+**objective** the mission layer enforces, and there are seven of them:
+
+| objective | what it is |
+|---|---|
+| `extract` | reach the pad. The baseline. |
+| `hunt` | a named target is in here. Kill it. |
+| `purge` | kill everything. |
+| `sabotage` | destroy N marked structures. |
+| `recover` | find the cache, carry it out. |
+| `survive` | hold for T seconds, then the pad opens. |
+| `escort` | an ally has to reach the pad alive. |
+
+A decision is not a branch — a story is a spine with a memory. What varies is
+who the beats are against, what they cost you, and how they end. Each option
+sets a flag, moves faction reputation, and may hand you a **trait**: a permanent
+modifier with a line of fiction attached, applied exactly the way a warden's
+graft is. Some traits are earned by play rather than choice — clear a floor
+without being touched and you are SURGICAL; die enough times and you are
+STUBBORN.
+
+### The scenes
+
+Between beats, `cutscene.js` stages a scene. A scene is a list of shots; a shot
+is a backdrop, up to three staged figures, a slow camera move and one line.
+Nothing in it is an asset: backdrops are painted procedurally at a quarter of
+the play resolution and blown up by two — which is where the chunk comes from,
+the same trick the sprite pipeline uses — and the faces are the MERC FORGE rigs
+the world already described, baked once, rim-lit on the key side and washed back
+into the dark when they are not the one talking. Guns stay lowered except in the
+two scenes where they would not be.
+
+The lines are grammar rather than script: a scene kind is a run of turns, each
+with a pool of openings and a pool of closes, and the speaker's voice register
+shapes what comes out of it. Over forty runs that is 745 distinct lines from a
+thousand staged shots.
+
+### Reputation, cashed out
+
+A number that only ever appears on a debrief screen is not a system. Standing
+with each faction turns into three things you meet in the next level:
+
+- **GRACE** — a garrison you are square with keeps walking its patrol and looks
+  straight through you for a few seconds. Not safety: anyone who gets shot at
+  makes their mind up immediately.
+- **BOUNTY** — people you have wronged send more, and keep sending them.
+- **TRIBUTE** — a real friend leaves a crate on your approach, out of their own
+  arsenal, downrange where you still have to walk to it. Their wardens hand out
+  their guns too.
+
+None of it fires in a run where you never took a side, which is the point: the
+systems appear because you made them appear.
+
+### The screens
+
+`story-ui.js` is split in two on purpose. The top half builds **view models**:
+plain objects that say what a screen contains, with nothing in them that knows
+about the DOM. The bottom half turns one into elements. That is not tidiness —
+the harness runs headless, so a screen built directly out of `createElement`
+could not be checked at all, and these are the screens that decide whether a run
+reads as a story or as a menu. A view model can be asserted about: that the
+briefing names the place, that the choice offers options that differ and cost
+something, that the codex only lists what you have actually met.
+
+Five of them: the **dossier** on the setup screen (reroll the seed until you
+like the shape of the war), the **briefing** before each mission, the
+**decision**, the **codex** that fills up as you walk, and the **debrief** that
+takes the ending's name.
+
+Autopilot plays the whole thing — watches the scenes, answers the decisions,
+flies the missions — which is what `harness-flights.js fullstory` checks: a
+complete eighteen-beat run in under a minute, every objective met.
 
 ## The pilot
 

@@ -235,6 +235,7 @@ window.WORLD = (function () {
     this.player = new E.Player(playerRig, first.x + Math.min(48, first.w * 0.3), first.y, diff);
     this.player.checkpoint = { x: this.player.x, y: this.player.y };
     this.lives = diff.lives;
+    this.deathCount = 0;      // how many times the operative went down here
 
     /* Extraction pad sits on the last ground run. */
     this.exit = { x: last.x + last.w - Math.min(60, last.w * 0.4), y: last.y, r: 26 };
@@ -1916,6 +1917,7 @@ window.WORLD = (function () {
   Mission.prototype.respawn = function () {
     const P = this.player;
     this.lives--;
+    this.deathCount++;
     if (this.lives < 0) return false;
     P.hp = P.maxHp; P.dead = false;
     P.x = P.checkpoint.x; P.y = P.checkpoint.y;
