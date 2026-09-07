@@ -109,8 +109,21 @@ window.PILOT = (function () {
       const d = (e.x - a.x) * (e.x - a.x) + (ey - (a.y - a.h * 0.5)) * (ey - (a.y - a.h * 0.5));
       if (d > bd) continue;
       if (!M.world.canSee(a.x, a.y - a.h * 0.6, e.x, ey)) continue;
-      // a boss outranks anything else in the room
-      const score = d * (e.boss ? 0.25 : 1);
+      /* Priority, not distance. The nearest hostile is usually the
+         right one, but there are four cases where it plainly is not:
+         a boss, a lit sapper about to remove a third of your health, a
+         sniper that has your name lined up, and the zealot healing
+         everything you are shooting at. */
+      let w = 1;
+      if (e.boss) w = 0.25;
+      else if (e.fuse > 0) w = 0.05;
+      else if (e.sighting && e.sighting() > 0.35) w = 0.30;
+      else if (e.A && e.A.support) w = 0.42;
+      /* And one where it is the wrong one: a shieldman seen head on is
+         four times the work of anything else in the room, so it goes
+         to the back of the queue unless there is nothing else. */
+      else if (e.A && e.A.shield && Math.sign(e.x - a.x) === -e.face) w = 2.4;
+      const score = d * w;
       if (score < bd) { bd = score; best = e; }
     }
     return best;

@@ -321,6 +321,14 @@ window.ENTITIES = (function () {
     this.flying = !!arche.flying;
     this.deathT = 0;
     this.alerted = false;
+    /* Specialist state. Kept on every enemy rather than on a subclass:
+       an archetype is data here, and a `sniper` is a grunt whose
+       ARCHETYPES entry says it lines a shot up first. */
+    this.aimT = 0;          // sniper: how long the shot has been lining up
+    this.fuse = -1;         // sapper: counting down, or -1 for not lit
+    this.cloak = 1;         // stalker: 1 solid, low is nearly gone
+    this.auraT = 0;         // zealot: time to the next pulse
+    this.auraPulse = 0;     // ...and the visible ring from the last one
   }
   Enemy.prototype = Object.create(Actor.prototype);
   Enemy.prototype.constructor = Enemy;
@@ -338,6 +346,38 @@ window.ENTITIES = (function () {
     if (this.alerted && dist > range * 1.6) this.state = 'patrol';
     else if (sees) this.state = 'engage';
 
+    /* A lit sapper is no longer an enemy that shoots at you: it is a
+       countdown with legs, and nothing else it might have done
+       matters. Handled before the movement so the fuse still runs
+       while it is being shot at. */
+    if (this.fuse >= 0) {
+      this.fuse -= dt;
+      this.face = dx > 0 ? 1 : -1;
+      this.vx += this.face * this.A.speed * 0.9;
+      this.vx *= this.ground ? MOVE.fricGround : MOVE.fricAir;
+      this.vy += MOVE.gravity;
+      this.vy = Math.min(this.vy, MOVE.terminal);
+      world.move(this, this.w, this.h, false);
+      if (this.y > world.floor) { this.kill(out, true); return; }
+      if (this.fuse <= 0) { this.detonate(player, out); return; }
+      this.animate(dt, false);
+      this.cool -= dt;
+      return;
+    }
+
+    if (this.A.support) this.stepAura(dt, out);
+    if (this.A.cloak !== undefined) {
+      /* Solid when it is close enough to be a threat, nearly gone when
+         it is not. A stalker you can always see is a fast trooper. */
+      const want = dist < (this.A.cloakAt || 120) || this.hurtT > 0 ? 1 : this.A.cloak;
+      this.cloak += (want - this.cloak) * Math.min(1, dt * 4.5);
+    }
+    if (this.hurtT > 0) this.hurtT -= dt;
+    if (this.sparked > 0) this.sparked -= dt;
+    /* A zealot's blessing runs out here rather than in the movement,
+       so a drone under one loses it on the same clock a trooper does. */
+    if (this.blessed > 0) this.blessed -= dt;
+
     if (this.flying) this.stepFlying(world, player, dt, dx, dy, dist, sees, out);
     else this.stepWalking(world, player, dt, dx, dist, sees, out);
 
@@ -345,18 +385,93 @@ window.ENTITIES = (function () {
     this.cool -= dt;
   };
 
+  /* A zealot does not fight so much as keep everyone else fighting.
+     Pulsing rather than continuous, because a heal you cannot see
+     happening is a heal the player thinks is a bug. */
+  Enemy.prototype.stepAura = function (dt, out) {
+    this.auraPulse = Math.max(0, this.auraPulse - dt * 2.2);
+    this.auraT -= dt;
+    if (this.auraT > 0) return;
+    this.auraT = 2.4;
+    this.auraPulse = 1;
+    const R = this.A.auraR || 130;
+    for (const e of out.enemies) {
+      if (e === this || e.dead) continue;
+      if (Math.hypot(e.x - this.x, e.y - this.y) > R) continue;
+      e.hp = Math.min(e.maxHp, e.hp + (this.A.auraHeal || 2));
+      e.blessed = 1.6;                        // decays, so the buff has an end
+      e.blessRate = this.A.auraRate || 1.2;
+    }
+  };
+
+  /* The sapper's whole contribution. Hurts everything nearby including
+     the rest of the garrison, which is what makes one running at you
+     through its own line a good thing to let happen. */
+  Enemy.prototype.detonate = function (player, out) {
+    const R = this.A.blastR || 46, D = this.A.blast || 32;
+    const hit = (t, scale) => {
+      const d = Math.hypot(t.x - this.x, (t.y - t.h * 0.5) - (this.y - this.h * 0.5));
+      if (d > R) return 0;
+      return Math.round(D * scale * (1 - d / R));
+    };
+    const pd = hit(player, 1);
+    if (pd > 0 && !player.dead) player.hurt(pd);   // Player.hurt applies the difficulty
+    for (const e of out.enemies) {
+      if (e === this || e.dead) continue;
+      const n = hit(e, 0.8);
+      if (n > 0) e.hurtBy(n, out);
+    }
+    out.explode(this.x, this.y - this.h * 0.5, this.rig.params.colAccent, '#ffd08a', 1.9);
+    this.kill(out, true);
+  };
+
   Enemy.prototype.stepWalking = function (world, player, dt, dx, dist, sees, out) {
-    const spd = this.A.speed * this.diff.fireRate * (this.slowMul || 1);
+    /* A zealot's blessing, while it lasts. Kept as a multiplier read
+       here rather than as a change to the archetype, because the
+       archetype is shared by every instance of the kind and writing to
+       it would buff the whole garrison for the rest of the run. */
+    const bless = this.blessed > 0 ? (this.blessRate || 1.2) : 1;
+    const spd = this.A.speed * this.diff.fireRate * bless * (this.slowMul || 1);
 
     if (this.state === 'engage') {
       this.face = dx > 0 ? 1 : -1;
-      // Close to a comfortable firing distance, then hold.
-      const want = this.A.label === 'HEAVY' ? 110 : 78;
-      if (dist > want * 1.25) this.vx += this.face * spd * 0.55;
+      /* How close it wants to be. This one number is most of what
+         separates the archetypes on the ground: a sniper that closes
+         is a trooper, and a shieldman that holds its distance is a
+         wall you can ignore. */
+      const want = this.A.standoff ? this.A.standoff
+                 : this.A.charger ? 20
+                 : this.A.label === 'HEAVY' ? 110 : 78;
+      if (this.A.charger) {
+        // straight at the player, and it does not stop
+        this.vx += this.face * spd * 0.75;
+        if (this.A.fuse !== undefined && dist < 54 && sees) {
+          this.fuse = this.A.fuse;
+          out.flashes.push({ x: this.x, y: this.y - this.h * 0.7, life: 0.2, r: 10,
+                             c: this.rig.params.colAccent });
+          window.AUDIO.play('pickup', 1.6, out.distTo(this.x));
+        }
+      } else if (this.A.advance) {
+        // walks forward behind the shield whatever is coming at it
+        this.vx += this.face * spd * (dist > want * 0.7 ? 0.6 : 0.15);
+      } else if (dist > want * 1.25) this.vx += this.face * spd * 0.55;
       else if (dist < want * 0.6) this.vx -= this.face * spd * 0.55;
       else this.vx *= 0.75;
-      if (sees) this.tryFire(player, out);
+      /* The sniper lines the shot up first, and says so. Everything
+         about the archetype is in that telegraph: without it, a shot
+         that crosses the whole screen for a fifth of your health is
+         just an unfair hit from off-camera. */
+      if (this.A.telegraph) {
+        if (sees && dist > 60) {
+          this.aimT += dt;
+          if (this.aimT >= this.A.telegraph && this.cool <= 0) {
+            this.aimT = 0;
+            this.tryFire(player, out);
+          }
+        } else this.aimT = Math.max(0, this.aimT - dt * 2);
+      } else if (sees && this.A.fuse === undefined) this.tryFire(player, out);
     } else {
+      this.aimT = 0;
       // Patrol the deck, turning at walls and at the edge of the drop.
       this.vx += this.dir * spd * 0.34;
       this.face = this.dir;
@@ -377,6 +492,15 @@ window.ENTITIES = (function () {
     const shoulderY = this.y - this.h * 0.72;
     this.aim = Math.atan2((player.y - player.h * 0.55) - shoulderY, player.x - this.x);
     this.local = foldAim(this.aim, this.face);
+  };
+
+  /* How far through lining a shot up a sniper is, 0..1, or 0 for
+     anything that does not line shots up. The renderer draws the sight
+     line off this and the pilot reads it to decide whether standing
+     still is about to be expensive. */
+  Enemy.prototype.sighting = function () {
+    if (!this.A.telegraph || this.dead || this.state !== 'engage') return 0;
+    return clamp(this.aimT / this.A.telegraph, 0, 1);
   };
 
   Enemy.prototype.stepFlying = function (world, player, dt, dx, dy, dist, sees, out) {
@@ -433,10 +557,34 @@ window.ENTITIES = (function () {
     window.AUDIO.play('shot', this.weapon.tone, out.distTo(this.x));
   };
 
-  Enemy.prototype.hurtBy = function (n, out) {
+  /* Damage, and what stops it. `fromX` is where the shot came from
+     when the caller knows; a shieldman only counts the hits it did not
+     see coming, which is the whole of the archetype — it is not a
+     tougher trooper, it is a trooper you have to get past. */
+  Enemy.prototype.hurtBy = function (n, out, fromX, fromY) {
     if (this.dead) return;
-    this.hp -= n;
+    let take = n;
+    if (this.A.shield && fromX !== undefined) {
+      const ax = Math.atan2((fromY === undefined ? this.y - this.h * 0.5 : fromY) -
+                            (this.y - this.h * 0.5), fromX - this.x);
+      /* Fold the incoming angle into the facing hemisphere: anything
+         inside the arc in front of it hits the plate. Fire from above
+         gets through, which is why a catwalk is worth climbing. */
+      const rel = Math.abs(Math.atan2(Math.sin(ax - (this.face > 0 ? 0 : Math.PI)),
+                                      Math.cos(ax - (this.face > 0 ? 0 : Math.PI))));
+      if (rel < (this.A.shieldArc || 1.1)) {
+        take = Math.max(1, Math.round(n * this.A.shield));
+        this.sparked = 0.16;
+        if (out && out.flashes) {
+          out.flashes.push({ x: this.x + this.face * this.w * 0.6,
+                             y: this.y - this.h * 0.55, life: 0.09, r: 6,
+                             c: this.rig.params.colVisor });
+        }
+      }
+    }
+    this.hp -= take;
     this.flash = 0.12;
+    this.hurtT = 1.2;                 // a cloak that just took a round is not hiding
     this.alerted = true; this.state = 'engage';
     if (this.hp <= 0) this.kill(out, false);
   };

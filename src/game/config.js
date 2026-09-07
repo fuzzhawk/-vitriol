@@ -239,6 +239,78 @@ window.CONFIG = (function () {
       score: 400, lash: 11, crawler: true
       // no build(): crawlers come from CRAWLER FORGE, not MERC FORGE
     },
+    /* ---- the specialists ----
+       Five archetypes that are not "a grunt with more health". Each
+       one asks the player to do something different: back off, close
+       in, get round the side, kill the support first, or watch the
+       empty air. A garrison mixed out of these plays differently from
+       one mixed out of grunts and troopers no matter how the numbers
+       are tuned, which is the whole point of them. */
+    sniper: {
+      label: 'SNIPER', hp: 4, speed: 0.24, aggro: 2.4, burst: 1, cooldown: 2.6, score: 420,
+      standoff: 210, sight: 1.05, telegraph: 0.9,
+      build: R => ({
+        height: 30 + R.int(0, 4), headSize: R.range(0.70, 0.84), limbThick: R.range(0.038, 0.050),
+        taper: R.range(0.55, 0.78), armour: R.range(0.15, 0.55), grit: R.range(0.6, 1.0),
+        legLen: R.range(0.48, 0.54), bootSize: R.range(0.35, 0.6), gloveSize: R.range(0.25, 0.5),
+        helmet: R.pick(['visor', 'crest']), backpack: R.pick(['none', 'pack']),
+        gun: 'rail', gunSize: R.range(1.15, 1.4),
+        twoHanded: true, plates: R.chance(0.3), pads: R.range(0.1, 0.4), antenna: R.chance(0.7),
+        runFrames: 8, aimRows: 5
+      })
+    },
+    sapper: {
+      label: 'SAPPER', hp: 5, speed: 0.86, aggro: 1.9, burst: 1, cooldown: 9, score: 380,
+      charger: true, fuse: 0.85, blast: 34, blastR: 46,
+      build: R => ({
+        height: 27 + R.int(0, 4), headSize: R.range(0.80, 0.96), limbThick: R.range(0.040, 0.054),
+        taper: R.range(0.60, 0.88), armour: R.range(0, 0.35), grit: R.range(0.7, 1.2),
+        legLen: R.range(0.50, 0.56), bootSize: R.range(0.3, 0.55), gloveSize: R.range(0.2, 0.45),
+        helmet: R.pick(['none', 'visor']), backpack: 'tank',
+        gun: 'pistol', gunSize: R.range(0.6, 0.8),
+        twoHanded: false, plates: false, pads: R.range(0, 0.3),
+        runFrames: 8, aimRows: 5
+      })
+    },
+    shieldman: {
+      label: 'SHIELDMAN', hp: 10, speed: 0.34, aggro: 1.15, burst: 2, cooldown: 1.7, score: 460,
+      shield: 0.28, shieldArc: 0.95, advance: true,
+      build: R => ({
+        height: 34 + R.int(0, 5), headSize: R.range(0.64, 0.78), limbThick: R.range(0.062, 0.080),
+        taper: R.range(0.38, 0.58), armour: R.range(1.2, 1.5), grit: R.range(0.5, 0.95),
+        legLen: R.range(0.44, 0.49), bootSize: R.range(0.7, 1.0), gloveSize: R.range(0.6, 0.9),
+        helmet: 'full', backpack: R.pick(['pack', 'none']),
+        gun: R.chance(0.5) ? 'scatter' : 'smg', gunSize: R.range(0.8, 1.0),
+        twoHanded: false, plates: true, pads: R.range(0.9, 1.25), shoulderW: R.range(0.34, 0.42),
+        runFrames: 6, aimRows: 5
+      })
+    },
+    zealot: {
+      label: 'ZEALOT', hp: 8, speed: 0.40, aggro: 1.5, burst: 2, cooldown: 2.0, score: 520,
+      auraR: 132, auraHeal: 2.2, auraRate: 1.22, support: true,
+      build: R => ({
+        height: 30 + R.int(0, 5), headSize: R.range(0.72, 0.88), limbThick: R.range(0.048, 0.062),
+        taper: R.range(0.50, 0.74), armour: R.range(0.5, 1.0), grit: R.range(0.6, 1.1),
+        legLen: R.range(0.46, 0.52), bootSize: R.range(0.45, 0.75), gloveSize: R.range(0.35, 0.6),
+        helmet: 'crest', backpack: R.pick(['tank', 'pack']),
+        gun: R.chance(0.5) ? 'pulse' : 'beam', gunSize: R.range(0.85, 1.05),
+        twoHanded: true, plates: R.chance(0.5), pads: R.range(0.4, 0.8), antenna: true,
+        runFrames: 8, aimRows: 5
+      })
+    },
+    stalker: {
+      label: 'STALKER', hp: 6, speed: 0.78, aggro: 2.0, burst: 3, cooldown: 0.9, score: 440,
+      cloak: 0.16, cloakAt: 120, charger: true,
+      build: R => ({
+        height: 28 + R.int(0, 4), headSize: R.range(0.72, 0.86), limbThick: R.range(0.036, 0.048),
+        taper: R.range(0.62, 0.88), armour: R.range(0.1, 0.5), grit: R.range(0.5, 0.9),
+        legLen: R.range(0.50, 0.56), bootSize: R.range(0.3, 0.5), gloveSize: R.range(0.2, 0.45),
+        helmet: R.pick(['visor', 'none']), backpack: R.pick(['none', 'jet']),
+        gun: R.chance(0.5) ? 'reaper' : 'nail', gunSize: R.range(0.75, 0.95),
+        twoHanded: R.chance(0.4), plates: false, pads: R.range(0, 0.35),
+        runFrames: 8, aimRows: 5
+      })
+    },
     drone: {
       label: 'DRONE', hp: 4, speed: 0.55, aggro: 1.4, burst: 3, cooldown: 1.3, score: 300,
       flying: true,
@@ -261,7 +333,7 @@ window.CONFIG = (function () {
      hover, they vent, and they hit harder. */
   const CORRUPT_RATE = { recruit: 0.18, regular: 0.30, veteran: 0.45, vitriol: 0.62 };
 
-  function archetypeParams(kind, seed, style, corruptRate) {
+  function archetypeParams(kind, seed, style, corruptRate, hue) {
     const A = ARCHETYPES[kind];
     // Crawlers are grown by CRAWLER FORGE and have no MERC FORGE build;
     // asking for merc params for one is a wiring mistake, not a shrug.
@@ -277,7 +349,11 @@ window.CONFIG = (function () {
     base.growths = R.range(0.6, 1.3);
     base.rotVeins = R.range(0.6, 1.3);
     base.colRot = window.MERCFORGE.hsl(348 + R.range(0, 24), 62 + R.range(0, 28), 28 + R.range(0, 16));
-    const h = R.range(0, 360);
+    /* A garrison that belongs to somebody wears their colour. Without
+       this a faction is a name in a briefing; with it you can tell
+       whose floor you are on from across the room. */
+    const h = hue === undefined || hue === null ? R.range(0, 360)
+                                                : (hue + R.range(-16, 16) + 360) % 360;
     return Object.assign({ seed: seed >>> 0 }, base, {
       colSuit:   window.MERCFORGE.hsl(h, 10 + R.range(0, 18), 26 + R.range(0, 12)),
       colSuit2:  window.MERCFORGE.hsl(h + R.range(-14, 14), 12 + R.range(0, 16), 12 + R.range(0, 7)),

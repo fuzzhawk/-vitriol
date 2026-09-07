@@ -290,6 +290,32 @@ section('flights (each in its own process)');
       ' @' + (k.progress * 100).toFixed(0) + '%').join('  '));
   }
 
+  /* --- a garrison with an owner --- */
+  {
+    const F = flight('garrison');
+    ok(F.garrison.length === 3, 'three doctrines fielded a garrison');
+    const by = {};
+    for (const g of F.garrison) {
+      by[g.doctrine] = g;
+      ok(g.kinds >= 3, g.doctrine + ' fields a mixed room (' + g.kinds + ' kinds)');
+      ok(g.accents > 2, 'and enough silhouettes to tell them apart');
+      ok(g.state === 'won', 'and autopilot can fight through it (' + g.state + ')');
+      ok(g.progress > 0.8, 'and get to the pad (' +
+         (g.progress * 100).toFixed(0) + '%)');
+    }
+    /* The claim the whole doctrine layer rests on: two factions send
+       visibly different rooms at you. */
+    ok((by.quiet.mix.stalker || 0) + (by.quiet.mix.sniper || 0) >
+       (by.attrition.mix.stalker || 0) + (by.attrition.mix.sniper || 0),
+       'the quiet send specialists where attrition sends bodies');
+    ok((by.attrition.mix.grunt || 0) > (by.quiet.mix.grunt || 0),
+       'and attrition sends the bodies');
+    console.log('    ' + F.garrison.map(g =>
+      g.doctrine + ':' + Object.keys(g.mix).filter(k => k !== 'overlord')
+        .sort((a, b) => g.mix[b] - g.mix[a]).slice(0, 3)
+        .map(k => k + '×' + g.mix[k]).join(',')).join('  '));
+  }
+
   /* --- a story, played --- */
   {
     const F = flight('story');
@@ -1114,8 +1140,13 @@ ok(M.exit.x <= M.L.LW, 'extraction is inside the level');
   let grounded = 0, flying = 0, clinging = 0, bad = 0;
   for (const e of M.enemies) {
     if (e.kind === 'crawler') {
-      // seated against a surface at the reach the generator measured
-      const faces = M.world.surfacesNear(e.x, e.y, e.rig.radiusMax || 90);
+      /* Seated against a surface at the reach the generator measured.
+         The search has to go out to that REACH, not to the body's own
+         radius: a crawler whose limbs hold it further off the wall
+         than it is wide sits perfectly well, and looking only as far
+         as the blob is wide finds no wall and calls it floating. */
+      const rr = Math.max(e.rig.radiusMax || 0, e.rig.reach(e.orient)) + 6;
+      const faces = M.world.surfacesNear(e.x, e.y, rr);
       let seated = false;
       for (const f of faces) {
         if (!f.orient) continue;
@@ -1253,8 +1284,24 @@ section('damage path');
        through a crawler on their way to the merc, and a corpse takes
        no further damage — which is correct, and quietly satisfied an
        earlier version of this check through its `|| dead` clause. */
-    const cr = M2.enemies.find(e => e.kind === 'crawler' && !e.dead);
+    /* A live crawler, moved into the same open air the merc above was
+       shot in if the one the spawner placed is wedged. A crawler in a
+       corner is correctly unshootable from three sides, and whether
+       the spawner happened to put it in one is not what this check is
+       about. */
+    const D0 = 34;
+    let cr = null, crApproach = null;
+    for (const e of M2.enemies) {
+      if (e.kind !== 'crawler' || e.dead) continue;
+      if (!cr) cr = e;
+      const a = approachTo(M2, e.x, e.y, D0);
+      if (a) { cr = e; crApproach = a; break; }
+    }
     ok(!!cr, 'a live crawler is in the level');
+    if (cr && !crApproach) {
+      cr.x = target.x; cr.y = ty;
+      crApproach = approachTo(M2, cr.x, cr.y, D0);
+    }
     if (cr) {
       /* Shoot from a direction with clear air between muzzle and blob.
          A crawler on a wall has solid mass on one side of it, and
@@ -1262,8 +1309,8 @@ section('damage path');
          behaviour, and the reason two earlier versions of this check
          failed for reasons that had nothing to do with the code under
          test. Pick the approach by asking the world, not by assuming. */
-      const D = 34;
-      const found = approachTo(M2, cr.x, cr.y, D);
+      const D = D0;
+      const found = crApproach || approachTo(M2, cr.x, cr.y, D);
       ok(!!found, 'found a clear firing line to the crawler');
       let ap = found ? found.d : [0, -1];
       const apR = found ? found.r : D;
@@ -2332,6 +2379,304 @@ section('pilot, allies and autopilot');
     dump('out_warden_zoom.png', zoom);
   }
   dump('out_wardens.png', cv);
+}
+
+section('the garrison (archetypes)');
+{
+  const CA = window.CONFIG.ARCHETYPES;
+  const SPEC = ['sniper', 'sapper', 'shieldman', 'zealot', 'stalker'];
+
+  /* --- the table itself --- */
+  for (const k of Object.keys(CA)) {
+    const A = CA[k];
+    ok(typeof A.label === 'string' && A.label.length > 2, k + ' has a name');
+    ok(A.hp > 0 && A.score > 0, k + ' is worth killing');
+    ok(A.cooldown > 0, k + ' has a rate of fire');
+    if (!A.crawler) ok(typeof A.build === 'function', k + ' knows how to be forged');
+  }
+  for (const k of SPEC) {
+    const A = CA[k];
+    ok(!!A, 'the specialist "' + k + '" exists');
+    /* Each one has to have a reason to exist that is not "more hp".
+       If a specialist's only difference from a trooper is a number,
+       it is a trooper. */
+    const gimmick = !!(A.standoff || A.charger || A.shield || A.support ||
+                       A.cloak !== undefined);
+    ok(gimmick, k + ' does something a trooper does not');
+    const p = window.CONFIG.archetypeParams(k, 0x1234, 'slum', 0.2);
+    ok(p.height > 20 && p.height < 60, k + ' is merc-sized (' + p.height + ')');
+    ok(!!window.WEAPONS.table[p.gun], k + ' carries a real weapon (' + p.gun + ')');
+  }
+  /* the specialists are not all the same shape as each other */
+  {
+    const heights = new Set(), guns = new Set();
+    for (const k of SPEC) {
+      const p = window.CONFIG.archetypeParams(k, 0x777, 'slum', 0);
+      heights.add(Math.round(p.height / 3)); guns.add(p.gun);
+    }
+    ok(guns.size >= 3, 'the specialists do not all carry the same gun');
+    ok(heights.size >= 2, 'nor are they all the same size');
+  }
+
+  /* --- a faction's colour reaches its troops --- */
+  {
+    /* MERCFORGE.hsl() hands back a hex string, so the hue comes back
+       out of the pixels rather than out of the text. */
+    const hueOf = hex => {
+      const n = parseInt(String(hex).replace('#', ''), 16);
+      const r = ((n >> 16) & 255) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
+      const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+      if (d < 0.001) return -1;
+      let h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+      h *= 60; if (h < 0) h += 360;
+      return h;
+    };
+    const arc = (x, y) => { const d = Math.abs(x - y) % 360; return d > 180 ? 360 - d : d; };
+    const sample = (hue, n) => {
+      const hs = [];
+      for (let i = 0; i < n; i++) {
+        const p = window.CONFIG.archetypeParams(i % 2 ? 'grunt' : 'trooper',
+          (0x11 + i * 7919) >>> 0, 'slum', 0, hue);
+        const h = hueOf(p.colSuit);
+        if (h >= 0) hs.push(h);
+      }
+      return hs;
+    };
+    const at200 = sample(200, 12), at20 = sample(20, 12);
+    ok(at200.length > 6 && at20.length > 6, 'a faction garrison has colour in it');
+    const near = at200.filter(h => arc(h, 200) < 45).length;
+    ok(near > at200.length * 0.6,
+       'a faction garrison wears its own colour (' + near + '/' + at200.length + ')');
+    const cross = at20.filter(h => arc(h, 200) < 45).length;
+    ok(cross < at20.length * 0.4,
+       'and another faction does not (' + cross + '/' + at20.length + ')');
+    const free = sample(undefined, 14);
+    const spread = new Set(free.map(h => Math.floor(h / 60))).size;
+    ok(spread >= 4, 'while an unowned garrison is any colour at all (' + spread + ')');
+  }
+
+  /* --- the roster: a doctrine has to be legible in what it fields --- */
+  {
+    const LRg = window.LORE, WD = window.WORLD;
+    ok(typeof WD.roster === 'function', 'the roster is testable on its own');
+    const mixFor = (doctrine, seed) => {
+      const rng = GW.makeRng(seed >>> 0);
+      const mix = WD.roster({ levelLen: 6 },
+        { enemyDens: 1.2, faction: doctrine ? { doctrine } : null }, rng);
+      const t = {};
+      for (const k of mix) t[k] = (t[k] || 0) + 1;
+      return { mix, t };
+    };
+    for (const d of LRg.DOCTRINE_KEYS) {
+      ok(!!WD.DOCTRINE_MIX[d], 'doctrine "' + d + '" tells the roster what it fields');
+      for (const k in WD.DOCTRINE_MIX[d]) {
+        ok(!!CA[k], 'and only asks for archetypes that exist (' + k + ')');
+      }
+    }
+    /* Aggregated over many seeds, because one roster is a roll and the
+       claim being tested is about the distribution. */
+    const tallies = {};
+    for (const d of LRg.DOCTRINE_KEYS) {
+      const t = {};
+      for (let i = 0; i < 40; i++) {
+        const r = mixFor(d, (0xA1 + i * 2654435761) >>> 0);
+        for (const k in r.t) t[k] = (t[k] || 0) + r.t[k];
+      }
+      tallies[d] = t;
+      const top = Object.keys(t).sort((a, b) => t[b] - t[a]);
+      ok(top.length >= 4, d + ' fields a mixed garrison (' + top.length + ' kinds)');
+    }
+    const lead = d => Object.keys(tallies[d]).sort((a, b) => tallies[d][b] - tallies[d][a])[0];
+    const has = (d, k) => (tallies[d][k] || 0);
+    ok(lead('attrition') === 'grunt', 'attrition fields bodies (' + lead('attrition') + ')');
+    ok(has('quiet', 'stalker') > has('attrition', 'stalker') * 3,
+       'the quiet field stalkers and almost nobody else does');
+    ok(has('quiet', 'sniper') > has('attrition', 'sniper') * 3,
+       'and snipers');
+    ok(has('augury', 'zealot') > has('order', 'zealot') * 3,
+       'augury fields the people who do the blessing');
+    ok(has('purity', 'crawler') < has('rapture', 'crawler') * 0.25,
+       'purity does not field the thing it exists to burn');
+    ok(has('rapture', 'crawler') > has('order', 'crawler') * 3,
+       'and rapture fields plenty of it');
+    ok(has('ledger', 'heavy') > has('quiet', 'heavy'),
+       'the ledger sends something expensive');
+    /* no doctrine may turn a level into one archetype */
+    for (const d of LRg.DOCTRINE_KEYS) {
+      let tot = 0, mx = 0;
+      for (const k in tallies[d]) { tot += tallies[d][k]; mx = Math.max(mx, tallies[d][k]); }
+      ok(mx / tot < 0.62, d + ' never fields only one kind (' +
+         (100 * mx / tot).toFixed(0) + '%)');
+    }
+    // and with no faction at all it still produces a garrison
+    const plain = mixFor(null, 0x5150);
+    ok(Object.keys(plain.t).length >= 4, 'an unowned level still gets a mixed garrison');
+    console.log('  ' + window.LORE.DOCTRINE_KEYS.map(d =>
+      d + ':' + Object.keys(tallies[d]).sort((a, b) => tallies[d][b] - tallies[d][a])[0]).join(' '));
+  }
+
+  /* --- what the specialists actually DO ---
+     Driven on the mission already built, with a body dropped in next
+     to the player, because behaviour is the whole claim and a stat
+     block proves none of it. */
+  {
+    const E = window.ENTITIES;
+    const P = M.player;
+    const rigOf = k => new window.SPRITE.Rig(
+      window.CONFIG.archetypeParams(k, 0x2468, M.cfg.style, 0));
+    const put = (k, dx, dy) => {
+      const e = new E.Enemy(rigOf(k), P.x + dx, P.y + (dy || 0), k, CA[k],
+                            M.diff, 0x1357);
+      M.enemies.push(e);
+      return e;
+    };
+    const drop = e => { const i = M.enemies.indexOf(e); if (i >= 0) M.enemies.splice(i, 1); };
+    P.hp = P.maxHp; P.dead = false; P.invuln = 0; P.ward = 0;
+
+    /* the sapper: closes, lights, and takes the room with it */
+    {
+      const sap = put('sapper', 40);
+      sap.alerted = true; sap.state = 'engage';
+      let lit = 0, frames = 0;
+      P.invuln = 0; P.ward = 0; P.hp = P.maxHp;
+      const hp0 = P.hp;
+      while (!sap.dead && frames++ < 60 * 8) {
+        /* Pinned for the whole run, lit fuse included. What is under
+           test is the blast; a sapper that walks off the deck it was
+           dropped next to tests the drop. */
+        sap.x = P.x + 40; sap.y = P.y; sap.vx = 0; sap.vy = 0;
+        sap.step(M.world, P, 1 / 60, M);
+        if (sap.fuse > 0) lit++;
+      }
+      ok(lit > 0, 'a sapper lights its fuse when it gets close');
+      ok(sap.dead, 'and goes off (' + (frames / 60).toFixed(1) + 's)');
+      ok(P.hp < hp0, 'taking the player with it (' + (hp0 - P.hp) + ' damage)');
+      drop(sap);
+      P.hp = P.maxHp;
+    }
+
+    /* the shieldman: frontal fire is most of the way wasted */
+    {
+      const a = put('shieldman', 60);
+      const reset = () => { a.hp = a.maxHp = 999; a.dead = false; };
+      a.face = -1;                                  // facing back at the player
+      reset();
+      a.hurtBy(10, M, a.x - 90, a.y - a.h * 0.5);   // straight into the plate
+      const tookFront = 999 - a.hp;
+      reset();
+      a.hurtBy(10, M, a.x + 90, a.y - a.h * 0.5);   // from behind it
+      const tookBack = 999 - a.hp;
+      reset();
+      a.hurtBy(10, M, a.x, a.y - a.h * 2.4);        // from straight above
+      const tookAbove = 999 - a.hp;
+      reset();
+      a.hurtBy(10, M);                              // no direction at all
+      const tookBlind = 999 - a.hp;
+      ok(tookFront < tookBack, 'a shieldman eats fire from the front (' +
+         tookFront + ' vs ' + tookBack + ')');
+      ok(tookFront >= 1, 'but never nothing at all');
+      ok(tookAbove > tookFront, 'and fire from a catwalk gets past it (' + tookAbove + ')');
+      ok(tookBlind === 10, 'and damage with no direction gets through');
+      drop(a);
+    }
+
+    /* the zealot: heals and hurries whoever is standing near it */
+    {
+      const z = put('zealot', 30);
+      const g = put('grunt', 46);
+      g.hp = 1;
+      let frames = 0;
+      while (frames++ < 60 * 6 && g.hp <= 1) z.step(M.world, P, 1 / 60, M);
+      ok(g.hp > 1, 'a zealot heals what is standing next to it (' + g.hp + ')');
+      ok(g.blessed > 0, 'and hurries it along');
+      const far = put('grunt', 700);
+      far.hp = 1;
+      for (let k = 0; k < 60 * 6; k++) z.step(M.world, P, 1 / 60, M);
+      ok(far.hp === 1, 'and does nothing for one across the level');
+      drop(z); drop(g); drop(far);
+    }
+
+    /* the sniper: lines the shot up, visibly, before taking it */
+    {
+      const sn = put('sniper', 150);
+      sn.alerted = true; sn.state = 'engage';
+      const before = M.bullets.length;
+      let peak = 0, shotAt = -1;
+      for (let k = 0; k < 60 * 6; k++) {
+        sn.step(M.world, P, 1 / 60, M);
+        peak = Math.max(peak, sn.sighting());
+        if (shotAt < 0 && M.bullets.length > before) shotAt = k;
+      }
+      ok(peak > 0.5, 'a sniper visibly lines a shot up (' + peak.toFixed(2) + ')');
+      ok(shotAt > 20, 'and does not fire the instant it sees you (' +
+         (shotAt / 60).toFixed(2) + 's)');
+      ok(CA.sniper.standoff > CA.trooper.aggro * 60, 'and stands well back');
+      const other = put('trooper', 150);
+      ok(!other.sighting || other.sighting() === 0, 'nothing else lines shots up');
+      drop(sn); drop(other);
+    }
+
+    /* the stalker: fades at range, solid when it matters */
+    {
+      const st = put('stalker', 600);
+      st.alerted = true; st.state = 'engage';
+      /* Pinned each frame. What is under test is the fade, and a body
+         that walks off the deck it was dropped on tests gravity. */
+      const hold = (dx, n) => {
+        for (let k = 0; k < n; k++) {
+          st.x = P.x + dx; st.y = P.y; st.vx = 0; st.vy = 0;
+          st.hp = st.maxHp = 999; st.dead = false;
+          st.step(M.world, P, 1 / 60, M);
+        }
+      };
+      hold(600, 180);
+      const faded = st.cloak;
+      ok(faded < 0.5, 'a stalker fades when it is a long way off (' + faded.toFixed(2) + ')');
+      hold(40, 180);
+      ok(st.cloak > 0.9, 'and is solid by the time it reaches you (' + st.cloak.toFixed(2) + ')');
+      hold(600, 180);
+      ok(st.cloak < 0.5, 'and fades again once it backs off');
+      st.hurtBy(1, M, st.x + 40, st.y);
+      hold(600, 6);
+      ok(st.cloak > faded, 'while a round through it gives it away (' +
+         st.cloak.toFixed(2) + ')');
+      drop(st);
+    }
+  }
+
+  /* contact sheet: the five of them, so the plate, the fuse, the aura,
+     the sight line and the fade are all reviewable at once */
+  {
+    const E = window.ENTITIES;
+    const CW = 96, CH = 110;
+    const cv = createCanvas(CW * SPEC.length, CH);
+    const cx = cv.getContext('2d');
+    cx.imageSmoothingEnabled = false;
+    cx.fillStyle = '#12161a'; cx.fillRect(0, 0, cv.width, CH);
+    SPEC.forEach((k, i) => {
+      const rig = new window.SPRITE.Rig(
+        window.CONFIG.archetypeParams(k, 0x8642, M.cfg.style, 0, 30));
+      const e = new E.Enemy(rig, 0, 0, k, CA[k], M.diff, 0x99);
+      e.alerted = true; e.state = 'engage'; e.face = 1;
+      e.aim = -0.1; e.local = -0.1; e.anim = 'idle'; e.frame = 0;
+      // put each one in the state worth looking at
+      if (k === 'sapper') e.fuse = CA.sapper.fuse * 0.45;
+      if (k === 'sniper') e.aimT = CA.sniper.telegraph * 0.85;
+      if (k === 'zealot') { e.auraPulse = 0.8; }
+      if (k === 'stalker') e.cloak = 0.45;
+      cx.save();
+      cx.translate(i * CW + CW / 2, CH - 18);
+      window.RENDER.drawActor(cx, e, 0, 0, false);
+      cx.restore();
+      cx.font = '9px monospace'; cx.fillStyle = '#8fb';
+      cx.fillText(CA[k].label, i * CW + 4, CH - 5);
+    });
+    let ink = 0;
+    const d = cx.getImageData(0, 0, cv.width, CH).data;
+    for (let i = 0; i < d.length; i += 4) if (d[i] + d[i + 1] + d[i + 2] > 90) ink++;
+    ok(ink > 400, 'the specialists draw (' + ink + 'px)');
+    dump('out_specialists.png', cv);
+  }
 }
 
 section('the world (lore)');

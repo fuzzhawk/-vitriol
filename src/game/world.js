@@ -25,15 +25,95 @@ window.WORLD = (function () {
 
   /* Which hostiles this level fields, and how many of each. Longer
      levels earn heavier opposition; difficulty scales the count. */
+  /* What a garrison is made of.
+
+     The base weights are the line troops; a doctrine bends them. A
+     faction that believes there is always another shift fields three
+     grunts where one that believes in doors fields a stalker, and the
+     difference has to be legible in the first ten seconds of the
+     level or the whole world layer is decoration.
+
+     Specialists are rationed rather than rolled flat: two snipers in a
+     row is a corridor you cannot cross, and six shieldmen is a wall.
+     A weight is how much of the roster a kind may take, not how often
+     it comes up. */
+  const BASE_MIX = {
+    grunt: 0.26, trooper: 0.17, drone: 0.10, crawler: 0.10, heavy: 0.07,
+    sniper: 0.07, sapper: 0.07, shieldman: 0.06, zealot: 0.04, stalker: 0.06
+  };
+  /* How each doctrine leans. Multiplied over the base, so a doctrine
+     that says nothing about a kind still fields it. */
+  const DOCTRINE_MIX = {
+    attrition: { grunt: 2.6, trooper: 1.4, sapper: 1.6, heavy: 0.4, sniper: 0.25,
+                 stalker: 0.3, zealot: 0.4, shieldman: 0.5, drone: 0.6, crawler: 0.6 },
+    purity:    { shieldman: 3.4, trooper: 1.8, heavy: 1.6, zealot: 1.8, crawler: 0.1,
+                 stalker: 0.3, sapper: 0.5, drone: 0.6, grunt: 0.8 },
+    salvage:   { drone: 2.8, sapper: 2.0, grunt: 1.4, heavy: 1.2, shieldman: 0.3,
+                 sniper: 0.5, zealot: 0.3, stalker: 0.6 },
+    augury:    { zealot: 4.5, crawler: 2.2, drone: 1.6, grunt: 0.4, heavy: 0.3,
+                 shieldman: 0.4, sapper: 0.6, trooper: 0.6 },
+    order:     { shieldman: 3.0, trooper: 2.2, sniper: 2.0, heavy: 1.4, crawler: 0.15,
+                 sapper: 0.3, stalker: 0.3, zealot: 0.4, grunt: 0.9 },
+    rapture:   { crawler: 3.0, sapper: 2.6, zealot: 2.2, stalker: 1.4, trooper: 0.3,
+                 shieldman: 0.2, sniper: 0.3, heavy: 0.4, grunt: 0.7 },
+    freight:   { drone: 3.0, heavy: 1.6, grunt: 1.4, sapper: 0.9, sniper: 0.4,
+                 zealot: 0.2, stalker: 0.4, crawler: 0.5, shieldman: 0.6 },
+    quiet:     { stalker: 5.5, sniper: 3.2, grunt: 0.2, trooper: 0.5, sapper: 0.3,
+                 crawler: 0.3, drone: 0.5, heavy: 0.5, zealot: 0.4, shieldman: 0.6 },
+    growth:    { crawler: 3.2, zealot: 2.0, sapper: 1.4, sniper: 0.25, shieldman: 0.3,
+                 stalker: 0.8, heavy: 0.5, trooper: 0.6 },
+    ledger:    { heavy: 2.6, sniper: 2.4, trooper: 1.6, shieldman: 1.5, crawler: 0.3,
+                 sapper: 0.4, stalker: 0.4, zealot: 0.4, grunt: 0.7, drone: 0.7 }
+  };
+
   function roster(cfg, opts, rng) {
     const span = cfg.levelLen;
     const dens = opts.enemyDens;
     const n = Math.round(span * 2.9 * dens);
+    const doc = opts.faction && DOCTRINE_MIX[opts.faction.doctrine];
+    const w = {}; let tot = 0;
+    for (const k in BASE_MIX) {
+      w[k] = BASE_MIX[k] * ((doc && doc[k]) || 1);
+      tot += w[k];
+    }
+    const keys = Object.keys(w);
     const mix = [];
+    /* A cap per specialist, so a bad run of rolls cannot produce a
+       level made entirely of the one archetype that is hardest to
+       fight. Line troops are uncapped: a wall of grunts is a garrison,
+       not a bug. */
+    const CAP = { sniper: 0.30, sapper: 0.30, shieldman: 0.32, zealot: 0.18, stalker: 0.38,
+                  heavy: 0.28, drone: 0.38, crawler: 0.38 };
+    const count = {};
     for (let i = 0; i < n; i++) {
-      const r = rng.rnd();
-      mix.push(r < 0.36 ? 'grunt' : r < 0.60 ? 'trooper' :
-               r < 0.76 ? 'drone' : r < 0.90 ? 'crawler' : 'heavy');
+      let pick = 'grunt';
+      for (let t = 0; t < 8; t++) {
+        let roll = rng.rnd() * tot;
+        pick = keys[keys.length - 1];
+        for (const k of keys) { if ((roll -= w[k]) <= 0) { pick = k; break; } }
+        const cap = CAP[pick];
+        if (!cap || (count[pick] || 0) + 1 <= Math.max(1, Math.round(n * cap))) break;
+        pick = 'grunt';
+      }
+      count[pick] = (count[pick] || 0) + 1;
+      mix.push(pick);
+    }
+    /* Representation. There are three families of hostile in this game
+       — things that walk, things that fly and things that climb — and
+       a level that happens to roll none of one of them is a level
+       missing a third of what it is. Once a garrison is big enough to
+       hold one, it holds one, unless the faction holding the place
+       actively does not field them. */
+    if (n >= 8) {
+      for (const k of ['crawler', 'drone', 'heavy']) {
+        if (count[k]) continue;
+        if (doc && doc[k] !== undefined && doc[k] < 0.5) continue;
+        const swap = mix.indexOf('grunt');
+        if (swap < 0) continue;
+        count.grunt--;
+        mix[swap] = k;
+        count[k] = 1;
+      }
     }
     return mix;
   }
@@ -78,7 +158,7 @@ window.WORLD = (function () {
           const rot = opts.sectorScale ? opts.sectorScale.corrupt
                     : (window.CONFIG.CORRUPT_RATE[opts.difficulty] || 0.30);
           rigs[kind].push(new window.SPRITE.Rig(window.CONFIG.archetypeParams(
-            kind, seed, cfg.style, rot)));
+            kind, seed, cfg.style, rot, opts.faction ? opts.faction.hue : undefined)));
         }
         done++;
       }
@@ -1437,7 +1517,12 @@ window.WORLD = (function () {
                  b.y > e.y - e.h && b.y < e.y + 2);
             if (hit) {
               if (b.hitList && b.hitList.indexOf(e) >= 0) continue;
-              e.hurtBy(b.dmg, this);
+              /* Where the round came from, so a shield can tell a
+                 hit it was facing from one it was not. Reconstructed
+                 from the bullet's own travel rather than remembered,
+                 because a ricochet or a chain arc has a different
+                 origin from the barrel that started it. */
+              e.hurtBy(b.dmg, this, b.x - b.vx * 4, b.y - b.vy * 4);
               this.onHit(b, e);
               this.impact(b, -b.vx, -b.vy);
               window.AUDIO.play('flesh', null, this.distTo(b.x));
@@ -1814,5 +1899,5 @@ window.WORLD = (function () {
     };
   };
 
-  return { buildMission, Mission };
+  return { buildMission, Mission, roster, BASE_MIX, DOCTRINE_MIX };
 })();

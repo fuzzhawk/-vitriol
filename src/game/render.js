@@ -264,7 +264,124 @@ window.RENDER = (function () {
       ctx.restore();
     }
     if (a.alerted && !a.dead) halo(ctx, a, sx, sy, 0.20);
+
+    /* --- the zealot's blessing, drawn from the one giving it --- */
+    if (a.A && a.A.support && !a.dead) {
+      const R = a.A.auraR || 130;
+      const p = a.auraPulse || 0;
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      // the standing field, faint, so you know the radius before it fires
+      ctx.strokeStyle = hexA(a.rig.params.colVisor, 0.10 + 0.22 * p);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.ellipse(sx, sy - 2, R * (0.35 + 0.65 * (1 - p)), R * 0.24 * (0.35 + 0.65 * (1 - p)),
+                  0, 0, TAU);
+      ctx.stroke();
+      if (p > 0.02) {
+        const g = ctx.createRadialGradient(sx, sy - a.h * 0.5, 0, sx, sy - a.h * 0.5, a.h * 1.4);
+        g.addColorStop(0, hexA(a.rig.params.colVisor, 0.26 * p));
+        g.addColorStop(1, hexA(a.rig.params.colVisor, 0));
+        ctx.fillStyle = g;
+        ctx.fillRect(sx - a.h * 1.4, sy - a.h * 1.9, a.h * 2.8, a.h * 2.8);
+      }
+      ctx.restore();
+    }
+    /* --- and on whoever is under it --- */
+    if (a.blessed > 0 && !a.dead) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = 0.10 * clamp(a.blessed / 1.6, 0, 1);
+      ctx.fillStyle = '#ffe6a0';
+      ctx.fillRect(sx - a.w * 0.6, sy - a.h - 2, a.w * 1.2, a.h + 3);
+      ctx.restore();
+    }
+
+    /* --- a lit sapper. Nothing subtle: it is a countdown, and the
+           player has under a second to decide what to do about it. --- */
+    if (a.fuse > 0) {
+      const A = a.A || {};
+      const k = 1 - clamp(a.fuse / (A.fuse || 0.85), 0, 1);
+      const blink = Math.floor(a.fuse * (6 + k * 22)) % 2 === 0;
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      const r = (A.blastR || 46) * (0.35 + 0.65 * k);
+      ctx.strokeStyle = 'rgba(255,120,40,' + (0.16 + 0.34 * k).toFixed(3) + ')';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(sx, sy - a.h * 0.5, r, 0, TAU); ctx.stroke();
+      if (blink) {
+        const g = ctx.createRadialGradient(sx, sy - a.h * 0.6, 0, sx, sy - a.h * 0.6, a.h);
+        g.addColorStop(0, 'rgba(255,190,90,' + (0.35 + 0.4 * k).toFixed(3) + ')');
+        g.addColorStop(1, 'rgba(255,90,30,0)');
+        ctx.fillStyle = g;
+        ctx.fillRect(sx - a.h, sy - a.h * 1.6, a.h * 2, a.h * 2);
+      }
+      ctx.restore();
+    }
+
+    /* --- the sniper's line. Drawn from the muzzle to the player and
+           thickening as the shot comes together, because a shot that
+           crosses the whole screen has to be something you were told
+           about. --- */
+    if (a.sighting && a.sighting() > 0.02) {
+      const k = a.sighting();
+      /* From the shoulder rather than the muzzle: the muzzle needs a
+         valid animation frame, and this line has to draw for anything
+         that is lining a shot up, including a body being posed for a
+         contact sheet. */
+      const mx = a.face < 0 ? -a.w * 0.35 : a.w * 0.35, my = -a.h * 0.68;
+      const len = 460;
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.strokeStyle = hexA(a.rig.params.colVisor, 0.10 + 0.45 * k * k);
+      ctx.lineWidth = k > 0.8 ? 1.6 : 1;
+      ctx.beginPath();
+      ctx.moveTo(sx + mx, sy + my);
+      ctx.lineTo(sx + mx + Math.cos(a.aim || 0) * len,
+                 sy + my + Math.sin(a.aim || 0) * len);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    /* A stalker fades out at range. Applied to the sprite blit only —
+       the shadow and the halo stay, so it is hard to see rather than
+       invisible, which is a threat rather than a trick. */
+    const cloaked = a.cloak !== undefined && a.cloak < 0.995 && !a.dead;
+    if (cloaked) { ctx.save(); ctx.globalAlpha = clamp(a.cloak, 0.08, 1); }
     a.rig.draw(ctx, a.anim, a.frame || 0, a.local, sx, sy, a.face < 0);
+    if (cloaked) {
+      // the shimmer that gives it away if you are looking
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = 0.10 * (1 - a.cloak);
+      ctx.fillStyle = a.rig.params.colVisor;
+      ctx.fillRect(sx - a.w * 0.55, sy - a.h, a.w * 1.1, a.h);
+      ctx.restore();
+    }
+
+    /* The shieldman's plate, in front of the body on the side it is
+       facing. Drawn rather than baked because it has to spark when it
+       stops something, and a baked plate cannot. */
+    if (a.A && a.A.shield && !a.dead) {
+      const f = a.face < 0 ? -1 : 1;
+      const px = sx + f * (a.w * 0.52), top = sy - a.h * 0.96, hh = a.h * 0.82;
+      ctx.save();
+      ctx.fillStyle = hexA(a.rig.params.colSuit2 || '#2a2f33', 0.98);
+      ctx.fillRect(Math.round(px - f * 2), Math.round(top), 4, Math.round(hh));
+      ctx.fillStyle = hexA(a.rig.params.colAccent, 0.85);
+      ctx.fillRect(Math.round(px + f * 1), Math.round(top), 1, Math.round(hh));
+      ctx.fillStyle = 'rgba(0,0,0,.45)';
+      ctx.fillRect(Math.round(px - f * 2), Math.round(top + hh * 0.34), 4, 1);
+      if (a.sparked > 0) {
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalAlpha = clamp(a.sparked / 0.16, 0, 1);
+        const g = ctx.createRadialGradient(px, sy - a.h * 0.55, 0, px, sy - a.h * 0.55, 10);
+        g.addColorStop(0, hexA(a.rig.params.colVisor, 0.9));
+        g.addColorStop(1, hexA(a.rig.params.colVisor, 0));
+        ctx.fillStyle = g;
+        ctx.fillRect(px - 10, sy - a.h * 0.55 - 10, 20, 20);
+      }
+      ctx.restore();
+    }
     if (a.slowT > 0) {
       // a cold cast over the sprite, so a mired body reads as slowed
       ctx.save();
@@ -1263,6 +1380,6 @@ window.RENDER = (function () {
 
   return { frame, entityPass, hud, worldHud, overlay, text, bar, hexA, FONT,
            HUD_W, HUD_H, HUD_S,
-           drawCrawler, drawSlime, drawGib, drawBody, drawVapor,
+           drawActor, drawCrawler, drawSlime, drawGib, drawBody, drawVapor,
            drawStasis, drawAllyPip, drawWarden, drawCharge, drawCache, dialogBox };
 })();

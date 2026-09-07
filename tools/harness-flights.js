@@ -250,6 +250,37 @@ const SCENARIOS = {
     return { kinds: out };
   },
 
+  /* A garrison with an owner. Three doctrines that should field
+     visibly different rooms, each flown, so a mix that reads well in a
+     tally is also a mix that can actually be fought through. */
+  garrison() {
+    const LR = window.LORE;
+    const out = [];
+    const docs = ['quiet', 'attrition', 'augury'];
+    for (let i = 0; i < docs.length; i++) {
+      const doctrine = docs[i];
+      const faction = { id: 0, doctrine: doctrine, hue: 40 + i * 90,
+                        name: doctrine.toUpperCase() };
+      const cfg = window.CONFIG.randomLevelCfg((0x9A55 + i * 7919) >>> 0);
+      cfg.levelLen = 3;
+      const M = bake(cfg, window.CONFIG.randomMerc(7), {
+        difficulty: 'recruit', enemyDens: 1.1, lives: 9, allies: 0,
+        autopilot: true, faction: faction
+      });
+      const seen = {};
+      let hues = new Set();
+      for (const e of M.enemies) {
+        seen[e.kind] = (seen[e.kind] || 0) + 1;
+        if (e.rig && e.rig.params) hues.add(e.rig.params.colAccent);
+      }
+      const rec = { doctrine, mix: seen, kinds: Object.keys(seen).length,
+                    accents: hues.size };
+      Object.assign(rec, fly(M, 170));
+      out.push(rec);
+    }
+    return { garrison: out };
+  },
+
   /* A story, played. Only the first few missions — what is under test
      is that a beat becomes a level, the objective is enforced, and the
      loadout and traits carry across a beat boundary. */
