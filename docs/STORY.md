@@ -151,6 +151,9 @@ time.
 - [x] **12 — The sound of a place.** `bedFor` describes an ambient bed as data
       — one per level kind, transposed by sky mood, keyed by the owner's hue —
       and `tension` leans on it as the room notices you.
+- [x] **13 — A run you can come back to.** `story.save()` / `STORY.restore()`
+      as plain data — the world regenerated from the seed, the spine saved as
+      it stands — written after every beat, offered back on the setup screen.
 
 ---
 

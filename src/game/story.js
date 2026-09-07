@@ -991,7 +991,108 @@ window.STORY = (function () {
       };
     };
 
+    /* ------------------------------------------------------------
+       PUTTING A RUN DOWN AND PICKING IT BACK UP.
+
+       A story is now eight to thirteen missions. Losing one to a
+       closed tab is not a rough edge, it is the difference between a
+       mode people finish and a mode people start.
+
+       What is saved is plain data: the seed, the spine as it currently
+       stands, and everything the run has accumulated. The WORLD is not
+       saved — it is regenerated from the seed, which is the whole point
+       of the world being generated from a seed. Nor is the spine
+       replayed: consequences are welded on by what you did, and
+       replaying the decisions to rebuild the shape would be a second
+       implementation of the story that has to agree with the first
+       forever. The beats are already plain objects; they are the save.
+       ------------------------------------------------------------ */
+    story.save = function () {
+      const c = story.carry;
+      return {
+        v: 1,
+        seed: story.seed >>> 0,
+        opts: Object.assign({}, story.opts),
+        beats: JSON.parse(JSON.stringify(story.beats)),
+        at: story.at, beatsDone: story.beatsDone, missions: story.missions,
+        flags: Object.assign({}, story.flags),
+        fired: Object.assign({}, story.fired),
+        traits: story.traits.slice(),
+        rep: story.rep.slice(),
+        log: JSON.parse(JSON.stringify(story.log)),
+        people: JSON.parse(JSON.stringify(story.people)),
+        score: story.score, kills: story.kills,
+        deaths: story.deaths, time: story.time,
+        done: story.done, won: story.won,
+        /* The loadout, minus the one thing in it that is a canvas. A
+           prototype's RIG is rebaked from its params on the way back
+           in; a sprite sheet in a save file is a save file nobody can
+           write. */
+        carry: c ? {
+          weapon: c.weapon, proto: c.proto ? JSON.parse(JSON.stringify(c.proto)) : null,
+          ammo: c.ammo, spare: Object.assign({}, c.spare),
+          buffs: Object.assign({}, c.buffs),
+          wardMax: c.wardMax, maxHp: c.maxHp, hp: c.hp
+        } : null
+      };
+    };
+
+    /* Put a saved run's state onto this story. Only ever called on a
+       story built from the same seed, so the world already matches. */
+    story.load = function (sv) {
+      if (!sv || sv.seed !== (story.seed >>> 0)) return false;
+      story.beats = JSON.parse(JSON.stringify(sv.beats || []));
+      for (let i = 0; i < story.beats.length; i++) story.beats[i].i = i;
+      story.at = clamp(sv.at || 0, 0, Math.max(0, story.beats.length - 1));
+      story.beatsDone = sv.beatsDone || 0;
+      story.missions = sv.missions ||
+        story.beats.filter(b => b.type === 'mission').length;
+      story.flags = Object.assign({}, sv.flags);
+      story.fired = Object.assign({}, sv.fired);
+      story.traits = (sv.traits || []).slice();
+      story.rep = (sv.rep || []).slice();
+      while (story.rep.length < W.factions.length) story.rep.push(0);
+      for (const f of W.factions) f.rep = story.rep[f.id];
+      story.log = JSON.parse(JSON.stringify(sv.log || []));
+      story.people = JSON.parse(JSON.stringify(sv.people || []));
+      story.score = sv.score || 0; story.kills = sv.kills || 0;
+      story.deaths = sv.deaths || 0; story.time = sv.time || 0;
+      story.done = !!sv.done; story.won = !!sv.won;
+      story.carry = sv.carry ? Object.assign({}, sv.carry) : null;
+      return true;
+    };
+
     return story;
+  }
+
+  /* Rebuild a run from what was written down. The world comes back
+     from the seed and the run comes back from the file. */
+  function restore(sv) {
+    if (!sv || sv.v !== 1 || sv.seed === undefined) return null;
+    const W = LR.makeWorld(sv.seed >>> 0);
+    const story = makeStory(W, sv.opts || {});
+    return story.load(sv) ? story : null;
+  }
+
+  /* A one-line description of a save, for the button that offers it. */
+  function describeSave(sv) {
+    if (!sv || sv.v !== 1) return null;
+    const W = LR.makeWorld(sv.seed >>> 0);
+    const beats = sv.beats || [];
+    const at = clamp(sv.at || 0, 0, Math.max(0, beats.length - 1));
+    const b = beats[at] || null;
+    let n = 0;
+    for (const x of beats) if (x.type === 'mission' && x.i <= at) n++;
+    return {
+      seed: sv.seed >>> 0,
+      you: W.you.name,
+      act: b ? b.actName : '',
+      mission: n, of: sv.missions || 0,
+      where: b && b.place !== undefined ? W.placeById(b.place).name : null,
+      next: b ? b.type : 'done',
+      done: !!sv.done,
+      score: sv.score || 0, deaths: sv.deaths || 0, time: sv.time || 0
+    };
   }
 
   /* A readable outline. The harness prints it; a session picking this
@@ -1021,6 +1122,6 @@ window.STORY = (function () {
     return L.join('\n');
   }
 
-  return { makeStory, outline, fill, SIGIL_FOR,
+  return { makeStory, restore, describeSave, outline, fill, SIGIL_FOR,
            OBJECTIVES, OBJ_KEYS, ACTS, CHOICE_TEMPLATES, TRAITS, TRAIT_KEYS };
 })();

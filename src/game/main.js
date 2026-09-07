@@ -278,7 +278,7 @@
     $('campaignWrap').style.display = App.mode === 'campaign' ? '' : 'none';
     $('storyWrap').style.display = isStory ? '' : 'none';
     $('storyDossier').style.display = isStory ? '' : 'none';
-    if (isStory) refreshDossier();
+    if (isStory) { refreshDossier(); refreshResume(); }
     $('sectorField').value = App.sectors;
     $('sectorVal').textContent = App.sectors;
     // The per-tab sidebar controls only make sense in custom mode.
@@ -790,6 +790,61 @@
      looks at the beat it is on and puts the right thing on screen,
      and calls itself again when that thing is finished.
      ============================================================ */
+  /* ---------------- a run you can come back to ----------------
+     A story is eight to thirteen missions. Losing one to a closed tab
+     is the difference between a mode people finish and a mode people
+     start, so the run is written down after every beat.
+
+     localStorage, wrapped, because a browser with storage disabled is
+     a browser that should still be able to play the game. */
+  const SAVE_KEY = 'vitriol.story.v1';
+
+  function saveStory() {
+    if (!App.story) return false;
+    try {
+      window.localStorage.setItem(SAVE_KEY, JSON.stringify(App.story.save()));
+      return true;
+    } catch (e) { return false; }
+  }
+  function readSave() {
+    try {
+      const raw = window.localStorage.getItem(SAVE_KEY);
+      if (!raw) return null;
+      const sv = JSON.parse(raw);
+      return (sv && sv.v === 1 && !sv.done) ? sv : null;
+    } catch (e) { return null; }
+  }
+  function clearSave() {
+    try { window.localStorage.removeItem(SAVE_KEY); } catch (e) {}
+  }
+
+  function refreshResume() {
+    const sv = readSave();
+    const box = $('storyResume');
+    if (!sv) { box.style.display = 'none'; return; }
+    const d = window.STORY.describeSave(sv);
+    box.style.display = '';
+    $('storyResumeNote').textContent =
+      d.you + ' · ' + d.act + ' · MISSION ' + d.mission + ' OF ' + d.of +
+      (d.where ? ' · ' + d.where : '') +
+      ' · ' + d.score + ' SCORED, ' + d.deaths +
+      (d.deaths === 1 ? ' DEATH' : ' DEATHS');
+  }
+
+  function resumeStory() {
+    const sv = readSave();
+    if (!sv) return;
+    const S = window.STORY.restore(sv);
+    if (!S) { clearSave(); refreshResume(); return; }
+    App.campaign = null;
+    App.story = S;
+    App.world = S.world;
+    App.autoRuns = 0;
+    App.codexOpen = false;
+    App.cutscene = null;
+    storyStep();
+  }
+
   function refreshDossier() {
     if (!App.world || App.world.seed !== (App.cfg.seed >>> 0)) {
       App.world = window.LORE.makeWorld(App.cfg.seed);
@@ -814,7 +869,10 @@
     if (!S) { show('setup'); return; }
     const b = S.current();
     App.codexOpen = false;
-    if (!b || S.done) { showStoryEnd(); return; }
+    /* Written down at every transition rather than at checkpoints: the
+       cheapest moment to save is the one where nothing is in flight. */
+    saveStory();
+    if (!b || S.done) { clearSave(); showStoryEnd(); return; }
 
     if (b.type === 'scene') {
       const ctx = S.ctxFor(b);
@@ -1425,6 +1483,10 @@
     $('btn-rollWorld').onclick = () => {
       window.AUDIO.play('ui');
       applySeed(rollSeed());
+    };
+    $('btn-storyResume').onclick = () => { window.AUDIO.play('ui'); resumeStory(); };
+    $('btn-storyDiscard').onclick = () => {
+      window.AUDIO.play('ui'); clearSave(); refreshResume();
     };
     $('btn-story-go').onclick = () => { window.AUDIO.play('ui'); storyGo(); };
     $('btn-story-codex').onclick = () => { window.AUDIO.play('ui'); toggleCodex(); };

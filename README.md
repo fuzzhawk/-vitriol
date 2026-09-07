@@ -577,6 +577,24 @@ with each faction turns into three things you meet in the next level:
 None of it fires in a run where you never took a side, which is the point: the
 systems appear because you made them appear.
 
+### Putting a run down
+
+A story is eight to thirteen missions. Losing one to a closed tab is the
+difference between a mode people finish and a mode people start, so the run is
+written down after every beat and offered back on the setup screen: who is
+running it, which act, how far in, what it has cost so far.
+
+What is saved is plain data. The **world is not saved** — it is regenerated from
+the seed, which is the whole point of the world being generated from a seed. Nor
+is the spine replayed: consequences are welded on by what you did, and replaying
+the decisions to rebuild the shape would be a second implementation of the story
+that has to agree with the first forever. The beats are already plain objects;
+they *are* the save. A prototype in your hands survives as the numbers that made
+it and is rebaked on the way back in — a sprite sheet in a save file is a save
+file nobody can write. About 4KB, through `JSON.stringify` and back, and the
+harness proves a restored run plays on to the same ending the original would
+have reached.
+
 ### The screens
 
 `story-ui.js` is split in two on purpose. The top half builds **view models**:

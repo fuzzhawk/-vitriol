@@ -3677,6 +3677,120 @@ section('the story screens');
     ok(labels.size >= 8, 'the decisions are not the same three every run (' + labels.size + ')');
   }
 
+  /* --- a run you can put down and pick back up ---
+     A story is eight to thirteen missions. Losing one to a closed tab
+     is the difference between a mode people finish and a mode people
+     start. */
+  {
+    const advance = (S, n) => {
+      let g = 0;
+      while (!S.done && S.current() && g++ < n) {
+        const b = S.current();
+        if (b.type === 'mission') {
+          S.finishMission({ won: true, score: 120, kills: 5, total: 5,
+                            time: 44, deaths: g % 4 === 0 ? 1 : 0 });
+        } else if (b.type === 'choice') {
+          const o = S.choiceAt(b).options;
+          S.choose(o[g % o.length].id);
+        } else S.seen();
+      }
+    };
+
+    /* mid-run, at every stage of it */
+    for (const stop of [1, 4, 9, 14, 40]) {
+      const W = LR.makeWorld((0x5A7E + stop * 7919) >>> 0);
+      const S = ST.makeStory(W);
+      advance(S, stop);
+      /* through JSON, because that is the only way it will ever
+         travel: a save that only survives being handed straight back
+         is not a save */
+      const sv = JSON.parse(JSON.stringify(S.save()));
+      ok(sv.v === 1, 'a save says what it is');
+      ok(sv.seed === W.seed, 'and which world it is of');
+      ok(JSON.stringify(sv).length < 40000,
+         'and fits somewhere (' + JSON.stringify(sv).length + ' bytes)');
+      /* nothing in it that cannot be written down */
+      const walk = (o, path) => {
+        if (o === null || typeof o !== 'object') return;
+        ok(typeof o !== 'function', 'nothing in a save is code (' + path + ')');
+        ok(!(o.getContext) && !(o.canvas), 'and nothing is a canvas (' + path + ')');
+        for (const k in o) walk(o[k], path + '.' + k);
+      };
+      walk(sv, 'save');
+
+      const R = ST.restore(sv);
+      ok(!!R, 'a save comes back as a run');
+      ok(R.seed === S.seed, 'of the same world');
+      ok(R.world.you.name === S.world.you.name, 'with the same people in it');
+      ok(JSON.stringify(R.beats) === JSON.stringify(S.beats),
+         'the same spine, consequences and all');
+      ok(R.at === S.at, 'in the same place on it');
+      ok(R.missions === S.missions, 'with the same number of missions');
+      ok(JSON.stringify(R.flags) === JSON.stringify(S.flags), 'remembering what you chose');
+      ok(JSON.stringify(R.fired) === JSON.stringify(S.fired),
+         'and which consequences have already landed');
+      ok(JSON.stringify(R.traits) === JSON.stringify(S.traits), 'what it made of you');
+      ok(JSON.stringify(R.rep) === JSON.stringify(S.rep), 'who thinks what of you');
+      ok(JSON.stringify(R.log) === JSON.stringify(S.log), 'and everything you did');
+      ok(R.score === S.score && R.kills === S.kills &&
+         R.deaths === S.deaths && R.time === S.time, 'with the totals intact');
+      ok(R.done === S.done, 'and knowing whether it is over');
+      /* the world came back too, not just the numbers */
+      for (const f of R.world.factions) {
+        ok(f.rep === R.rep[f.id], 'and the factions know their own standing again');
+      }
+      ok(ST.outline(R) === ST.outline(S), 'and it reads as the same run');
+
+      /* and it plays on from there identically */
+      advance(R, 60); advance(S, 60);
+      ok(R.done && S.done, 'a restored run finishes');
+      ok(ST.outline(R) === ST.outline(S), 'the same way the original would have');
+      ok(R.ending().title === S.ending().title,
+         'and ends the same way (' + R.ending().title + ')');
+    }
+
+    /* the description the resume button reads */
+    {
+      const W = LR.makeWorld(0xDE5C);
+      const S = ST.makeStory(W);
+      advance(S, 7);
+      const d = ST.describeSave(JSON.parse(JSON.stringify(S.save())));
+      ok(!!d, 'a save can describe itself without being loaded');
+      ok(d.you === W.you.name, 'naming who is running it');
+      ok(d.mission >= 1 && d.mission <= d.of,
+         'and how far in (' + d.mission + '/' + d.of + ')');
+      ok(typeof d.act === 'string' && d.act.length > 2, 'and which act');
+      ok(d.score === S.score && d.deaths === S.deaths, 'with the score so far');
+      ok(!d.done, 'and that it is not finished');
+    }
+
+    /* what must NOT come back */
+    {
+      const W = LR.makeWorld(0xBAD0);
+      const S = ST.makeStory(W);
+      ok(ST.restore(null) === null, 'nothing is not a run');
+      ok(ST.restore({}) === null, 'and neither is anything');
+      ok(ST.restore({ v: 99, seed: 1 }) === null, 'a save from another version is refused');
+      ok(ST.describeSave({ v: 99 }) === null, 'and cannot describe itself either');
+      const sv = S.save();
+      sv.seed = (sv.seed ^ 0xffff) >>> 0;
+      const other = ST.makeStory(W);
+      ok(other.load(sv) === false, 'a save is refused by a world it is not of');
+      /* a prototype in hand survives as params, never as a sprite sheet */
+      S.carry = { weapon: 'proto', proto: { dmg: 9, rate: 0.2 },
+                  protoRig: { canvas: 'NOT SERIALISABLE' },
+                  ammo: 4, spare: {}, buffs: {}, wardMax: 0, maxHp: 100, hp: 80 };
+      const withProto = JSON.parse(JSON.stringify(S.save()));
+      ok(withProto.carry.weapon === 'proto', 'a prototype in hand is carried over');
+      ok(!!withProto.carry.proto && withProto.carry.proto.dmg === 9,
+         'as the numbers that made it');
+      ok(withProto.carry.protoRig === undefined,
+         'and never as the sheet, which is not a thing you can write down');
+      const back = ST.restore(withProto);
+      ok(!!back && back.carry.weapon === 'proto', 'and it comes back');
+    }
+  }
+
   /* --- the spine is not the same spine twice ---
      The whole claim of a second pass: two runs differ in SHAPE, not
      only in the names inside it. */
