@@ -54,10 +54,11 @@ window.CAMPAIGN = (function () {
      roll produces a run of eight streets often enough to be the thing
      you remember about the campaign, so instead the kinds are laid
      into a cycle and the cycle is rotated by the campaign seed. Every
-     campaign gets roughly a third of each, and no two in a row are the
-     same kind. Sector one is always a street: it is the one everybody
-     already knows how to read. */
-  const KIND_CYCLE = ['city', 'interior', 'city', 'air', 'interior', 'city', 'air', 'interior'];
+     campaign gets roughly a quarter of each, and no two in a row are
+     the same kind. Sector one is always a street: it is the one
+     everybody already knows how to read. */
+  const KIND_CYCLE = ['city', 'interior', 'nature', 'air', 'city', 'interior',
+                      'air', 'nature', 'city', 'nature', 'interior', 'air'];
 
   function kindFor(n, seed) {
     if (n <= 1) return 'city';
@@ -93,12 +94,18 @@ window.CAMPAIGN = (function () {
   /* An air sector is not "deeper" than the one before it, so it gets
      its own word. Anything else keeps descending. */
   const AIR_DEPTH = ['LANE', 'HIGH LANE', 'UPPER LANE', 'STRATOS'];
+  const WILD_DEPTH = ['VERGE', 'OUTGROWTH', 'DEEP GROWTH', 'THE UNMAPPED'];
 
   Campaign.prototype.name = function (n, cfg) {
     const kind = kindFor(n, this.seed);
     let d;
     if (kind === 'air') {
       d = AIR_DEPTH[Math.min(AIR_DEPTH.length - 1, Math.floor((n - 1) / 2))];
+    } else if (kind === 'nature') {
+      /* Nor is a place that grew over the top of the stack. It is not
+         a depth at all, which is the point of putting one in the middle
+         of a descent. */
+      d = WILD_DEPTH[Math.min(WILD_DEPTH.length - 1, Math.floor((n - 1) / 2))];
     } else {
       /* Past the named depths a campaign just keeps going down, and
          "BASEMENT" four times running reads as a bug. Number them. */
@@ -204,5 +211,5 @@ window.CAMPAIGN = (function () {
     };
   };
 
-  return { Campaign, scaleFor, kindFor, SECTORS, DEPTH, KIND_CYCLE };
+  return { Campaign, scaleFor, kindFor, SECTORS, DEPTH, AIR_DEPTH, WILD_DEPTH, KIND_CYCLE };
 })();

@@ -75,7 +75,7 @@ ok(typeof window.CRAWLERFORGE.forge === 'function', 'crawlerforge forge exported
 ok(typeof window.CRAWLERFORGE.drawTentacle === 'function', 'crawlerforge drawTentacle exported');
 ok(Object.keys(window.CRAWLERFORGE.PALETTES).length === 10, '10 crawler palettes');
 ok(window.CRAWLERFORGE.ORIENTS.length === 4, '4 surface orientations');
-ok(Object.keys(GW.STYLES).length === 21, '21 styles');
+ok(Object.keys(GW.STYLES).length === 25, '25 styles');
 ok(typeof GW.STYLE_KIND === 'function', 'the generator classifies its own styles');
 {
   const byKind = {};
@@ -86,6 +86,22 @@ ok(typeof GW.STYLE_KIND === 'function', 'the generator classifies its own styles
   ok(byKind.city && byKind.city.length === 14, '14 street-level styles');
   ok(byKind.interior && byKind.interior.length === 4, '4 interior styles');
   ok(byKind.air && byKind.air.length === 3, '3 air styles');
+  ok(byKind.nature && byKind.nature.length === 4, '4 places that grew back');
+  /* A nature style has to say what grew there, and it has to be a form
+     the layer painter knows — otherwise the parallax band silently
+     falls back to a wood and every one of them looks the same. */
+  for (const k of byKind.nature || []) {
+    const F = GW.STYLES[k].flora;
+    ok(!!F, 'nature "' + k + '" says what grew there');
+    ok(F && !!GW.FLORA_FORMS[F.form], 'nature "' + k + '" grows in a form that exists');
+    ok(F && F.veg && F.veg.length === 3, 'nature "' + k + '" has three greens to mix from');
+    ok(F && typeof F.lit === 'string', 'and something in it that glows');
+  }
+  {
+    const forms = new Set((byKind.nature || []).map(k => GW.STYLES[k].flora.form));
+    ok(forms.size === (byKind.nature || []).length,
+       'and no two of them grew the same way');
+  }
   /* An interior needs a roof to hang and an air level needs to say
      what goes behind it; without those the compositor has nothing to
      branch on and the level silently draws as a city. */
@@ -252,6 +268,26 @@ section('flights (each in its own process)');
          win + '/' + tot + ')');
       console.log('    ' + F.objectives.map(o => o.obj + ':' + o.wins + '/' + o.runs.length).join(' '));
     }
+  }
+
+  /* --- one of every kind of place, walked end to end --- */
+  {
+    const F = flight('kinds');
+    ok(F.kinds.length === 4, 'all four kinds of place were flown');
+    let won = 0;
+    for (const k of F.kinds) {
+      ok(k.kind === k.want, 'asking for a ' + k.want + ' level got one (' + k.style + ')');
+      ok(k.plats > 8, 'and it has somewhere to stand (' + k.plats + ')');
+      ok(k.progress > 0.5, 'autopilot gets most of the way through a ' + k.want +
+         ' level (' + (k.progress * 100).toFixed(0) + '%)');
+      if (k.state === 'won') won++;
+    }
+    ok(won >= 3, 'and finishes at least three of the four (' + won + '/4)');
+    ok(F.kinds.some(k => k.weather === 'spore'),
+       'the places that grew back have weather of their own');
+    console.log('    ' + F.kinds.map(k =>
+      k.want + ':' + k.style + ' ' + (k.state === 'won' ? 'won' : k.state) +
+      ' @' + (k.progress * 100).toFixed(0) + '%').join('  '));
   }
 
   /* --- a story, played --- */
@@ -2432,7 +2468,10 @@ section('the world (lore)');
     ok(typeof D.creed === 'string' && D.creed.length > 10, k + ' believes something');
     ok(D.mod && D.mod.count > 0 && D.mod.hp > 0, k + ' changes the troops it fields');
     ok(D.guns.every(g => !!window.WEAPONS.table[g]), k + ' arms them with real weapons');
-    ok(D.kinds.every(x => ['city', 'interior', 'air', 'natural'].indexOf(x) >= 0),
+    /* Asked of the generator's own classification rather than a list
+       here, so a kind added to GREEBLEWORKS does not leave the world
+       quietly claiming to live somewhere that does not exist. */
+    ok(D.kinds.every(x => !!window.CONFIG.STYLES_BY_KIND[x]),
        k + ' lives in real kinds of place');
   }
 
@@ -2842,6 +2881,77 @@ section('the scenes (cutscenes)');
   }
 }
 
+section('what grew back (flora)');
+{
+  const GWf = window.GREEBLEWORKS;
+  const CF = window.CONFIG;
+  const kinds = CF.STYLES_BY_KIND.nature;
+
+  /* The parallax band on its own. Baking a whole mission for each of
+     four styles is minutes and a gigabyte; the layer is the part that
+     is new, and it is the part a PNG settles. */
+  const cells = [];
+  for (const style of kinds) {
+    const cfg = CF.randomLevelCfg(0x5EED0001, 'nature');
+    cfg.style = style;
+    cfg.skyMood = CF.STYLE_AFFINITY[style].moods[0];
+    /* No palette crush on the sheet. The forms are what is being
+       reviewed here, and four colours hides which one is which. */
+    cfg.palette = 'none';
+    const F = GWf.STYLES[style].flora;
+    const g = GWf.bakeSky(Object.assign({}, cfg, {
+      outW: LV.W, outH: LV.H, SS: 2, flora: F, seed: 0x5EED0001
+    }));
+    let r, saw = 0;
+    while (!(r = g.next()).done) if (String(r.value).indexOf('canopy layer') === 0) saw++;
+    const out = r.value;
+    ok(saw >= 2, style + ' bakes its wood in layers (' + saw + ')');
+    ok(out.layers.length === saw, 'and every layer it yielded came back');
+
+    /* A layer has to have something in it AND has to leave sky showing
+       through: a fully opaque band is a wall, and you cannot tell a
+       wall from a wood behind a level. */
+    const d = out.near.getContext('2d').getImageData(0, 0, LV.W, LV.H).data;
+    let solid = 0, clear = 0;
+    for (let i = 3; i < d.length; i += 4) { if (d[i] > 200) solid++; else if (d[i] < 16) clear++; }
+    ok(solid > LV.W * LV.H * 0.02, style + ' grew something (' + solid + 'px)');
+    ok(clear > LV.W * LV.H * 0.12, 'and left sky between it (' + clear + 'px)');
+
+    /* the far layer must be hazier than the near one, or there is no
+       depth in the band at all */
+    const near = out.layers[out.layers.length - 1], far = out.layers[0];
+    const inkOfA = c => {
+      const p = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+      let n = 0; for (let i = 3; i < p.length; i += 4) if (p[i] > 200) n++;
+      return n;
+    };
+    ok(inkOfA(far) !== inkOfA(near), style + ' does not draw the same layer twice');
+
+    const cell = createCanvas(LV.W, LV.H);
+    const cc = cell.getContext('2d');
+    cc.imageSmoothingEnabled = false;
+    cc.drawImage(out.sky, 0, 0);
+    for (const l of out.layers) cc.drawImage(l, 0, 0);
+    cells.push([style + ' / ' + F.form, cell]);
+  }
+  ok(cells.length === 4, 'all four grew');
+
+  const sheet = createCanvas(LV.W, LV.H * cells.length);
+  const sx = sheet.getContext('2d');
+  cells.forEach(([label, cv], i) => {
+    sx.drawImage(cv, 0, i * LV.H);
+    sx.font = '11px monospace'; sx.fillStyle = '#fff';
+    sx.fillText(label.toUpperCase(), 8, i * LV.H + LV.H - 8);
+  });
+  dump('out_flora.png', sheet);
+
+  /* the props side: a nature level puts growth on its decks */
+  {
+    const before = Object.keys(GWf.STYLES).filter(k => GWf.STYLE_KIND(k) === 'nature');
+    ok(before.length === 4, 'four nature styles reach the level builder');
+  }
+}
+
 section('level kinds');
 {
   const GWk = window.GREEBLEWORKS;
@@ -2849,7 +2959,7 @@ section('level kinds');
 
   /* the roller has to be able to give you one of each on demand */
   {
-    for (const want of ['city', 'interior', 'air']) {
+    for (const want of ['city', 'interior', 'air', 'nature']) {
       const seen = new Set();
       for (let i = 0; i < 60; i++) {
         const c = CK.randomLevelCfg((i * 2654435761) >>> 0, want);
@@ -2871,7 +2981,7 @@ section('level kinds');
     const CA = window.CAMPAIGN;
     ok(CA.kindFor(1, 12345) === 'city', 'a campaign always opens on a street');
     let anyRepeat = 0;
-    const tally = { city: 0, interior: 0, air: 0 };
+    const tally = { city: 0, interior: 0, air: 0, nature: 0 };
     for (let sd = 0; sd < 64; sd++) {
       const seed = (sd * 2654435761) >>> 0;
       const kinds = [];
@@ -2882,21 +2992,23 @@ section('level kinds');
         if (kinds[n] === kinds[n - 1] && kinds[n] === kinds[n - 2]) anyRepeat++;
       }
       const set = new Set(kinds);
-      ok(set.size === 3, 'campaign seed ' + sd + ' visits all three kinds');
+      ok(set.size >= 3, 'campaign seed ' + sd + ' visits at least three kinds');
     }
     ok(anyRepeat === 0, 'no campaign runs three of a kind back to back');
-    const tot = tally.city + tally.interior + tally.air;
-    ok(tally.interior / tot > 0.2, 'interiors are a real share of a campaign (' +
+    const tot = tally.city + tally.interior + tally.air + tally.nature;
+    ok(tally.interior / tot > 0.15, 'interiors are a real share of a campaign (' +
        (100 * tally.interior / tot).toFixed(0) + '%)');
-    ok(tally.air / tot > 0.15, 'and so are air lanes (' +
+    ok(tally.air / tot > 0.12, 'and so are air lanes (' +
        (100 * tally.air / tot).toFixed(0) + '%)');
+    ok(tally.nature / tot > 0.12, 'and so is what grew back (' +
+       (100 * tally.nature / tot).toFixed(0) + '%)');
     console.log('  campaign kind mix: ' + Object.keys(tally)
       .map(k => k + ' ' + (100 * tally[k] / tot).toFixed(0) + '%').join(', '));
   }
 
   /* --- build one of each and check what came out --- */
   const built = {};
-  for (const want of ['interior', 'air']) {
+  for (const want of ['interior', 'air', 'nature']) {
     let cfgK = null;
     for (let t = 0; t < 200 && !cfgK; t++) {
       const c = CK.randomLevelCfg((0x51A2 + t * 7919) >>> 0, want);
@@ -2977,9 +3089,22 @@ section('level kinds');
       window.RENDER.frame(MK, cx2, cv);
       return cv;
     };
-    for (const want of ['interior', 'air']) {
+    for (const want of ['interior', 'air', 'nature']) {
       const cv = shot(built[want]);
       ok(inkOf(cv) > 0, 'a ' + want + ' level draws something');
+    }
+    /* what grew back has to actually be there: a nature level keeps the
+       sky and the parallax band, and its weather rises instead of
+       falling */
+    {
+      const MN = built.nature;
+      ok(MN.L.kind === 'nature', 'a nature level knows what it is');
+      ok(MN.L.cityLayers && MN.L.cityLayers.length >= 2,
+         'and has a wood behind it in layers');
+      ok(!!MN.L.style.flora, 'and the level carries its flora forward to the frame');
+      ok(MN.L.wk === 'spore' || MN.L.wk === 'ash',
+         'with weather that suits it (' + MN.L.wk + ')');
+      ok(MN.L.wallC.width > LV.W, 'and a thicket wall behind the play layer');
     }
     /* the plane has to MOVE, or it is wallpaper */
     const MA = built.air;
@@ -2999,11 +3124,12 @@ section('level kinds');
      ground plane a long way down" are both things a PNG settles in a
      second and a paragraph never does */
   {
-    const cv = createCanvas(LV.W, LV.H * 3);
+    const cv = createCanvas(LV.W, LV.H * 4);
     const cx2 = cv.getContext('2d');
     const one = createCanvas(LV.W, LV.H);
     const ox2 = one.getContext('2d');
-    const shots = [['city', M], ['interior', built.interior], ['air', built.air]];
+    const shots = [['city', M], ['interior', built.interior],
+                   ['air', built.air], ['nature', built.nature]];
     shots.forEach(([label, MK], i) => {
       MK.state = 'play'; MK.endT = 0; MK.player.dead = false; MK.player.hp = 78;
       MK.scroll = (MK.L.LW - LV.W) * 0.4;

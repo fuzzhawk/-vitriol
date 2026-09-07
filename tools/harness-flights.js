@@ -16,7 +16,7 @@
 
        node tools/harness-flights.js <scenario>
 
-   Scenarios: autopilot | chain | campaign
+   Scenarios: autopilot | chain | campaign | objectives | kinds | story
    ============================================================ */
 'use strict';
 const path = require('path');
@@ -226,6 +226,28 @@ const SCENARIOS = {
                  setup: runs[0] });
     }
     return { objectives: out };
+  },
+
+  /* One of every kind of place, flown. A level kind that bakes and
+     draws but cannot be walked from one end to the other is a level
+     kind that does not exist yet, and the four differ enough in shape
+     — a corridor, a chain of slabs in open air, ground that was never
+     levelled — that each one has to be proven separately. */
+  kinds() {
+    const out = [];
+    const want = ['city', 'interior', 'air', 'nature'];
+    for (let i = 0; i < want.length; i++) {
+      const cfg = window.CONFIG.randomLevelCfg((0x4B17 + i * 7919) >>> 0, want[i]);
+      cfg.levelLen = 3;
+      const M = bake(cfg, window.CONFIG.randomMerc(11), {
+        difficulty: 'recruit', enemyDens: 0.6, lives: 9, allies: 0, autopilot: true
+      });
+      const rec = { want: want[i], style: cfg.style, kind: M.L.kind,
+                    weather: M.L.wk, plats: M.L.plats.length };
+      Object.assign(rec, fly(M, 150));
+      out.push(rec);
+    }
+    return { kinds: out };
   },
 
   /* A story, played. Only the first few missions — what is under test

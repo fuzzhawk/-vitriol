@@ -108,8 +108,10 @@ its checks exist.
 - [x] **2 — The run.** `story.js`: acts, beats, objectives, choices,
       reputation, character traits. Mission layer enforces objectives.
 - [x] **3 — Cutscenes.** `cutscene.js` + director + renderer.
-- [ ] **4 — Nature.** Vegetation and natural level kinds in GREEBLEWORKS:
-      `overgrowth`, `fungal`, `mire`, `frost`. A `bakeFlora` pass.
+- [x] **4 — Nature.** A fourth level kind, `nature`, and four styles in it:
+      `overgrowth`, `fungal`, `mire`, `frost`. A `floraLayer` painter behind
+      the parallax band, a thicket back wall, growth props on the decks, and
+      spores that rise instead of falling. Dealt into the campaign cycle.
 - [ ] **5 — New enemies.** Faction unit archetypes with doctrine modifiers.
 - [ ] **6 — New weapons and dynamics.** Faction arsenals; reputation effects.
 - [ ] **7 — UI.** Story setup, briefing screen, choice screen, codex, dossier.

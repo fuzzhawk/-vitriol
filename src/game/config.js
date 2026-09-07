@@ -94,7 +94,15 @@ window.CONFIG = (function () {
     /* --- air --- */
     skylane:     { moods: ['aurora', 'magnetar', 'eclipse', 'frostfall'],   cities: ['spireforest', 'megaplex'],   pals: ['chrome', 'arctic', 'neonoir'] },
     freightlane: { moods: ['ashfall', 'dustveil', 'emberstorm', 'smog'],    cities: ['scaffold', 'lowindustrial'], pals: ['rust', 'sandstorm', 'copper', 'amber'] },
-    aerie:       { moods: ['aurora', 'magnetar', 'eclipse', 'voidnight'],   cities: ['spireforest', 'megaplex', 'arcologyc'], pals: ['neonoir', 'chrome', 'arctic'] }
+    aerie:       { moods: ['aurora', 'magnetar', 'eclipse', 'voidnight'],   cities: ['spireforest', 'megaplex', 'arcologyc'], pals: ['neonoir', 'chrome', 'arctic'] },
+
+    /* The places that grew back. `cities` still names a city preset
+       because it drives the layer count and mass of the parallax band,
+       which a wood needs exactly as much as a skyline does. */
+    overgrowth:  { moods: ['smog', 'dustveil', 'acidmist', 'ashfall'],      cities: ['drowned', 'ruinsprawl', 'shanty'],     pals: ['toxic', 'sewer', 'rust'] },
+    fungal:      { moods: ['toxicdusk', 'voidnight', 'magnetar', 'eclipse'], cities: ['craterrim', 'ruinsprawl', 'ghostgrid'], pals: ['neonoir', 'bloodrust', 'none'] },
+    mire:        { moods: ['smog', 'acidmist', 'monsoon', 'dustveil'],       cities: ['drowned', 'fogbank', 'ashsil'],        pals: ['sewer', 'toxic', 'rust'] },
+    frost:       { moods: ['frostfall', 'nuclearwinter', 'coldrain', 'voidnight'], cities: ['ashsil', 'fogbank', 'craterrim'], pals: ['arctic', 'chrome', 'ashen'] }
   };
 
   const STYLE_KEYS = Object.keys(STYLE_AFFINITY);
@@ -103,7 +111,7 @@ window.CONFIG = (function () {
      generator rather than answered here, so a style added to
      GREEBLEWORKS is classified by the thing that knows. */
   const kindOf = k => GW.STYLE_KIND(k);
-  const STYLES_BY_KIND = { city: [], interior: [], air: [] };
+  const STYLES_BY_KIND = { city: [], interior: [], air: [], nature: [] };
   for (const k of STYLE_KEYS) (STYLES_BY_KIND[kindOf(k)] || STYLES_BY_KIND.city).push(k);
 
   /* Palettes that crush the image down to a handful of colours. Great

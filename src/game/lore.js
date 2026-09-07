@@ -88,7 +88,7 @@ window.LORE = (function () {
       label: 'PURITY',
       creed: 'What is wrong must be burned out of what is left.',
       mod: { count: 0.9, hp: 1.1, dmg: 1.25, speed: 1.0, corrupt: 0.15 },
-      guns: ['torch', 'rifle', 'flak'], kinds: ['interior', 'natural'],
+      guns: ['torch', 'rifle', 'flak'], kinds: ['interior', 'nature'],
       colour: [40, 70, 58], hostility: 1.3
     },
     salvage: {
@@ -102,7 +102,7 @@ window.LORE = (function () {
       label: 'AUGURY',
       creed: 'The signal was here before the walls were.',
       mod: { count: 0.85, hp: 1.0, dmg: 1.1, speed: 0.95, corrupt: 1.8 },
-      guns: ['beam', 'pulse', 'coil'], kinds: ['interior', 'natural'],
+      guns: ['beam', 'pulse', 'coil'], kinds: ['interior', 'nature'],
       colour: [188, 76, 56], hostility: 1.0
     },
     order: {
@@ -116,7 +116,7 @@ window.LORE = (function () {
       label: 'RAPTURE',
       creed: 'It is not a disease. It is an invitation.',
       mod: { count: 1.15, hp: 0.9, dmg: 1.15, speed: 1.15, corrupt: 2.2 },
-      guns: ['torch', 'swarm', 'reaper'], kinds: ['natural', 'interior'],
+      guns: ['torch', 'swarm', 'reaper'], kinds: ['nature', 'interior'],
       colour: [318, 66, 52], hostility: 1.5
     },
     freight: {
@@ -137,7 +137,7 @@ window.LORE = (function () {
       label: 'GROWTH',
       creed: 'It was a garden. It is only being one again.',
       mod: { count: 1.2, hp: 1.0, dmg: 1.0, speed: 1.05, corrupt: 1.6 },
-      guns: ['swarm', 'torch', 'pulse'], kinds: ['natural', 'city'],
+      guns: ['swarm', 'torch', 'pulse'], kinds: ['nature', 'city'],
       colour: [96, 52, 44], hostility: 1.1
     },
     ledger: {
@@ -174,7 +174,7 @@ window.LORE = (function () {
     city:     ['THE', 'OLD', 'LOWER', 'UPPER', 'OUTER', 'THE LATE'],
     interior: ['THE', 'INNER', 'SEALED', 'THE DEEP', 'LOWER'],
     air:      ['THE', 'HIGH', 'OUTER', 'THE LONG'],
-    natural:  ['THE', 'OLD', 'WET', 'THE SLOW', 'DEEP']
+    nature:   ['THE', 'OLD', 'WET', 'THE SLOW', 'DEEP', 'THE GREEN']
   };
   const PLACE_NOUN = {
     slum:        ['WARRENS', 'SHELF', 'ROOKERY'],

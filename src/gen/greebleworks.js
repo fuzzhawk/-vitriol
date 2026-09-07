@@ -382,6 +382,69 @@ Object.assign(STYLES,{
     win:{lit:.50,boarded:.02,broken:.03,bars:.05,ac:.10},
     mul:{greeble:0.9,pipe:0.7,window:0.9,neon:1.1,grime:0.5,wear:0.5},
     floorH:[24,46], colW:[20,44], moss:.05, graffiti:.10
+  },
+
+  /* ================================================================
+     NATURE — kind:'nature'
+
+     Street level, sky overhead, parallax behind: structurally these
+     are city levels. What differs is what grew back. `flora` names the
+     form the parallax band and the ground cover take, and every one of
+     these places is somewhere that WAS built and then stopped being
+     maintained — the concrete and metal palettes are still here
+     because there is always something rusting under the moss.
+     ================================================================ */
+  overgrowth:{
+    label:"OVERGROWTH", kind:'nature',
+    flora:{form:'canopy', veg:["#33452a","#22301c","#4a6238"], lit:"#9ade5a", dens:1.15},
+    concrete:["#4a4e42","#3c4036","#585c4e"],
+    metal:["#6a7060","#7a8070","#565c4e"],
+    accent:["#3e5a30","#54683a","#6a5a34"],
+    neon:["#9ade5a","#ffd24a","#5ce1a0"],
+    glass:"#111a12",
+    win:{lit:.20,boarded:.30,broken:.34,bars:.35,ac:.20},
+    mul:{greeble:0.8,pipe:0.7,window:0.7,neon:0.4,grime:1.6,wear:1.7},
+    floorH:[20,40], colW:[16,36], moss:1.0, graffiti:.35,
+    weather:'spore'
+  },
+  fungal:{
+    label:"FUNGAL BLOOM", kind:'nature',
+    flora:{form:'cap', veg:["#4a3a52","#33263a","#6a4a68"], lit:"#d07aff", dens:1.35},
+    concrete:["#4a4048","#3c343c","#584e58"],
+    metal:["#6a6068","#787078","#544c56"],
+    accent:["#5a3a62","#6a4a52","#40485c"],
+    neon:["#d07aff","#7affd0","#ff7ab0"],
+    glass:"#150f1a",
+    win:{lit:.30,boarded:.24,broken:.30,bars:.30,ac:.18},
+    mul:{greeble:0.9,pipe:0.8,window:0.6,neon:1.2,grime:1.7,wear:1.5},
+    floorH:[18,34], colW:[14,32], moss:.9, graffiti:.25,
+    weather:'spore'
+  },
+  mire:{
+    label:"THE MIRE", kind:'nature',
+    flora:{form:'reed', veg:["#3a4436","#28302a","#4e5a3e"], lit:"#8fd0a0", dens:1.5},
+    concrete:["#454a44","#383c38","#525850"],
+    metal:["#5e665e","#6e766e","#4a524a"],
+    accent:["#3a4a3a","#4a4a34","#34424a"],
+    neon:["#8fd0a0","#d0c060","#6ac0ff"],
+    glass:"#0f1613",
+    win:{lit:.18,boarded:.34,broken:.36,bars:.40,ac:.22},
+    mul:{greeble:1.0,pipe:1.1,window:0.5,neon:0.5,grime:2.0,wear:1.8},
+    floorH:[22,42], colW:[16,38], moss:1.0, graffiti:.30,
+    weather:'spore'
+  },
+  frost:{
+    label:"THE FROST", kind:'nature',
+    flora:{form:'spine', veg:["#5a6a78","#3e4a56","#8aa0b0"], lit:"#bfe8ff", dens:0.85},
+    concrete:["#5a6068","#4a5058","#6e7680"],
+    metal:["#78808a","#88909a","#5e666e"],
+    accent:["#48606e","#5a6a76","#6e6a58"],
+    neon:["#bfe8ff","#ffffff","#7fb0ff"],
+    glass:"#101820",
+    win:{lit:.24,boarded:.20,broken:.26,bars:.25,ac:.12},
+    mul:{greeble:0.8,pipe:0.6,window:0.8,neon:0.6,grime:0.8,wear:1.3},
+    floorH:[22,44], colW:[18,40], moss:.25, graffiti:.15,
+    weather:'ash'
   }
 });
 
@@ -2961,6 +3024,175 @@ const CITY_PRESETS={
 /* ================================================================
    ONE CITY DEPTH LAYER
    ================================================================ */
+/* ================================================================
+   FLORA LAYER — the parallax band for a level that grew rather than
+   was built.
+
+   Same contract as cityLayer: one canvas at supersample, silhouettes
+   massed against the horizon and toned toward it by depth, so the
+   crush and the haze downstream treat a wood exactly as they treat a
+   skyline. What changes is what the masses are.
+
+   Four forms, because "vegetation" as one shape reads as one level
+   with four palettes:
+     canopy  trunks with a crown — a wood that took the street back
+     cap     stalks with a cap — fungal, top-heavy, leaning
+     reed    dense verticals in standing water, with a waterline
+     spine   frozen spires, straight and brittle, with no crown at all
+   ================================================================ */
+const FLORA_FORMS={canopy:1,cap:1,reed:1,spine:1};
+
+function floraLayer(rng,W,H,u,depth,M,cfg,F){
+  const c=mkCanvas(W,H), ctx=c.getContext('2d');
+  const hz=hex2rgb(M.horizon), sil=hex2rgb(M.sil);
+  const form=F&&FLORA_FORMS[F.form]?F.form:'canopy';
+  const veg=(F&&F.veg)||["#2a3a24","#1e2c1c","#38492c"];
+  const litC=hex2rgb((F&&F.lit)||M.glow||"#8fd44a");
+  const dens=clamp((F&&F.dens)===undefined?1:F.dens,0.2,2.5);
+  const contrast=clamp(cfg.cityContrast,0.15,2);
+  const haze=clamp(cfg.cityHaze,0,2);
+  const baseY=H*clamp(cfg.horizon,0.35,0.95)+H*(0.01+depth*0.13);
+  const unit=(2.2+depth*3.4)*u*clamp(cfg.cityWidth,0.2,3);
+  const hMax=H*(0.20+0.46*depth)*clamp(cfg.cityMass,0.15,3);
+  const count=Math.round((16+52*clamp(cfg.cityDens,0,2))*dens*(0.6+depth*0.6));
+  /* The tone the whole layer sits at. Vegetation up close is its own
+     colour; three ranks back it is the horizon with a shape cut out
+     of it, and that transition is the only thing selling the depth. */
+  const near=mixC(hex2rgb(veg[0]),hex2rgb(veg[1]),0.5);
+  const tone=mixC(near,mixC(hz,sil,0.35),clamp(0.12+0.72*depth,0,1));
+  const dark=shadeC(tone,0.62), light=mixC(tone,hex2rgb(veg[2]||veg[0]),0.55);
+
+  const stalks=[];
+  for(let i=0;i<count;i++){
+    const sub=rng.rnd();
+    const h=hMax*rng.range(0.35,1.05)*(0.6+sub*0.7);
+    stalks.push({
+      x:rng.range(-unit*3,W+unit*3),
+      h:Math.max(4*u,h),
+      /* A canopy tree carries a trunk. A cap and a reed do not, and
+         giving all three the same one is what makes a wood read as a
+         field of mushrooms with the tops filed flat. */
+      w:Math.max(u*0.8,unit*rng.range(0.20,0.55)*(0.6+sub*0.7)*(form==='canopy'?2.4:1)),
+      lean:rng.range(-0.30,0.30)*(1-depth*0.4),
+      crown:rng.range(0.7,1.2),
+      sub, sr:rng.rnd(),
+      bare:rng.chance(0.18),
+      lit:rng.chance(0.16+0.2*(1-depth))
+    });
+  }
+  stalks.sort((a,b)=>a.sub-b.sub);
+
+  const glow=[];
+  for(const st of stalks){
+    const top=baseY-st.h, tipX=st.x+st.lean*st.h;
+    ctx.strokeStyle=rgbStr(...shadeC(tone,0.9+st.sub*0.25));
+    ctx.lineWidth=Math.max(u*0.6,st.w);
+    ctx.lineCap='round';
+    ctx.beginPath();
+    ctx.moveTo(st.x,baseY+H*0.3);
+    if(form==='reed'||form==='spine'){
+      ctx.lineTo(tipX,top);
+    } else {
+      ctx.quadraticCurveTo(st.x+st.lean*st.h*0.45,baseY-st.h*0.55,tipX,top);
+    }
+    ctx.stroke();
+
+    if(form==='canopy'&&!st.bare){
+      /* A crown, not a cap. Built from five overlapping blobs spread
+         WIDER than they are tall and sitting down over the top of the
+         trunk rather than balanced on it — get either of those wrong
+         and every tree in the wood reads as a mushroom. */
+      const r=clamp(Math.max(st.w*2.4,st.h*rng.range(0.09,0.16))*st.crown,2*u,H*0.11);
+      ctx.fillStyle=rgbStr(...tone);
+      const bn=5;
+      for(let b=0;b<bn;b++){
+        const t2=bn===1?0:(b/(bn-1)-0.5);
+        const bx=tipX+t2*r*1.05*rng.range(0.75,1.25);
+        const by=top+r*0.55+Math.abs(t2)*r*rng.range(0.25,0.6)+rng.range(-r*0.18,r*0.18);
+        ctx.beginPath();
+        ctx.ellipse(bx,by,r*rng.range(0.55,0.95),r*rng.range(0.50,0.88),0,0,6.2832);
+        ctx.fill();
+      }
+      ctx.fillStyle=rgbStr(...light,0.5*contrast);
+      ctx.beginPath(); ctx.ellipse(tipX-r*0.4,top+r*0.30,r*0.7,r*0.34,0,0,6.2832); ctx.fill();
+      // a few boughs, so the crown is attached to something
+      ctx.strokeStyle=rgbStr(...dark); ctx.lineWidth=Math.max(1,st.w*0.4);
+      for(let b=0;b<4;b++){
+        const t2=0.42+b*0.15, yy=baseY-st.h*t2, dir=b%2?1:-1;
+        ctx.beginPath(); ctx.moveTo(st.x+st.lean*st.h*t2,yy);
+        ctx.lineTo(st.x+st.lean*st.h*t2+dir*st.w*rng.range(3,7),yy-st.h*0.10); ctx.stroke();
+      }
+    } else if(form==='cap'){
+      const r=st.w*rng.range(2.8,5.0)*st.crown;
+      ctx.fillStyle=rgbStr(...tone);
+      ctx.beginPath();
+      ctx.ellipse(tipX,top+r*0.16,r,r*rng.range(0.44,0.72),st.lean*0.5,Math.PI,0);
+      ctx.fill();
+      // the underside, always darker than the cap
+      ctx.fillStyle=rgbStr(...dark);
+      ctx.fillRect(tipX-r*0.9,top+r*0.14,r*1.8,Math.max(1,u*0.6));
+      ctx.fillStyle=rgbStr(...light,0.45*contrast);
+      ctx.beginPath();
+      ctx.ellipse(tipX-r*0.25,top-r*0.05,r*0.5,r*0.16,st.lean*0.5,Math.PI,0);
+      ctx.fill();
+      if(st.lit) glow.push({x:tipX,y:top,r:r*1.8});
+    } else if(form==='reed'){
+      // a head on the stalk and a second, shorter stalk beside it
+      ctx.strokeStyle=rgbStr(...tone); ctx.lineWidth=Math.max(1,st.w*0.7);
+      ctx.beginPath();
+      ctx.moveTo(st.x+st.w,baseY+H*0.2);
+      ctx.lineTo(tipX+st.w*1.6,top+st.h*rng.range(0.15,0.4));
+      ctx.stroke();
+      ctx.fillStyle=rgbStr(...shadeC(tone,1.15));
+      ctx.beginPath(); ctx.ellipse(tipX,top+st.w,st.w*0.9,st.w*rng.range(1.6,3.0),st.lean,0,6.2832); ctx.fill();
+    } else if(form==='spine'){
+      // fracture planes catching what light there is
+      ctx.strokeStyle=rgbStr(...light,0.55*contrast);
+      ctx.lineWidth=Math.max(1,u*0.5);
+      ctx.beginPath();
+      ctx.moveTo(st.x-st.w*0.3,baseY);
+      ctx.lineTo(tipX-st.w*0.3,top+st.h*0.1);
+      ctx.stroke();
+      if(st.lit) glow.push({x:tipX,y:top+st.h*0.2,r:st.h*0.5});
+    }
+    if(st.lit&&form==='canopy') glow.push({x:tipX,y:top,r:st.w*4});
+  }
+
+  /* Standing water under a mire, drawn as a flat band with the layer
+     reflected into it. Cheap, and it is the whole reason the form
+     reads as a swamp rather than as tall grass. */
+  if(form==='reed'){
+    const wy=baseY+H*0.012;
+    ctx.save();
+    ctx.globalAlpha=0.5;
+    ctx.scale(1,-1);
+    ctx.drawImage(c,0,-wy*2-H,W,H);
+    ctx.restore();
+    ctx.fillStyle=rgbStr(...mixC(tone,hz,0.5),0.5);
+    ctx.fillRect(0,wy,W,H-wy);
+    ctx.fillStyle=rgbStr(...light,0.30);
+    for(let i=0;i<Math.round(W/(8*u));i++){
+      const rx=rng.range(0,W), ry=rng.range(wy+u,H);
+      ctx.fillRect(rx,ry,rng.range(3,14)*u,Math.max(1,u*0.5));
+    }
+  }
+
+  // whatever is glowing in there, bloomed
+  for(const g of glow){
+    const rg=ctx.createRadialGradient(g.x,g.y,0,g.x,g.y,g.r);
+    rg.addColorStop(0,rgbStr(litC[0],litC[1],litC[2],0.42*contrast));
+    rg.addColorStop(1,rgbStr(litC[0],litC[1],litC[2],0));
+    ctx.fillStyle=rg; ctx.fillRect(g.x-g.r,g.y-g.r,g.r*2,g.r*2);
+  }
+
+  // depth haze, exactly as the skyline gets it
+  ctx.save(); ctx.globalCompositeOperation='source-atop';
+  ctx.fillStyle=rgbStr(hz[0],hz[1],hz[2],clamp(depth*0.42*haze,0,0.85));
+  ctx.fillRect(0,0,W,H);
+  ctx.restore();
+  return c;
+}
+
 function cityLayer(rng,W,H,u,depth,M,cfg){
   const c=mkCanvas(W,H), ctx=c.getContext('2d');
   const hz=hex2rgb(M.horizon), sil=hex2rgb(M.sil);
@@ -3354,8 +3586,12 @@ function* bakeSky(cfg){
   const layers=[];
   for(let i=0;i<nL;i++){
     const depth=i/(nL-1);
-    layers.push(crush(cityLayer(rng,W,H,u,depth,M,cfg),outW,outH,cfg,true));
-    yield "city layer "+(i+1)+"/"+nL;
+    /* A level that grew gets a wood behind it instead of a skyline.
+       Same layer contract, same crush, same haze — only the shapes
+       differ, which is why nothing downstream has to know. */
+    layers.push(crush(cfg.flora?floraLayer(rng,W,H,u,depth,M,cfg,cfg.flora)
+                               :cityLayer(rng,W,H,u,depth,M,cfg),outW,outH,cfg,true));
+    yield (cfg.flora?"canopy layer ":"city layer ")+(i+1)+"/"+nL;
   }
 
   const city=mkCanvas(outW,outH), ccx=city.getContext('2d');
@@ -3573,7 +3809,7 @@ function* buildLevel(cfg){
      what gets baked, how the layout is shaped, and what the compositor
      puts behind it. 'city' is the original street level. */
   const KIND=STYLE_KIND(cfg.style);
-  const INDOORS=KIND==='interior', AIR=KIND==='air';
+  const INDOORS=KIND==='interior', AIR=KIND==='air', NATURE=KIND==='nature';
 
   /* ---- bake the ingredients ---- */
   let r, g_r;
@@ -3581,6 +3817,7 @@ function* buildLevel(cfg){
      size, because the mood's horizon colour is what the fog and the
      haze are mixed from and half the pipeline reads it. */
   const skyG=bakeSky(sub({outW:INDOORS?64:LV.W,outH:INDOORS?36:LV.H,SS:2,
+                          flora:NATURE?S.flora:null,
                           seed:(cfg.seed^0x11)>>>0}));
   while(!(r=skyG.next()).done) yield (INDOORS?"air handling \u2014 ":"sky \u2014 ")+r.value;
   const SK=r.value;
@@ -3671,7 +3908,12 @@ function* buildLevel(cfg){
     ? {run:[6,14], gapChance:0.9, gap:[2,4], step:2, lo:0.46, hi:0.80, start:0.68, float:2.2}
     : INDOORS
       ? {run:[9,26], gapChance:0.30, gap:[2,4], step:1, lo:0.62, hi:0.86, start:0.78, float:0.75}
-      : {run:[7,24], gapChance:0.52, gap:[3,7], step:2, lo:0.50, hi:0.86, start:0.72, float:1.0};
+      : NATURE
+        /* Ground that was never levelled: shorter runs, bigger steps
+           between them, and more to climb, because the way through a
+           wood is over things rather than along them. */
+        ? {run:[5,18], gapChance:0.58, gap:[2,6], step:3, lo:0.46, hi:0.88, start:0.74, float:1.5}
+        : {run:[7,24], gapChance:0.52, gap:[3,7], step:2, lo:0.50, hi:0.86, start:0.72, float:1.0};
   /* Interiors need headroom for the ceiling, so the floor never climbs
      into it and the floating decks stop short of it. */
   const CEIL_H=INDOORS?44:0;
@@ -3737,6 +3979,112 @@ function* buildLevel(cfg){
     g.addColorStop(0,rgbStr(am[0],am[1],am[2],0.40));
     g.addColorStop(0.45,rgbStr(am[0],am[1],am[2],0.16));
     g.addColorStop(1,"rgba(6,8,10,.46)");
+    wc.fillStyle=g; wc.fillRect(0,0,wallW,LV.H);
+    wc.restore();
+  } else if(NATURE){
+    /* A wall of growth rather than a terrace of buildings — and the
+       ruins of what it grew over, showing through the gaps, because a
+       wood with nothing under it is a different game. */
+    const FL=S.flora||{};
+    const veg=(FL.veg||["#33452a","#22301c","#4a6238"]).map(hex2rgb);
+    let wx=0;
+    while(wx<wallW){
+      const bw=rng.int(2,6)*64;
+      const seg=Math.min(bw,wallW-wx);
+      if(rng.chance(0.34)){
+        // something built, still standing, half swallowed
+        const top=Math.round(rng.range(LV.H*0.22,LV.H*0.62));
+        tileInto(wc,wallFars[wpick()],wx,top,seg,LV.H-top);
+        wc.save(); wc.globalCompositeOperation='source-atop';
+        wc.fillStyle=rgbStr(veg[1][0],veg[1][1],veg[1][2],0.50);
+        wc.fillRect(wx,top,seg,LV.H-top);
+        wc.restore();
+        wallSegs.push({x:wx,w:seg,top});
+      } else {
+        wallSegs.push({x:wx,w:seg,top:Math.round(LV.H*0.3)});
+      }
+      /* The thicket itself, over whatever is behind it. Everything
+         here leans: a wall of straight verticals is a fence, and the
+         difference between a fence and a wood is entirely in how
+         little of it agrees about which way is up. */
+      const n=Math.round(seg/8*clamp(1+(FL.dens||1)*0.5,0.5,3));
+      const masses=[];
+      for(let k=0;k<n;k++){
+        masses.push({x:wx+rng.range(-8,seg+8),
+                     h:rng.range(LV.H*0.22,LV.H*0.98)*rng.range(0.7,1.15),
+                     w:rng.range(1.2,6.5),
+                     lean:rng.range(-0.42,0.42),
+                     bow:rng.range(-0.30,0.30),
+                     d:rng.rnd()});
+      }
+      // back to front, so the near growth occludes the far
+      masses.sort((a,b)=>a.d-b.d);
+      for(const m of masses){
+        const shade=rng.range(0.5,1.2)*(0.75+m.d*0.45);
+        const col=mixC(veg[rng.int(0,1)],veg[2],m.d*0.5);
+        const tipX=m.x+m.lean*m.h, midX=m.x+m.bow*m.h;
+        wc.strokeStyle=rgbStr(...shadeC(col,shade));
+        wc.lineWidth=m.w*(0.6+m.d*0.7);
+        wc.lineCap='round';
+        wc.beginPath();
+        wc.moveTo(m.x,LV.H+8);
+        wc.quadraticCurveTo(midX,LV.H-m.h*0.5,tipX,LV.H-m.h);
+        wc.stroke();
+        // limbs, which is what stops a trunk reading as a post
+        wc.lineWidth=Math.max(1,m.w*0.35);
+        for(let b=0;b<rng.int(1,4);b++){
+          const t=rng.range(0.35,0.9), dir=rng.chance(0.5)?1:-1;
+          const bx=m.x+m.lean*m.h*t, by=LV.H-m.h*t;
+          wc.beginPath(); wc.moveTo(bx,by);
+          wc.quadraticCurveTo(bx+dir*m.w*3,by-m.h*0.06,
+                              bx+dir*rng.range(8,30),by-rng.range(2,m.h*0.16));
+          wc.stroke();
+        }
+        /* What is on top of it, if anything. A frozen spire has no
+           crown, and giving it one is how a frost level ends up
+           looking like a mushroom farm in the snow. */
+        const wform=(FL.form||'canopy');
+        if(wform!=='spine'&&rng.chance(wform==='reed'?0.4:0.62)){
+          wc.fillStyle=rgbStr(...shadeC(col,shade*0.92),0.92);
+          const r=rng.range(7,26)*(0.6+m.d*0.7);
+          if(wform==='cap'){
+            wc.beginPath();
+            wc.ellipse(tipX,LV.H-m.h+r*0.14,r,r*rng.range(0.4,0.68),m.lean*0.5,Math.PI,0);
+            wc.fill();
+            wc.fillStyle=rgbStr(...shadeC(col,shade*0.55),0.9);
+            wc.fillRect(tipX-r*0.9,LV.H-m.h+r*0.12,r*1.8,1.5);
+          } else if(wform==='reed'){
+            wc.beginPath();
+            wc.ellipse(tipX,LV.H-m.h+r*0.3,m.w*1.1,r*rng.range(0.5,1.0),m.lean,0,6.2832);
+            wc.fill();
+          } else {
+            for(let b=0;b<rng.int(1,3);b++){
+              wc.beginPath();
+              wc.ellipse(tipX+rng.range(-r,r),LV.H-m.h+rng.range(-r*0.4,r*0.5),
+                         r*rng.range(0.5,1.0),r*rng.range(0.3,0.6),0,0,6.2832);
+              wc.fill();
+            }
+          }
+        }
+      }
+      // undergrowth along the bottom, so the wall meets the floor in
+      // a mass rather than in a row of stripe ends
+      wc.fillStyle=rgbStr(...shadeC(veg[1],0.85),0.9);
+      for(let k=0;k<Math.round(seg/5);k++){
+        const bx=wx+rng.range(0,seg);
+        wc.beginPath();
+        wc.ellipse(bx,LV.H-rng.range(0,LV.H*0.10),rng.range(6,26),rng.range(4,16),0,0,6.2832);
+        wc.fill();
+      }
+      wx+=bw;
+    }
+    // the same haze the skyline gets, so it sits behind the action
+    const hz=hex2rgb((SKYMOODS[cfg.skyMood]||SKYMOODS.ashfall).horizon);
+    wc.save(); wc.globalCompositeOperation='source-atop';
+    const g=wc.createLinearGradient(0,0,0,LV.H);
+    g.addColorStop(0,rgbStr(hz[0],hz[1],hz[2],0.40));
+    g.addColorStop(0.6,rgbStr(hz[0],hz[1],hz[2],0.20));
+    g.addColorStop(1,rgbStr(8,11,9,0.34));
     wc.fillStyle=g; wc.fillRect(0,0,wallW,LV.H);
     wc.restore();
   } else {
@@ -3864,6 +4212,81 @@ function* buildLevel(cfg){
           pLedge(px,yy+r,w,true);
         }
         break;}
+      /* ---- growth. Every one of these sits on the ground line and
+         casts no ledge: a bush is cover, not a step, and a player who
+         learns to stand on shrubbery has learned the wrong game. ---- */
+      case 'shrub':{
+        const FL=S.flora||{}, veg=(FL.veg||["#33452a","#22301c","#4a6238"]).map(hex2rgb);
+        const w=rng.int(10,26), h=rng.int(7,18);
+        for(let k=0;k<rng.int(4,9);k++){
+          const bx=px+rng.range(0,w), by=py-rng.range(0,h*0.7);
+          const r=rng.range(3,8);
+          pc.fillStyle=rgbStr(...snapC(shadeC(mixC(veg[0],veg[2],rng.rnd()),rng.range(0.6,1.15)),cfg));
+          pc.beginPath(); pc.ellipse(bx,by,r,r*rng.range(0.5,0.9),0,0,6.2832); pc.fill();
+        }
+        pc.strokeStyle=rgbStr(...snapC(shadeC(veg[1],0.8),cfg)); pc.lineWidth=1;
+        for(let k=0;k<rng.int(2,5);k++){
+          const bx=px+rng.range(2,w-2);
+          pc.beginPath(); pc.moveTo(bx,py); pc.lineTo(bx+rng.range(-4,4),py-rng.range(4,h)); pc.stroke();
+        }
+        break;}
+      case 'stalk':{
+        const FL=S.flora||{}, veg=(FL.veg||["#33452a","#22301c","#4a6238"]).map(hex2rgb);
+        const h=rng.int(22,58), lean=rng.range(-0.22,0.22);
+        const col=snapC(mixC(veg[0],veg[2],0.4),cfg);
+        pc.strokeStyle=rgbStr(...col); pc.lineWidth=rng.int(2,4);
+        pc.beginPath(); pc.moveTo(px,py);
+        pc.quadraticCurveTo(px+lean*h*0.5,py-h*0.6,px+lean*h,py-h);
+        pc.stroke();
+        // fronds down one side, then the other
+        pc.lineWidth=1;
+        for(let k=0;k<rng.int(3,6);k++){
+          const t=0.25+k*0.16, dir=k%2?1:-1;
+          const sx2=px+lean*h*t, sy=py-h*t;
+          pc.beginPath(); pc.moveTo(sx2,sy);
+          pc.quadraticCurveTo(sx2+dir*8,sy-4,sx2+dir*rng.range(9,18),sy+rng.range(1,6));
+          pc.stroke();
+        }
+        if(rng.chance(0.4)){
+          const nc2=hex2rgb((S.flora&&S.flora.lit)||rng.pick(S.neon));
+          pc.fillStyle=rgbStr(nc2[0],nc2[1],nc2[2],0.9);
+          pc.fillRect(Math.round(px+lean*h)-1,py-h-2,3,3);
+          addLight(px+lean*h,py-h,rng.range(14,30),nc2,0.45);
+        }
+        break;}
+      case 'cap':{
+        const FL=S.flora||{}, veg=(FL.veg||["#4a3a52","#33263a","#6a4a68"]).map(hex2rgb);
+        const h=rng.int(9,26), r=rng.int(6,17), lean=rng.range(-0.2,0.2);
+        const stem=snapC(shadeC(mixC(veg[0],veg[2],0.5),1.1),cfg);
+        pc.fillStyle=rgbStr(...stem);
+        pc.fillRect(Math.round(px+lean*h)-1,py-h,rng.int(2,4),h);
+        const cap=snapC(mixC(veg[0],veg[2],rng.range(0.3,0.8)),cfg);
+        pc.fillStyle=rgbStr(...cap);
+        pc.beginPath(); pc.ellipse(px+lean*h,py-h,r,r*rng.range(0.45,0.75),lean,Math.PI,0); pc.fill();
+        pc.fillStyle=rgbStr(...snapC(shadeC(cap,0.55),cfg));
+        pc.fillRect(Math.round(px+lean*h-r*0.9),py-h,Math.round(r*1.8),1);
+        pc.fillStyle=rgbStr(...snapC(shadeC(cap,1.35),cfg));
+        pc.beginPath(); pc.ellipse(px+lean*h-r*0.3,py-h-r*0.12,r*0.45,r*0.16,lean,Math.PI,0); pc.fill();
+        if(rng.chance(0.55)){
+          const nc2=hex2rgb((S.flora&&S.flora.lit)||rng.pick(S.neon));
+          addLight(px+lean*h,py-h-2,rng.range(18,38),nc2,0.5);
+        }
+        break;}
+      case 'log':{
+        const FL=S.flora||{}, veg=(FL.veg||["#33452a","#22301c","#4a6238"]).map(hex2rgb);
+        const w=rng.int(20,48), h=rng.int(6,11);
+        const bark=snapC(shadeC(mixC(veg[1],conc,0.45),0.9),cfg);
+        pc.fillStyle=rgbStr(...bark); pc.fillRect(px,py-h,w,h);
+        pc.fillStyle=rgbStr(...snapC(shadeC(bark,1.25),cfg)); pc.fillRect(px,py-h,w,1);
+        pc.fillStyle=rgbStr(...snapC(shadeC(bark,0.6),cfg));
+        for(let k=rng.int(3,8);k<w;k+=rng.int(5,12)) pc.fillRect(px+k,py-h+1,1,h-1);
+        // the cut end, and whatever is growing out of it
+        pc.fillStyle=rgbStr(...snapC(shadeC(bark,0.7),cfg));
+        pc.beginPath(); pc.ellipse(px+w,py-h*0.5,2.5,h*0.5,0,0,6.2832); pc.fill();
+        pc.fillStyle=rgbStr(...snapC(mixC(veg[2],veg[0],0.4),cfg));
+        for(let k=0;k<rng.int(2,6);k++) pc.fillRect(px+rng.range(2,w-2),py-h-rng.int(1,4),rng.int(1,3),rng.int(2,5));
+        pLedge(px,py-h+1,w,false);
+        break;}
       case 'rubble':{
         const w=rng.int(12,30);
         pc.fillStyle=rgbStr(...snapC(shadeC(conc,0.6),cfg));
@@ -3956,7 +4379,12 @@ function* buildLevel(cfg){
     let px=p.x+rng.int(2,14);
     while(px<p.x+p.w-14){
       if(rng.chance(0.55*dens)){
-        const kinds=['crate','barrel','terminal','sign','lamp','railing','pipes','rubble'];
+        /* Growth first where things grow, but never only growth: what
+           makes these places read as VITRIOL rather than as a nature
+           documentary is the barrel with a shrub coming out of it. */
+        const kinds=NATURE
+          ? ['shrub','shrub','stalk','cap','log','rubble','barrel','crate','sign','pipes']
+          : ['crate','barrel','terminal','sign','lamp','railing','pipes','rubble'];
         prop(px,p.y,rng.pick(kinds));
       }
       px+=rng.int(16,54);
@@ -4077,8 +4505,11 @@ function* buildLevel(cfg){
   const parts=[];
   /* No weather indoors. Rain falling through a boiler room is the
      single fastest way to stop believing in a ceiling. */
-  const wk=INDOORS?'none':(cfg.weather==='auto'?(M.rain>0.5?'rain':'ash'):cfg.weather);
-  const nP=wk==='none'?0:Math.round((wk==='rain'?320:150)*clamp(cfg.weatherAmt,0,2));
+  /* A style may insist on its own weather — spores do not fall out of
+     a sky mood, they come off what is growing in the level. */
+  const wk=INDOORS?'none'
+    :(cfg.weather==='auto'?(S.weather||(M.rain>0.5?'rain':'ash')):cfg.weather);
+  const nP=wk==='none'?0:Math.round((wk==='rain'?320:wk==='spore'?200:150)*clamp(cfg.weatherAmt,0,2));
   for(let i=0;i<nP;i++) parts.push({x:rng.range(0,LV.W),y:rng.range(0,LV.H),v:rng.range(0.5,1.6),s:rng.range(0.4,1.3),p:rng.range(0,6.28)});
 
   yield "atmosphere";
@@ -4270,6 +4701,26 @@ function drawLevelFrame(L,cfg,ctx,scroll,time,entityPass){
       ctx.fillStyle=em?"rgba(255,150,60,.9)":`rgba(200,196,180,${0.10+p.s*0.22})`;
       ctx.fillRect(x|0,y|0,Math.max(1,p.s|0),Math.max(1,p.s|0));
     }
+  } else if(L.wk==='spore'){
+    /* Ash falls. Spores do not: they rise, slowly, and they are lit
+       from inside by whatever is releasing them — which is the one
+       detail that stops a green level reading as an ash level with a
+       different palette. */
+    const fl=(L.style&&L.style.flora)||null;
+    const lc=hex2rgb((fl&&fl.lit)||"#9ade5a");
+    for(const p of L.parts){
+      const y=H-((p.y+time*15*p.v)%H);
+      const x=(((p.x+Math.sin(time*0.5+p.p)*20-scroll*0.22)%W)+W)%W;
+      const pulse=0.55+0.45*Math.sin(time*2.2+p.p*3);
+      const a=(0.10+p.s*0.26)*pulse;
+      ctx.fillStyle=rgbStr(lc[0],lc[1],lc[2],a);
+      const sz=Math.max(1,p.s|0);
+      ctx.fillRect(x|0,y|0,sz,sz);
+      if(p.s>1.1){
+        ctx.fillStyle=rgbStr(lc[0],lc[1],lc[2],a*0.30);
+        ctx.fillRect((x|0)-1,(y|0)-1,sz+2,sz+2);
+      }
+    }
   }
 
   /* The ceiling. Over the play layer rather than under it, because a
@@ -4363,5 +4814,5 @@ function drawLevelFrame(L,cfg,ctx,scroll,time,entityPass){
 }
 function rng2(v){ const x=Math.sin(v*127.1)*43758.5453; return x-Math.floor(x); }
 
-return { LV, PALETTES, PAL_RGB, STYLES, SKYMOODS, CITY_PRESETS, DECAL_KINDS, DECAL_CATS, WIRE_STYLE, buildLevel, drawLevelFrame, bakeFacade, bakePlatform, bakeRoof, bakeDecal, bakeSky, bakeCeiling, bakePlane, drawPlane, STYLE_KIND, makeRng, clamp, hex2rgb, rgbStr, mkCanvas, snapLayer };
+return { LV, PALETTES, PAL_RGB, STYLES, FLORA_FORMS, SKYMOODS, CITY_PRESETS, DECAL_KINDS, DECAL_CATS, WIRE_STYLE, buildLevel, drawLevelFrame, bakeFacade, bakePlatform, bakeRoof, bakeDecal, bakeSky, bakeCeiling, bakePlane, drawPlane, STYLE_KIND, makeRng, clamp, hex2rgb, rgbStr, mkCanvas, snapLayer };
 })();
