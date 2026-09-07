@@ -292,12 +292,34 @@ const SCENARIOS = {
     const fac = { id: 0, doctrine: 'quiet', hue: 210, name: 'THE QUIET' };
     const cfg = window.CONFIG.randomLevelCfg(0x4A11);
     cfg.levelLen = 3;
+    /* Owned, and it looks it: their mark on the walls and their colour
+       in the lights. Checked here because both are baked, and the
+       parent has no room for another mission. */
+    cfg.sigil = { hue: fac.hue, charge: 'crack', seed: 3 };
+    cfg.neonTint = fac.hue;
+    cfg.neonTintAmt = 0.62;
     const M = bake(cfg, window.CONFIG.randomMerc(5), {
       difficulty: 'recruit', enemyDens: 1.2, lives: 9, allies: 0,
       autopilot: true, faction: fac
     });
 
+    /* Whose floor it is. Counted where it is placed rather than
+       measured off the pixels: a stencil sprayed at half alpha over a
+       weathered wall and then through a palette crush is not something
+       a hue histogram can find, and a check that cannot see the thing
+       it is checking is worse than no check. */
+    const plainNeon = JSON.stringify(
+      window.GREEBLEWORKS.STYLES[M.cfg.style].neon);
+
     const out = {
+      owned: {
+        kind: M.L.kind,
+        sigil: M.L.sigil,
+        wallPx: M.L.wallC.width * M.L.wallC.height,
+        neon: JSON.stringify(window.GREEBLEWORKS.styleFor(M.cfg).neon),
+        plainNeon: plainNeon,
+        neonTinted: JSON.stringify(window.GREEBLEWORKS.styleFor(M.cfg).neon) !== plainNeon
+      },
       arsenal: M.arsenal, wanted: WP.arsenalOf('quiet'),
       grace0: M.grace,
       /* nothing on the floor but the prototype on its pedestal */

@@ -144,8 +144,10 @@ time.
       name and grammar, chosen by where you are and what you have done. The
       codex records who you actually spoke to. A named hunt target wears their
       own face.
-- [ ] **11 — The faction in the level.** Whose floor you are on, visible in the
-      architecture: their colour on the neon, their mark on the walls.
+- [x] **11 — The faction in the level.** `bakeSigil` — a generated heraldic
+      mark, one charge per doctrine — stencilled on the back wall and on the
+      ground you run along, and `styleFor` pulling every light in the level
+      toward the owner's hue without turning it into a filter.
 
 ---
 

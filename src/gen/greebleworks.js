@@ -29,6 +29,8 @@ function makeRng(seed){
 
 /* ---------------- colour ---------------- */
 function hex2rgb(h){h=h.replace('#','');return[parseInt(h.slice(0,2),16),parseInt(h.slice(2,4),16),parseInt(h.slice(4,6),16)];}
+function rgb2hex(r,g,b){const h=n=>clamp(Math.round(n),0,255).toString(16).padStart(2,'0');
+  return '#'+h(r)+h(g)+h(b);}
 function rgbStr(r,g,b,a){return a===undefined?`rgb(${r|0},${g|0},${b|0})`:`rgba(${r|0},${g|0},${b|0},${a})`;}
 function gray(v){v=v<0?0:v>255?255:v;return `rgb(${v|0},${v|0},${v|0})`;}
 function clamp(v,a,b){return v<a?a:v>b?b:v;}
@@ -452,6 +454,42 @@ Object.assign(STYLES,{
    original street-level city, which is most of them. */
 const STYLE_KIND = k => (STYLES[k] && STYLES[k].kind) || 'city';
 
+/* The style a bake should use — which is the table entry, unless the
+   caller has said whose floor this is.
+
+   `cfg.neonTint` is a hue. Every light in the level is pulled toward
+   it, keeping its own brightness and most of its own saturation, so a
+   faction's holdings glow in their colour without every level under
+   one owner becoming monochrome. It is the cheapest way to make a
+   place feel occupied: you notice the lights before you notice the
+   troops, and by then you already know who is home.
+
+   Cached on the cfg, because a level bake asks for its style a few
+   hundred times and this would otherwise be a few hundred colour
+   conversions. */
+function styleFor(cfg){
+  const base=STYLES[cfg.style]||STYLES.slum;
+  if(cfg.neonTint===undefined||cfg.neonTint===null) return base;
+  if(cfg.__tinted&&cfg.__tintedFor===cfg.style&&cfg.__tintedHue===cfg.neonTint)
+    return cfg.__tinted;
+  const hue=((cfg.neonTint%360)+360)%360;
+  const amt=clamp(cfg.neonTintAmt===undefined?0.62:cfg.neonTintAmt,0,1);
+  const neon=base.neon.map(hx=>{
+    const c=hex2rgb(hx);
+    const mx=Math.max(c[0],c[1],c[2])/255, mn=Math.min(c[0],c[1],c[2])/255;
+    const l=(mx+mn)/2, d=mx-mn;
+    const sat=d<0.001?0:(l>0.5?d/(2-mx-mn):d/(mx+mn));
+    /* Keep lightness and saturation; take the hue. A white sign stays
+       white, which is what stops a tinted level reading as a filter. */
+    const tgt=hslRgb(hue,Math.round(clamp(sat,0,1)*100),Math.round(l*100));
+    const out=mixC(c,tgt,amt*clamp(sat*1.6,0,1));
+    return rgb2hex(out[0],out[1],out[2]);
+  });
+  const t=Object.assign({},base,{neon});
+  cfg.__tinted=t; cfg.__tintedFor=cfg.style; cfg.__tintedHue=cfg.neonTint;
+  return t;
+}
+
 /* ================================================================
    SHARED PIPELINE — lighting from the height buffer, then the crush
    ================================================================ */
@@ -740,7 +778,7 @@ function* bakePlatform(cfg){
   const W=outW*SS, H=outH*SS, u=SS;
   const TX=true, TY=false;
   const rng=makeRng(cfg.seed);
-  const S=STYLES[cfg.style]||STYLES.slum;
+  const S=styleFor(cfg);
   const A=mkCanvas(W,H), Hc=mkCanvas(W,H), E=mkCanvas(W,H);
   const ca=A.getContext('2d',{willReadFrequently:true});
   const ch=Hc.getContext('2d',{willReadFrequently:true});
@@ -1042,7 +1080,7 @@ function* bakeRoof(cfg){
   const {outW,outH,SS}=cfg;
   const W=outW*SS, H=outH*SS, u=SS;
   const rng=makeRng(cfg.seed);
-  const S=STYLES[cfg.style]||STYLES.slum;
+  const S=styleFor(cfg);
   const A=mkCanvas(W,H), Hc=mkCanvas(W,H), E=mkCanvas(W,H);
   const ca=A.getContext('2d',{willReadFrequently:true});
   const ch=Hc.getContext('2d',{willReadFrequently:true});
@@ -1266,7 +1304,7 @@ function* bakeFacade(cfg){
   const TX=cfg.tileX!==false, TY=cfg.tileY!==false;
   const W=outW*SS, H=outH*SS, u=SS;                 // u = one output pixel, in bake pixels
   const rng=makeRng(cfg.seed);
-  const S=STYLES[cfg.style]||STYLES.slum;
+  const S=styleFor(cfg);
   const D={
     greeble:cfg.greeble*S.mul.greeble, pipe:cfg.pipes*S.mul.pipe,
     window:cfg.windows*S.mul.window, neon:cfg.neon*S.mul.neon,
@@ -1922,6 +1960,168 @@ function* bakeFacade(cfg){
    junction: large greeble / pipe manifold / sign assembly
    growth  : eldritch blob, tentacles and dripping goo
    ================================================================ */
+/* ================================================================
+   SIGIL — whose floor this is.
+
+   A heraldic mark, generated rather than drawn: a shield outline, a
+   charge inside it, and a stencil bar under it, weathered and sprayed
+   onto whatever it is on. It is the one piece of a level that says who
+   holds the place before anything shoots at you, which is why it is
+   worth a generator of its own rather than another decal kind — a
+   decal is scenery, and this has to be legible at a glance across a
+   room and consistent everywhere it appears.
+
+   Ten charges, one per doctrine, so the mark and the creed agree.
+   ================================================================ */
+const SIGIL_CHARGES = ['bars','eye','flame','gear','chain','spore','wing','rune','scale','crack'];
+
+function bakeSigil(cfg){
+  const S=cfg.SS||4, W=(cfg.outW||48)*S, H=(cfg.outH||48)*S;
+  const rng=makeRng((cfg.seed^0x51617)>>>0);
+  const hue=cfg.sigilHue===undefined?rng.int(0,359):cfg.sigilHue;
+  const charge=SIGIL_CHARGES.indexOf(cfg.sigilCharge)>=0
+    ? cfg.sigilCharge : rng.pick(SIGIL_CHARGES);
+  const shape=rng.pick(['shield','disc','lozenge','slab']);
+
+  const c=mkCanvas(W,H), x=c.getContext('2d');
+  x.imageSmoothingEnabled=false;
+  const ink=hslRgb(hue, 62, 58), dark=shadeC(ink,0.45), lit=mixC(ink,[255,255,255],0.45);
+  const u=S;
+  const cx=W/2, cy=H*0.46, r=Math.min(W,H)*0.34;
+
+  /* --- the field --- */
+  x.lineWidth=Math.max(1,u*1.6);
+  x.strokeStyle=rgbStr(...ink,0.95);
+  x.beginPath();
+  if(shape==='shield'){
+    x.moveTo(cx-r,cy-r); x.lineTo(cx+r,cy-r); x.lineTo(cx+r,cy+r*0.25);
+    x.quadraticCurveTo(cx+r*0.9,cy+r*1.15,cx,cy+r*1.35);
+    x.quadraticCurveTo(cx-r*0.9,cy+r*1.15,cx-r,cy+r*0.25);
+    x.closePath();
+  } else if(shape==='disc'){
+    x.arc(cx,cy,r,0,6.2832);
+  } else if(shape==='lozenge'){
+    x.moveTo(cx,cy-r*1.15); x.lineTo(cx+r*0.85,cy); x.lineTo(cx,cy+r*1.15);
+    x.lineTo(cx-r*0.85,cy); x.closePath();
+  } else {
+    x.rect(cx-r,cy-r*0.9,r*2,r*1.8);
+  }
+  x.stroke();
+
+  /* --- the charge --- */
+  x.strokeStyle=rgbStr(...lit,0.95);
+  x.fillStyle=rgbStr(...ink,0.95);
+  x.lineWidth=Math.max(1,u*1.3);
+  x.lineCap='round';
+  if(charge==='bars'){
+    for(let i=-1;i<=1;i++){
+      x.beginPath(); x.moveTo(cx-r*0.5,cy+i*r*0.34); x.lineTo(cx+r*0.5,cy+i*r*0.34); x.stroke();
+    }
+  } else if(charge==='eye'){
+    x.beginPath();
+    x.moveTo(cx-r*0.6,cy); x.quadraticCurveTo(cx,cy-r*0.6,cx+r*0.6,cy);
+    x.quadraticCurveTo(cx,cy+r*0.6,cx-r*0.6,cy); x.stroke();
+    x.beginPath(); x.arc(cx,cy,r*0.18,0,6.2832); x.fill();
+  } else if(charge==='flame'){
+    x.beginPath();
+    x.moveTo(cx,cy+r*0.55);
+    x.quadraticCurveTo(cx-r*0.45,cy,cx,cy-r*0.6);
+    x.quadraticCurveTo(cx+r*0.45,cy,cx,cy+r*0.55);
+    x.stroke();
+  } else if(charge==='gear'){
+    x.beginPath(); x.arc(cx,cy,r*0.34,0,6.2832); x.stroke();
+    for(let i=0;i<8;i++){
+      const a=i/8*6.2832;
+      x.beginPath();
+      x.moveTo(cx+Math.cos(a)*r*0.36,cy+Math.sin(a)*r*0.36);
+      x.lineTo(cx+Math.cos(a)*r*0.58,cy+Math.sin(a)*r*0.58);
+      x.stroke();
+    }
+  } else if(charge==='chain'){
+    for(let i=-1;i<=1;i++){
+      x.beginPath(); x.ellipse(cx+i*r*0.38,cy,r*0.19,r*0.30,0,0,6.2832); x.stroke();
+    }
+  } else if(charge==='spore'){
+    x.beginPath(); x.arc(cx,cy-r*0.1,r*0.26,0,6.2832); x.stroke();
+    for(let i=0;i<6;i++){
+      const a=i/6*6.2832;
+      x.beginPath();
+      x.moveTo(cx+Math.cos(a)*r*0.3,cy-r*0.1+Math.sin(a)*r*0.3);
+      x.lineTo(cx+Math.cos(a)*r*0.62,cy-r*0.1+Math.sin(a)*r*0.62);
+      x.stroke();
+    }
+  } else if(charge==='wing'){
+    for(const sgn of [-1,1]){
+      x.beginPath();
+      x.moveTo(cx,cy+r*0.3);
+      x.quadraticCurveTo(cx+sgn*r*0.7,cy-r*0.1,cx+sgn*r*0.28,cy-r*0.55);
+      x.stroke();
+    }
+  } else if(charge==='rune'){
+    x.beginPath();
+    x.moveTo(cx-r*0.4,cy+r*0.5); x.lineTo(cx,cy-r*0.55); x.lineTo(cx+r*0.4,cy+r*0.5);
+    x.moveTo(cx-r*0.22,cy+r*0.06); x.lineTo(cx+r*0.22,cy+r*0.06);
+    x.stroke();
+  } else if(charge==='scale'){
+    x.beginPath();
+    x.moveTo(cx,cy-r*0.55); x.lineTo(cx,cy+r*0.4);
+    x.moveTo(cx-r*0.55,cy-r*0.22); x.lineTo(cx+r*0.55,cy-r*0.22);
+    x.stroke();
+    for(const sgn of [-1,1]){
+      x.beginPath(); x.arc(cx+sgn*r*0.55,cy-r*0.22,r*0.18,0,Math.PI); x.stroke();
+    }
+  } else {
+    // crack
+    x.beginPath();
+    x.moveTo(cx-r*0.5,cy-r*0.5);
+    let px=cx-r*0.5, py=cy-r*0.5;
+    for(let i=0;i<5;i++){
+      px+=r*0.25; py+=(i%2?-1:1)*r*0.22;
+      x.lineTo(px,py);
+    }
+    x.stroke();
+  }
+
+  /* --- the stencil bar under it, and a break through the whole mark
+         so it reads as sprayed through a plate rather than printed --- */
+  x.fillStyle=rgbStr(...ink,0.9);
+  x.fillRect(cx-r*0.9,cy+r*1.5,r*1.8,Math.max(1,u*1.4));
+  x.save();
+  x.globalCompositeOperation='destination-out';
+  for(let i=0;i<Math.round(6+rng.rnd()*8);i++){
+    const bw=rng.range(u,u*3.5), bh=rng.range(H*0.06,H*0.5);
+    x.fillRect(rng.range(0,W),rng.range(0,H),bw,bh);
+  }
+  /* and wear: bites out of the edges */
+  for(let i=0;i<Math.round(18+rng.rnd()*26);i++){
+    x.beginPath();
+    x.arc(rng.range(0,W),rng.range(0,H),rng.range(u*0.5,u*2.2),0,6.2832);
+    x.fill();
+  }
+  x.restore();
+
+  /* a soft dark behind, so it holds against a bright wall */
+  const out=mkCanvas(W,H), ox=out.getContext('2d');
+  ox.imageSmoothingEnabled=false;
+  ox.globalAlpha=0.5; ox.drawImage(c,u,u);
+  ox.globalAlpha=1;
+  ox.save(); ox.globalCompositeOperation='source-atop';
+  ox.fillStyle=rgbStr(...dark,1); ox.fillRect(0,0,W,H);
+  ox.restore();
+  ox.drawImage(c,0,0);
+
+  return {final:crush(out,cfg.outW||48,cfg.outH||48,cfg,true),
+          hue,charge,shape};
+}
+
+/* hsl -> rgb triple, for the one place that thinks in hue. */
+function hslRgb(h,s,l){
+  h=((h%360)+360)%360; s/=100; l/=100;
+  const k=n=>(n+h/30)%12, a=s*Math.min(l,1-l);
+  const f=n=>l-a*Math.max(-1,Math.min(k(n)-3,Math.min(9-k(n),1)));
+  return [Math.round(f(0)*255),Math.round(f(8)*255),Math.round(f(4)*255)];
+}
+
 const DECAL_KINDS=['tunnel','junction','growth','vent','collapse','shrine','graffiti','escape'];
 const DECAL_CATS={openings:['tunnel','collapse'],machinery:['junction','vent','escape'],
                   organic:['growth','shrine','graffiti']};
@@ -1938,7 +2138,7 @@ function* bakeDecal(cfg){
   const {outW,outH,SS}=cfg;
   const W=outW*SS, H=outH*SS, u=SS;
   const rng=makeRng(cfg.seed>>>0);
-  const S=STYLES[cfg.style]||STYLES.slum;
+  const S=styleFor(cfg);
   const kind=(!cfg.decalKind||cfg.decalKind==='auto')
     ? rng.pick(DECAL_KINDS) : cfg.decalKind;
   const tex=clamp(cfg.decTexture===undefined?1:cfg.decTexture,0,2);
@@ -3664,7 +3864,7 @@ function tileInto(x,src,x0,y0,w,h,alpha){
 function* bakeCeiling(cfg){
   const {outW,outH,SS}=cfg;
   const W=outW*SS, H=outH*SS, u=SS;
-  const S=STYLES[cfg.style]||STYLES.slum;
+  const S=styleFor(cfg);
   const rng=makeRng((cfg.seed^0x1cee)>>>0);
   const A=mkCanvas(W,H), a=A.getContext('2d',{willReadFrequently:true});
   const Hc=mkCanvas(W,H), h=Hc.getContext('2d',{willReadFrequently:true});
@@ -3744,7 +3944,7 @@ function* bakeCeiling(cfg){
    in the compositor where the camera is.
    ================================================================ */
 function bakePlane(cfg){
-  const S=STYLES[cfg.style]||STYLES.slum;
+  const S=styleFor(cfg);
   const rng=makeRng((cfg.seed^0x9147)>>>0);
   const T=128, c=mkCanvas(T,T), x=c.getContext('2d',{willReadFrequently:true});
   x.imageSmoothingEnabled=false;
@@ -3803,7 +4003,7 @@ function bakePlane(cfg){
 
 function* buildLevel(cfg){
   const rng=makeRng((cfg.seed^0x5eed)>>>0);
-  const S=STYLES[cfg.style]||STYLES.slum;
+  const S=styleFor(cfg);
   const sub=o=>Object.assign({},cfg,o);
   /* Three kinds of place, and the differences run all the way through:
      what gets baked, how the layout is shaped, and what the compositor
@@ -3888,6 +4088,18 @@ function* buildLevel(cfg){
       while(!(d_r=g.next()).done) yield "decal "+(i+1)+"/"+nD+" \u2014 "+d_r.value;
       decals.push(d_r.value);
     }
+  }
+
+  /* ---- whose floor this is ----
+     One mark, baked once, stencilled wherever it will read. It is the
+     only thing in a level that says who holds the place before
+     anything shoots at you. */
+  let sigil = null;
+  if (cfg.sigil) {
+    yield "somebody's mark";
+    sigil = bakeSigil(sub({outW:48,outH:48,SS:4,
+      seed:((cfg.seed^0x51617)+ (cfg.sigil.seed||0))>>>0,
+      sigilHue:cfg.sigil.hue, sigilCharge:cfg.sigil.charge}));
   }
 
   /* ---- layout ----
@@ -4127,6 +4339,45 @@ function* buildLevel(cfg){
     g.addColorStop(1,rgbStr(10,12,14,0.30));
     wc.fillStyle=g; wc.fillRect(0,0,wallW,LV.H);
     wc.restore();
+  }
+  /* The mark of whoever holds this, sprayed wherever a wall is flat
+     enough to take it. After the three wall branches rather than
+     inside one of them: a faction holds interiors and woods as well as
+     streets, and a mark that only appears on a terrace of buildings is
+     a mark you meet a third of the time. Over the haze, because a
+     stencil is on the wall and the haze is the air in front of it. */
+  if(sigil&&wallSegs.length&&!AIR){
+    /* Big enough to read across a street, and never two on top of
+       each other: a mark you have to look for is a mark nobody sees,
+       and two overlapping is a smudge. */
+    const placed=[];
+    const want=Math.max(3,Math.round(wallSegs.length*0.5));
+    const SW0=sigil.final.width, SH0=sigil.final.height;
+    for(let i=0;i<want*8&&placed.length<want;i++){
+      const sg=wallSegs[rng.int(0,wallSegs.length-1)];
+      if(!sg||sg.w<90) continue;
+      const top=Math.max(0,sg.top);
+      /* Scale to what will actually fit rather than rolling one and
+         giving up when it does not: a mark that is skipped whenever
+         the roll is generous is a mark most levels do not get. */
+      const room=Math.min((sg.w-24)/SW0,(LV.H-top-44)/SH0,3.2);
+      if(room<0.9) continue;
+      const sc=rng.range(Math.min(1.4,room*0.55),room);
+      const sw=Math.round(SW0*sc), sh=Math.round(SH0*sc);
+      const px=Math.round(sg.x+rng.range(8,Math.max(9,sg.w-sw-8)));
+      const py=Math.round(top+rng.range(6,Math.max(7,LV.H-top-sh-34)));
+      let clash=false;
+      for(const q of placed){
+        if(px<q.x+q.w+20&&px+sw+20>q.x&&py<q.y+q.h+20&&py+sh+20>q.y){clash=true;break;}
+      }
+      if(clash) continue;
+      placed.push({x:px,y:py,w:sw,h:sh});
+      wc.save();
+      wc.globalAlpha=rng.range(0.55,0.92);
+      wc.drawImage(sigil.final,px,py,sw,sh);
+      wc.restore();
+    }
+    sigil.placed=placed.length;
   }
   yield "back wall";
 
@@ -4400,6 +4651,29 @@ function* buildLevel(cfg){
     pc.fillRect(lx,p.y,1,below.y-p.y); pc.fillRect(lx+5,p.y,1,below.y-p.y);
     for(let yy=p.y+3;yy<below.y;yy+=5) pc.fillRect(lx,yy,6,1);
   }
+  /* And the same mark up close, on the face of the ground the player
+     is running along. The wall version says whose district this is;
+     this one says whose FLOOR you are standing on, which is a
+     different and more immediate piece of information. */
+  if(sigil){
+    const runs=plats.filter(p=>p.ground&&p.w>=110);
+    const n=Math.max(1,Math.round(LW/900));
+    for(let i=0;i<n&&runs.length;i++){
+      const run=runs[rng.int(0,runs.length-1)];
+      const sc=rng.range(0.7,1.25);
+      const sw=Math.round(sigil.final.width*sc), sh=Math.round(sigil.final.height*sc);
+      if(run.w-sw<30) continue;
+      const px=Math.round(run.x+rng.range(14,run.w-sw-14));
+      const py=Math.round(run.y+PH+rng.range(2,10));
+      if(py+sh>LV.H) continue;
+      pc.save();
+      pc.globalAlpha=rng.range(0.30,0.62);
+      pc.drawImage(sigil.final,px,py,sw,sh);
+      pc.restore();
+      sigil.onGround=(sigil.onGround||0)+1;
+    }
+  }
+
   /* ---- blend the props into the baked tiles: texture, grime, then re-snap ---- */
   {
     const pg=clamp((cfg.propGrime===undefined?1:cfg.propGrime)*(0.35+cfg.grime),0,2.4);
@@ -4515,7 +4789,9 @@ function* buildLevel(cfg){
   yield "atmosphere";
   return {sky:SK.sky,cityLayers:SK.layers,far:SK.far,near:SK.near,wallC,playC,LW,plats,props,
           lights,fg,parts,wk,M,platTile,thinTile,wallTile,walls,roofs,decals,mood:M,
-          kind:KIND,ceilTile,plane,ceilH:CEIL_H,style:S};
+          kind:KIND,ceilTile,plane,ceilH:CEIL_H,style:S,
+          sigil:sigil?{hue:sigil.hue,charge:sigil.charge,shape:sigil.shape,
+                       placed:sigil.placed||0,onGround:sigil.onGround||0}:null};
 }
 
 /* ---- per-frame compositor ---- */
@@ -4814,5 +5090,5 @@ function drawLevelFrame(L,cfg,ctx,scroll,time,entityPass){
 }
 function rng2(v){ const x=Math.sin(v*127.1)*43758.5453; return x-Math.floor(x); }
 
-return { LV, PALETTES, PAL_RGB, STYLES, FLORA_FORMS, SKYMOODS, CITY_PRESETS, DECAL_KINDS, DECAL_CATS, WIRE_STYLE, buildLevel, drawLevelFrame, bakeFacade, bakePlatform, bakeRoof, bakeDecal, bakeSky, bakeCeiling, bakePlane, drawPlane, STYLE_KIND, makeRng, clamp, hex2rgb, rgbStr, mkCanvas, snapLayer };
+return { LV, PALETTES, PAL_RGB, STYLES, FLORA_FORMS, SIGIL_CHARGES, bakeSigil, hslRgb, styleFor, SKYMOODS, CITY_PRESETS, DECAL_KINDS, DECAL_CATS, WIRE_STYLE, buildLevel, drawLevelFrame, bakeFacade, bakePlatform, bakeRoof, bakeDecal, bakeSky, bakeCeiling, bakePlane, drawPlane, STYLE_KIND, makeRng, clamp, hex2rgb, rgbStr, mkCanvas, snapLayer };
 })();

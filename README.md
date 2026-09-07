@@ -192,6 +192,7 @@ path in both directions, and writes contact sheets to `out/`:
 | `out_crawler_surfaces.png` | one crawler seated on floor, both walls and ceiling |
 | `out_flora.png` | the four growth forms behind a level, side by side |
 | `out_specialists.png` | the five specialists, each in the state worth seeing |
+| `out_sigils.png` | the ten faction marks, one per doctrine |
 | `out_cutscene.png` | one cutscene frame from each of the four backdrop painters |
 | `out_cutscene_shots.png` | a whole scene, shot by shot, as it plays |
 
@@ -490,6 +491,26 @@ The lines are grammar rather than script: a scene kind is a run of turns, each
 with a pool of openings and a pool of closes, and the speaker's voice register
 shapes what comes out of it. Over forty runs that is 745 distinct lines from a
 thousand staged shots.
+
+### Whose floor this is
+
+A faction you only meet through a briefing is a name. In a story run the place
+itself belongs to somebody, and you can see it before anything shoots at you.
+
+`bakeSigil` generates a heraldic mark: a field — shield, disc, lozenge or slab —
+a charge inside it, a stencil bar under it, and then a pass that bites holes
+through the whole thing so it reads as sprayed through a plate rather than
+printed. Ten charges, one per doctrine, so the mark and the creed agree: a
+faction that believes there is always another shift stencils bars, one that
+believes the signal was here before the walls stencils an eye. It is scaled to
+whatever wall segment will take it, never overlapping another, and stencilled on
+the ground runs as well — the wall version says whose district this is, the
+floor version says whose floor you are standing on.
+
+And every light in the level is pulled toward the owner's hue, keeping its own
+brightness and most of its own saturation, so a white sign stays white. That
+last part is what stops it reading as a filter. You notice the lights before you
+notice the troops, and by then you already know who is home.
 
 ### The people in the alcoves
 

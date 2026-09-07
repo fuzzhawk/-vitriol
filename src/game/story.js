@@ -69,6 +69,17 @@ window.STORY = (function () {
   };
   const OBJ_KEYS = Object.keys(OBJECTIVES);
 
+  /* The mark a doctrine puts on its walls. One each, so the sigil and
+     the creed agree — a faction that believes there is always another
+     shift stencils bars, and one that believes the signal was here
+     before the walls stencils an eye. */
+  const SIGIL_FOR = {
+    attrition: 'bars',  purity: 'flame', salvage: 'gear',
+    augury:    'eye',   order:  'scale', rapture: 'wing',
+    freight:   'chain', quiet:  'crack', growth:  'spore',
+    ledger:    'rune'
+  };
+
   /* ============================================================
      ACT STRUCTURE
 
@@ -554,6 +565,15 @@ window.STORY = (function () {
       }
       if (!cfg) { cfg = C.randomLevelCfg(sd, place.kind); cfg.style = place.style; }
 
+      /* Whose floor this is, in the architecture. Their mark stencilled
+         on the walls and their colour in the lights — you notice the
+         lights before you notice the troops, and by then you already
+         know who is home. */
+      cfg.sigil = { hue: foe.hue, charge: SIGIL_FOR[foe.doctrine] || 'bars',
+                    seed: foe.id * 7919 };
+      cfg.neonTint = foe.hue;
+      cfg.neonTintAmt = 0.62;
+
       /* The curve: act by act, and steeper if you have been making
          enemies. A run where the last act is the same fight as the
          first is a run with no shape. */
@@ -1001,6 +1021,6 @@ window.STORY = (function () {
     return L.join('\n');
   }
 
-  return { makeStory, outline, fill,
+  return { makeStory, outline, fill, SIGIL_FOR,
            OBJECTIVES, OBJ_KEYS, ACTS, CHOICE_TEMPLATES, TRAITS, TRAIT_KEYS };
 })();

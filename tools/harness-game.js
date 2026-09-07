@@ -322,6 +322,14 @@ section('flights (each in its own process)');
     const R = F.reputation;
     ok(R.arsenal.join(',') === R.wanted.join(','),
        'a garrison carries the arsenal its doctrine says it does');
+    /* and the place looks like theirs */
+    ok(!!R.owned.sigil, 'an owned level bakes their mark');
+    ok(R.owned.sigil.placed >= 2,
+       'and stencils it on the walls (' + R.owned.sigil.placed + ')');
+    ok(R.owned.sigil.onGround >= 1,
+       'and on the floor you are running along (' + R.owned.sigil.onGround + ')');
+    ok(R.owned.neonTinted, 'and burns their colour in the lights');
+    ok(R.owned.neon !== R.owned.plainNeon, 'which is not what the table says');
     ok(R.armed > 2, 'and its troops are armed (' + R.armed + ')');
     ok(R.grace0 === 0, 'a run with no standing gets no grace');
     ok(R.giftsAtStart === 0, 'and nothing left out for it');
@@ -4038,6 +4046,171 @@ section('the story screens');
     }
     ok(seen.size >= 3, 'a story can end more than one way (' + seen.size + ')');
     console.log('  endings seen: ' + Array.from(seen).join(', '));
+  }
+}
+
+section('whose floor this is (sigils)');
+{
+  const ST2 = window.STORY, LR2 = window.LORE;
+
+  /* one charge per doctrine, and no two the same */
+  ok(GW.SIGIL_CHARGES.length >= 10, 'there are marks to choose from');
+  {
+    const used = new Set();
+    for (const k of LR2.DOCTRINE_KEYS) {
+      const c = ST2.SIGIL_FOR[k];
+      ok(!!c, 'doctrine "' + k + '" has a mark');
+      ok(GW.SIGIL_CHARGES.indexOf(c) >= 0, 'and it is one that exists (' + c + ')');
+      ok(!used.has(c), 'and nobody else uses it');
+      used.add(c);
+    }
+    ok(used.size === LR2.DOCTRINE_KEYS.length, 'every doctrine is distinguishable by it');
+  }
+
+  /* --- the sigil itself --- */
+  {
+    const cells = [];
+    let inkTotal = 0;
+    for (let i = 0; i < GW.SIGIL_CHARGES.length; i++) {
+      const ch = GW.SIGIL_CHARGES[i];
+      const cfgS = { outW: 48, outH: 48, SS: 4, seed: (0x100 + i * 7919) >>> 0,
+                     sigilHue: i * 36, sigilCharge: ch, dither: 0.4, palette: 'none' };
+      const a = GW.bakeSigil(cfgS);
+      const b = GW.bakeSigil(cfgS);
+      ok(a.charge === ch, 'a sigil takes the charge it was asked for');
+      ok(a.hue === i * 36, 'and the hue');
+      ok(a.final.width === 48 && a.final.height === 48, 'and comes out at size');
+      /* determinism, off the pixels rather than off the description */
+      const px = c => c.getContext('2d').getImageData(0, 0, 48, 48).data;
+      const pa = px(a.final), pb = px(b.final);
+      let same = true;
+      for (let k = 0; k < pa.length; k += 17) if (pa[k] !== pb[k]) { same = false; break; }
+      ok(same, 'and the same seed makes the same mark');
+
+      /* it has to be a STENCIL: ink on it, and holes through it, or it
+         is a sticker */
+      let ink = 0, clear = 0;
+      for (let k = 3; k < pa.length; k += 4) {
+        if (pa[k] > 200) ink++; else if (pa[k] < 20) clear++;
+      }
+      ok(ink > 90, ch + ' has something on it (' + ink + 'px)');
+      ok(clear > 48 * 48 * 0.35, ch + ' is a mark, not a block (' + clear + 'px clear)');
+      inkTotal += ink;
+      cells.push([ch, a.final]);
+    }
+    ok(inkTotal > 1500, 'the marks are drawn at all');
+    /* and the ten do not all look the same */
+    {
+      const sigs = new Set();
+      for (const [, cv] of cells) {
+        const d = cv.getContext('2d').getImageData(0, 0, 48, 48).data;
+        let sig = '';
+        for (let y = 6; y < 44; y += 4) {
+          let row = 0;
+          for (let x2 = 6; x2 < 44; x2++) if (d[((y * 48) + x2) * 4 + 3] > 128) row++;
+          sig += String.fromCharCode(65 + Math.min(25, row));
+        }
+        sigs.add(sig);
+      }
+      ok(sigs.size >= 8, 'the marks are visibly different from each other (' + sigs.size + ')');
+    }
+    /* an unknown charge falls back rather than throwing */
+    const fb = GW.bakeSigil({ outW: 48, outH: 48, SS: 4, seed: 7,
+                              sigilCharge: 'not-a-charge', dither: 0.4 });
+    ok(GW.SIGIL_CHARGES.indexOf(fb.charge) >= 0, 'an unknown charge falls back to a real one');
+
+    const cell = 60;
+    const sheet = createCanvas(cell * cells.length, cell + 12);
+    const sx = sheet.getContext('2d');
+    sx.imageSmoothingEnabled = false;
+    sx.fillStyle = '#14181b'; sx.fillRect(0, 0, sheet.width, sheet.height);
+    cells.forEach(([label, cv], i) => {
+      sx.drawImage(cv, i * cell + 6, 4);
+      sx.font = '8px monospace'; sx.fillStyle = '#8fb';
+      sx.fillText(label, i * cell + 6, cell + 9);
+    });
+    dump('out_sigils.png', sheet);
+  }
+
+  /* --- the light in a faction's holdings --- */
+  {
+    const plain = GW.styleFor({ style: 'slum' });
+    ok(plain === GW.STYLES.slum, 'a level with no owner uses the table as it is');
+    const tinted = GW.styleFor({ style: 'slum', neonTint: 120 });
+    ok(tinted !== GW.STYLES.slum, 'an owned one gets a copy');
+    ok(GW.STYLES.slum.neon.join() !== tinted.neon.join(), 'with the lights pulled over');
+    ok(tinted.neon.length === GW.STYLES.slum.neon.length, 'and the same number of them');
+    ok(tinted.concrete === GW.STYLES.slum.concrete,
+       'and nothing else about the place changed');
+    /* the pull is toward the hue asked for */
+    const hueOf = hex => {
+      const n = parseInt(String(hex).replace('#', ''), 16);
+      const r = ((n >> 16) & 255) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
+      const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+      if (d < 0.02) return -1;
+      let h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+      h *= 60; if (h < 0) h += 360;
+      return h;
+    };
+    const arc = (a, b) => { const d = Math.abs(a - b) % 360; return d > 180 ? 360 - d : d; };
+    for (const want of [0, 90, 210, 300]) {
+      const t = GW.styleFor({ style: 'kowloon', neonTint: want });
+      let near = 0, n = 0;
+      for (let i = 0; i < t.neon.length; i++) {
+        const h = hueOf(t.neon[i]);
+        if (h < 0) continue;                    // a white sign stays white
+        n++;
+        if (arc(h, want) < 60) near++;
+      }
+      ok(n === 0 || near >= Math.ceil(n * 0.6),
+         'lights in a holding burn the owner\'s colour (' + want + '°: ' +
+         near + '/' + n + ')');
+    }
+    /* a white light must survive: a tinted level that turns white
+       amber is a filter, not an occupation */
+    {
+      const t = GW.styleFor({ style: 'datafarm', neonTint: 20 });
+      const whites = GW.STYLES.datafarm.neon.filter(x => hueOf(x) < 0).length;
+      const stillWhite = t.neon.filter(x => hueOf(x) < 0).length;
+      ok(whites === 0 || stillWhite >= whites, 'and a white sign stays white');
+    }
+    /* asked twice, answered from the cache */
+    {
+      const cfgT = { style: 'slum', neonTint: 200 };
+      ok(GW.styleFor(cfgT) === GW.styleFor(cfgT), 'and the answer is cached');
+      cfgT.neonTint = 40;
+      ok(GW.styleFor(cfgT).neon.join() !== tinted.neon.join(), 'until the owner changes');
+    }
+  }
+
+  /* --- the run asks for it --- */
+  {
+    for (let i = 0; i < 20; i++) {
+      const W = LR2.makeWorld((0x51617 + i * 7919) >>> 0);
+      const S = ST2.makeStory(W);
+      let g = 0;
+      while (!S.done && S.current() && g++ < 90) {
+        const b = S.current();
+        if (b.type === 'mission') {
+          const bd = S.build();
+          const foe = W.facById(b.foe);
+          ok(!!bd.cfg.sigil, 'a story mission knows whose floor it is');
+          ok(bd.cfg.sigil.hue === foe.hue, 'and stencils it in their colour');
+          ok(bd.cfg.sigil.charge === ST2.SIGIL_FOR[foe.doctrine],
+             'with the mark their doctrine uses');
+          ok(bd.cfg.neonTint === foe.hue, 'and burns their colour in the lights');
+          ok(bd.cfg.neonTintAmt > 0 && bd.cfg.neonTintAmt < 1,
+             'without repainting the whole level');
+          S.finishMission({ won: true, score: 100, kills: 3, time: 30, deaths: 0 });
+        } else if (b.type === 'choice') {
+          const o = S.choiceAt(b).options; S.choose(o[i % o.length].id);
+        } else S.seen();
+      }
+    }
+    /* and a rolled level still has no owner */
+    const cfgP = window.CONFIG.randomLevelCfg(0x1234);
+    ok(!cfgP.sigil && cfgP.neonTint === undefined,
+       'a level nobody holds carries nobody\'s mark');
   }
 }
 
